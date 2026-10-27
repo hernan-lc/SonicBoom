@@ -4,12 +4,27 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Build artifacts only or publish a GitHub Release
+        type: choice
+        options: [build, publish]
+        default: build
+        required: true
+      version:
+        description: New version tag (for example v1.0.0); required when publishing
+        type: string
+        required: false
+      prerelease:
+        description: Mark the published release as a prerelease
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.repository }}-${{ github.ref }}
+  group: release-${{ github.repository }}-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 env:
@@ -18,8 +33,56 @@ env:
   SONICBOOM_FRONTEND_PREBUILT: '1'
 
 jobs:
+  prepare:
+    name: Validate release request
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      publish: ${{ steps.validate.outputs.publish }}
+      prerelease: ${{ steps.validate.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: validate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == push ]]; then
+            tag="$REF_NAME"
+            publish=true
+            prerelease=false
+          elif [[ "$INPUT_MODE" == publish ]]; then
+            tag="$INPUT_VERSION"
+            publish=true
+            prerelease="$INPUT_PRERELEASE"
+            [[ "$REF_TYPE" == branch && "$REF_NAME" == "$DEFAULT_BRANCH" ]] || { echo 'Publish from the default branch'; exit 1; }
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo 'Version must look like v1.2.3 or v1.2.3-rc.1'; exit 1; }
+            git check-ref-format "refs/tags/$tag"
+            if git show-ref --verify --quiet "refs/tags/$tag"; then
+              echo "Tag $tag already exists; choose a new version"
+              exit 1
+            fi
+          else
+            tag=''
+            publish=false
+            prerelease=false
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -103,14 +166,16 @@ jobs:
 
   release:
     name: Publish verified GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,9 +185,9 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Require tag on main and refuse an existing release
+      - name: Require commit on default branch and refuse an existing release
         run: |
-          git merge-base --is-ancestor HEAD origin/main || { echo 'Release tag must be on merged main'; exit 1; }
+          git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH" || { echo 'Release commit must be on the default branch'; exit 1; }
           python scripts/release/publish.py preflight
       - name: Download platform archives
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -136,11 +201,25 @@ jobs:
           python scripts/release/package.py --checksums --verify --output artifacts
           cd artifacts
           sha256sum --check SHA256SUMS
+      - name: Create tag for manual publication
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if [[ "$RUN_ATTEMPT" -gt 1 ]] && existing=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object | select(.type == "commit") | .sha'); then
+            [[ "$existing" == "$RELEASE_COMMIT" ]] || { echo 'Existing tag does not point to the tested commit'; exit 1; }
+            echo 'Reusing tag created for this retried run'
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_COMMIT"
+          fi
       - name: Stage complete draft release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             artifacts/sonicboom-linux-x86_64.tar.gz
             artifacts/sonicboom-windows-x86_64.zip
@@ -149,10 +228,10 @@ jobs:
           overwrite_files: false
           generate_release_notes: true
           draft: true
-          prerelease: false
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
       - name: Verify uploaded draft assets before publication
         run: python scripts/release/publish.py verify
       - name: Publish verified draft
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
       - name: Verify published assets and checksums
         run: python scripts/release/publish.py verify

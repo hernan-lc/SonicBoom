@@ -1,6 +1,6 @@
 # Releases and runtime requirements
 
-Release binaries are CPU builds with default features plus `gui`: Supertonic,
+Release binaries use default features plus `gui` and Qwen Vulkan: Supertonic,
 Qwen3-TTS, Pocket TTS, playback, HTTP server and tray support are retained.
 Models are downloaded separately on normal startup; no credentials, user
 configuration, downloaded voices/models or caches belong in release archives.
@@ -35,43 +35,51 @@ requirement if the produced executable has no ONNX dynamic import. If future
 ORT builds use shared libraries they must appear beside the built executable
 (via `ort/copy-dylibs`), be packaged with their notices, and pass the probe.
 
-GPU acceleration is not enabled in these packages. CUDA/ROCm/CoreML builds
-require separate SDKs, provider libraries, driver compatibility and hardware
-validation. Qwen CUDA is an independent opt-in feature; Pocket TTS uses CPU
+Qwen Vulkan is included in these packages, with CPU fallback when Vulkan is
+unavailable. CUDA/ROCm/CoreML builds require separate SDKs, provider libraries,
+driver compatibility and hardware validation. Qwen CUDA is an independent opt-in feature; Pocket TTS uses CPU
 ORT even if other provider acceleration is selected. CI does not certify
 model inference quality, GPU execution, tray interaction or audio playback.
 
 ## Create a release
 
-1. Merge the release-fix PR into the repository that will own the release
-   (`hernan-lc/SonicBoom` for this repair). Require green CI on both platforms.
-2. Run the Release workflow manually on the merged commit. Manual runs build,
-   test, package, inspect and smoke-test both platforms and upload workflow
-   artifacts, but do not publish a GitHub Release.
-3. Review those artifacts. Use a new version, recommended `v0.0.5`; never
-   reuse or force-move `v0.0.4`. Create and push the new tag at that merged
-   commit to **hernan-lc/SonicBoom**, not another remote by accident.
-4. The tag workflow tests GUI before release compilation on each native runner.
-   Fail-fast is disabled. Both jobs must succeed before publishing. The publish
-   job checks the tag is on `main`, refuses a release that already carries
-   assets or notes (an empty placeholder release left by publishing a new tag
-   through the web UI is removed so the draft can be staged), downloads only
-   the two packages, generates and verifies SHA256SUMS, creates a draft, verifies
-   the downloaded draft assets against checksums through the API, then publishes
-   it with generated release notes. It verifies published assets again.
-5. Confirm exactly these assets are present: `sonicboom-linux-x86_64.tar.gz`,
-   `sonicboom-windows-x86_64.zip`, `SHA256SUMS`. Download and verify them.
+1. Fork the project (or push a clone to a GitHub repository you can write to),
+   enable Actions if needed, and merge the desired changes into that repository's
+   default branch. Initialize submodules for local builds with
+   `git submodule update --init --recursive`.
+2. In **Actions → Release → Run workflow**, select the default branch. Choose
+   `build` to test and download temporary workflow artifacts without publishing.
+   For a release, choose `publish`, enter a new version such as `v1.2.3` or
+   `v1.2.3-rc.1`, and select `prerelease` if appropriate. Start the workflow.
+3. Both Linux and Windows builds must pass their tests and package smoke checks.
+   The publish job checks the commit is on the default branch, checks the release
+   does not already exist, and verifies the final checksums. For manual
+   publication it then creates the new tag at the tested commit. It stages a
+   draft, verifies its downloaded assets, publishes it with generated release
+   notes, and verifies the published assets again.
+4. Confirm the release in your repository contains
+   `sonicboom-linux-x86_64.tar.gz`, `sonicboom-windows-x86_64.zip`, and
+   `SHA256SUMS`. Download and verify them.
+
+Alternatively, pushing a new `v*` tag on a commit in the default branch starts
+the same build and publication flow. Tag-triggered releases are marked stable;
+use manual publication to mark a prerelease. A manual build run on a branch or
+tag only uploads workflow artifacts, retained for 14 days.
 
 Publishing uses the workflow repository's `GITHUB_TOKEN` and `contents: write`
-only in the publish job. No PAT or cross-repository upload is needed. Concurrency
-serializes the same tag without cancelling a release already running. Existing
-releases/assets are never overwritten automatically: only a release with no
-assets and no notes is discarded and rebuilt, so creating the release (and with
-it the tag) through the GitHub web UI no longer blocks the workflow. A release
-that already carries assets or notes always fails the publish job. If a draft
-is left after failure, inspect its assets and logs; delete that unpublished
-draft deliberately before retrying. Do not blindly rerun over an existing
-production release.
+only in the publish job; no PAT or cross-repository upload is needed. Repository
+or organization Actions policies must allow the workflow and its write access.
+Existing releases with assets or notes are not overwritten. For tag-triggered
+runs, the existing preflight removes an empty placeholder release before staging
+the draft. If publication fails after creating a tag, inspect the run and any
+draft before retrying. Rerun the failed publication job if it is safe to do so;
+if a draft with assets or notes remains, inspect and deliberately delete that
+unpublished draft before retrying. Do not move the tag or overwrite a published
+release; use a new version if the commit or published assets need to change.
+
+A tag created by the manual workflow's `GITHUB_TOKEN` does not trigger the
+separate CUDA workflow. Run **CUDA full build** manually when that validation is
+needed. A user-pushed `v*` tag triggers it separately.
 
 ## Local packaging and checksum verification
 

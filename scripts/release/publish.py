@@ -80,7 +80,8 @@ if __name__ == '__main__':
     parser.add_argument('operation', choices=['preflight', 'verify'])
     parser.add_argument('--directory', type=Path, default=Path('artifacts'))
     args = parser.parse_args()
-    repo, tag = os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REF_NAME']
+    repo = os.environ['GITHUB_REPOSITORY']
+    tag = os.environ.get('RELEASE_TAG') or os.environ['GITHUB_REF_NAME']
     if args.operation == 'preflight':
         preflight(repo, tag)
     else:
