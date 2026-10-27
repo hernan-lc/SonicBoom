@@ -237,6 +237,37 @@ impl LanguageRules for Korean {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "시",
+                minute: "분",
+                second: "초",
+                point: "점",
+                plus: "플러스",
+                minus: "마이너스",
+                suffix: true,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,

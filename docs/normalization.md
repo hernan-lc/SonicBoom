@@ -16,12 +16,11 @@ Normalization is not a fix for model pronunciation. It only rewrites symbolic
 text. Nothing here has been verified acoustically (see [Limitations](#limitations)).
 
 Valid standalone JSON objects and arrays are preserved as written and reported
-as `structured_data`; extract the prose to normalize its contents. In Spanish,
-RFC 3339 timestamps with seconds and a timezone are read as a date, time and
-UTC offset, retaining each fractional-second digit. Timestamps in other
-languages and malformed or unsupported timestamps are preserved with an
-`ambiguous_time` warning. Leap seconds and fractions longer than nine digits
-are currently preserved.
+as `structured_data`; extract the prose to normalize its contents. RFC 3339
+timestamps with seconds and a timezone are read as a date, time and UTC offset
+in every supported language, retaining each fractional-second digit. Malformed
+or unsupported timestamps are preserved with an `ambiguous_time` warning.
+Leap seconds and fractions longer than nine digits are currently preserved.
 
 ## Modes
 

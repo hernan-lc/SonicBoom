@@ -329,6 +329,37 @@ impl LanguageRules for German {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, One::Eins);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "Stunden",
+                minute: "Minuten",
+                second: "Sekunden",
+                point: "Komma",
+                plus: "plus",
+                minus: "minus",
+                suffix: false,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         _hour: u32,

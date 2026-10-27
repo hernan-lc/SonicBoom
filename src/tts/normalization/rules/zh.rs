@@ -273,6 +273,45 @@ impl LanguageRules for Chinese {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, script(locale));
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: if locale == "zh-TW" {
+                    "小時"
+                } else {
+                    "小时"
+                },
+                minute: if locale == "zh-TW" {
+                    "分鐘"
+                } else {
+                    "分钟"
+                },
+                second: "秒",
+                point: if locale == "zh-TW" { "點" } else { "点" },
+                plus: "加",
+                minus: if locale == "zh-TW" { "減" } else { "减" },
+                suffix: true,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,

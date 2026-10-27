@@ -73,6 +73,50 @@ fn json_remains_byte_identical() {
     assert_eq!(result.warnings[0].code, WarningCode::StructuredData);
 }
 
+#[test]
+fn timestamps_cover_every_supported_locale() {
+    for (language, locales, zero, minus) in [
+        ("en", locales_for("en"), "zero", "minus"),
+        ("es", locales_for("es"), "cero", "menos"),
+        ("pt", locales_for("pt"), "zero", "menos"),
+        ("fr", locales_for("fr"), "zéro", "moins"),
+        ("de", locales_for("de"), "null", "minus"),
+        ("it", locales_for("it"), "zero", "meno"),
+        ("ru", locales_for("ru"), "ноль", "минус"),
+        ("zh", locales_for("zh"), "零", "减"),
+        ("ja", locales_for("ja"), "零", "マイナス"),
+        ("ko", locales_for("ko"), "영", "마이너스"),
+    ] {
+        for locale in locales {
+            let input = "2026-10-16T00:00:00.005-05:30";
+            let result = normalize(input, &opts(language, Some(locale))).unwrap();
+            assert_eq!(result.changes.len(), 1, "{locale}: {:?}", result.warnings);
+            assert!(result.warnings.is_empty(), "{locale}");
+            let minus = if *locale == "zh-TW" { "減" } else { minus };
+            assert!(
+                result.spoken.contains("UTC") && result.spoken.contains(minus),
+                "{locale}: {}",
+                result.spoken
+            );
+            assert!(
+                result.spoken.matches(zero).count() >= 5,
+                "{locale}: {}",
+                result.spoken
+            );
+            assert!(!result.spoken.contains('0'), "{locale}: {}", result.spoken);
+            for invalid in [
+                "2026-02-30T00:00:00Z",
+                "2026-10-16T25:00:00Z",
+                "2026-10-16T00:00:00.1234567890Z",
+            ] {
+                let result = normalize(invalid, &opts(language, Some(locale))).unwrap();
+                assert_eq!(result.spoken, invalid, "{locale}");
+                assert_eq!(result.warnings[0].code, WarningCode::AmbiguousTime);
+            }
+        }
+    }
+}
+
 fn warning_codes(text: &str, language: &str, locale: Option<&str>) -> Vec<WarningCode> {
     normalize(text, &opts(language, locale))
         .unwrap()

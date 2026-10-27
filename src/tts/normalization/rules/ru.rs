@@ -375,6 +375,37 @@ impl LanguageRules for Russian {
         })
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        _locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, Gender::Masculine);
+        let date = format!(
+            "год: {}, месяц: {}, день: {}",
+            number(value.year() as u64),
+            number(value.month().into()),
+            number(value.day().into())
+        );
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "часы",
+                minute: "минуты",
+                second: "секунды",
+                point: "запятая",
+                plus: "плюс",
+                minus: "минус",
+                suffix: false,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         _hour: u32,
