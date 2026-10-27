@@ -150,6 +150,7 @@ pub fn get_gpu_device() -> Result<i32> {
 pub(crate) struct ExecutionProviderOptions(MiniMap<CString, CString>);
 
 impl ExecutionProviderOptions {
+	#[allow(dead_code)] // Used only when an execution provider with options is enabled.
 	pub fn set(&mut self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) {
 		self.0
 			.insert(CString::new(key).expect("unexpected nul in key string"), CString::new(value).expect("unexpected nul in value string"));

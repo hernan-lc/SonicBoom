@@ -320,6 +320,7 @@ impl Outlet {
 	}
 
 	#[cfg(feature = "api-22")]
+	#[allow(dead_code)] // Retained for constructing outlets from the model editor API.
 	pub(crate) unsafe fn from_raw(raw: NonNull<ort_sys::OrtValueInfo>, drop: bool) -> Result<Self> {
 		let mut name = ptr::null();
 		ortsys![unsafe GetValueInfoName(raw.as_ptr(), &mut name)?];

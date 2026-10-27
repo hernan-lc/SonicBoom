@@ -1,6 +1,7 @@
 //! ONNX Runtime doesn't (currently) expose an API for inter-device copies, so we instead use a dummy model to copy the
 //! tensor & `IoBinding` to configure where the copy ends up.
 
+#[cfg(feature = "openvino")]
 use alloc::{format, string::ToString};
 use core::ops::{Deref, DerefMut};
 
@@ -32,23 +33,23 @@ static SESSIONS: OnceLock<Mutex<MiniMap<IdentitySessionKey, IdentitySession>>> =
 /// `RunOptions` with [`RunOptions::disable_device_sync`], shared across `to_async()` calls to reduce allocations.
 static IDENTITY_RUN_OPTIONS: OnceLock<RunOptions<NoSelectedOutputs>> = OnceLock::new();
 
-fn ep_for_device(device: AllocationDevice, device_id: i32) -> Result<ep::ExecutionProviderDispatch> {
+fn ep_for_device(device: AllocationDevice, _device_id: i32) -> Result<ep::ExecutionProviderDispatch> {
 	Ok(match device {
 		AllocationDevice::CPU => ep::CPU::default().with_arena_allocator(false).build(),
 		#[cfg(feature = "cuda")]
 		AllocationDevice::CUDA | AllocationDevice::CUDA_PINNED => ep::CUDA::default()
-			.with_device_id(device_id)
+			.with_device_id(_device_id)
 			.with_arena_extend_strategy(ep::ArenaExtendStrategy::SameAsRequested)
 			.with_conv_max_workspace(false)
 			.with_conv_algorithm_search(ep::cuda::ConvAlgorithmSearch::Default)
 			.build(),
 		#[cfg(feature = "directml")]
-		AllocationDevice::DIRECTML => ep::DirectML::default().with_device_id(device_id).build(),
+		AllocationDevice::DIRECTML => ep::DirectML::default().with_device_id(_device_id).build(),
 		#[cfg(feature = "cann")]
 		AllocationDevice::CANN | AllocationDevice::CANN_PINNED => ep::CANN::default()
 			.with_arena_extend_strategy(ep::ArenaExtendStrategy::SameAsRequested)
 			.with_cann_graph(false)
-			.with_device_id(device_id)
+			.with_device_id(_device_id)
 			.build(),
 		#[cfg(feature = "openvino")]
 		AllocationDevice::OPENVINO_CPU | AllocationDevice::OPENVINO_GPU => ep::OpenVINO::default()
@@ -56,7 +57,7 @@ fn ep_for_device(device: AllocationDevice, device_id: i32) -> Result<ep::Executi
 			.with_device_type(if device == AllocationDevice::OPENVINO_CPU {
 				"CPU".to_string()
 			} else {
-				format!("GPU.{device_id}")
+				format!("GPU.{_device_id}")
 			})
 			.build(),
 		#[cfg(feature = "rocm")]
@@ -64,7 +65,7 @@ fn ep_for_device(device: AllocationDevice, device_id: i32) -> Result<ep::Executi
 			.with_arena_extend_strategy(ep::ArenaExtendStrategy::SameAsRequested)
 			.with_hip_graph(false)
 			.with_exhaustive_conv_search(false)
-			.with_device_id(device_id)
+			.with_device_id(_device_id)
 			.build(),
 		_ => return Err(crate::Error::new("Unsupported allocation device {device} for tensor copy target"))
 	})

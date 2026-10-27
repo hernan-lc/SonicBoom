@@ -220,7 +220,7 @@ impl SonicBoomPlugin {
         // instead of silently falling back to another voice.
         let provider =
             optional_string(config, "provider").unwrap_or_else(|| "supertonic".to_owned());
-        if provider.trim().to_ascii_lowercase() != "supertonic" {
+        if !provider.trim().eq_ignore_ascii_case("supertonic") {
             return Err(PluginError::invalid_request(format!(
                 "unsupported provider '{provider}' in this plugin build \
                  (only 'supertonic' is embedded; configure the SonicBoom server \
