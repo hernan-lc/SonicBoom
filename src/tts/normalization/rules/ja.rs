@@ -194,6 +194,37 @@ impl LanguageRules for Japanese {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "時",
+                minute: "分",
+                second: "秒",
+                point: "点",
+                plus: "プラス",
+                minus: "マイナス",
+                suffix: true,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,

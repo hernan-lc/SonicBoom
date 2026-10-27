@@ -174,6 +174,75 @@ pub(crate) struct Amount {
     pub frac: Option<String>,
 }
 
+/// Localized labels for the explicit components of an RFC 3339 timestamp.
+pub(crate) struct TimestampLabels {
+    pub hour: &'static str,
+    pub minute: &'static str,
+    pub second: &'static str,
+    pub point: &'static str,
+    pub plus: &'static str,
+    pub minus: &'static str,
+    pub suffix: bool,
+}
+
+/// Render the clock and offset as labelled quantities, preserving every
+/// fractional digit. The labels and number renderer come from language rules.
+pub(crate) fn timestamp_parts(
+    date: String,
+    value: &chrono::DateTime<chrono::FixedOffset>,
+    fraction: &str,
+    labels: &TimestampLabels,
+    number: impl Fn(u64) -> String,
+) -> String {
+    use chrono::Timelike;
+    let component = |label: &str, value: u64| {
+        if labels.suffix {
+            format!("{}{label}", number(value))
+        } else {
+            format!("{label}: {}", number(value))
+        }
+    };
+    let mut out = format!(
+        "{date}, {}, {}, ",
+        component(labels.hour, value.hour().into()),
+        component(labels.minute, value.minute().into())
+    );
+    if !labels.suffix {
+        out.push_str(labels.second);
+        out.push_str(": ");
+    }
+    out.push_str(&number(value.second().into()));
+    if !fraction.is_empty() {
+        out.push(' ');
+        out.push_str(labels.point);
+        for digit in fraction.bytes() {
+            out.push(' ');
+            out.push_str(&number(u64::from(digit - b'0')));
+        }
+    }
+    if labels.suffix {
+        out.push_str(labels.second);
+    }
+    out.push_str(", UTC");
+    let offset = value.offset().local_minus_utc();
+    if offset != 0 {
+        let minutes = offset.unsigned_abs() / 60;
+        out.push(' ');
+        out.push_str(if offset < 0 {
+            labels.minus
+        } else {
+            labels.plus
+        });
+        out.push(' ');
+        out.push_str(&component(labels.hour, (minutes / 60).into()));
+        if !minutes.is_multiple_of(60) {
+            out.push_str(", ");
+            out.push_str(&component(labels.minute, (minutes % 60).into()));
+        }
+    }
+    out
+}
+
 impl Amount {
     /// `true` for exactly one (singular agreement).
     pub(crate) fn is_one(&self) -> bool {
@@ -273,6 +342,16 @@ pub(crate) trait LanguageRules: Sync {
         _hour: u32,
         _minute: u32,
         _meridiem: Option<Meridiem>,
+        _locale: &str,
+    ) -> Option<String> {
+        None
+    }
+
+    /// RFC 3339 timestamp with its original fractional digits and offset.
+    fn datetime(
+        &self,
+        _value: &chrono::DateTime<chrono::FixedOffset>,
+        _fraction: &str,
         _locale: &str,
     ) -> Option<String> {
         None

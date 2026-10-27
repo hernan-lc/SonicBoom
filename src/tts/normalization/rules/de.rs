@@ -277,8 +277,11 @@ impl LanguageRules for German {
     }
 
     fn number(&self, amount: &Amount, _locale: &str) -> Option<String> {
-        // Integers may be ordinals written with a stripped period.
-        amount.frac.as_ref()?;
+        // Positive integers may be ordinals written with a stripped period;
+        // zero has no such ordinal reading.
+        if amount.frac.is_none() && amount.int != 0 {
+            return None;
+        }
         Some(amount_words(amount, One::Eins))
     }
 
@@ -323,6 +326,37 @@ impl LanguageRules for German {
             "{} {month_name} {}",
             day_ordinal(day)?,
             year_words(year)
+        ))
+    }
+
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, One::Eins);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "Stunden",
+                minute: "Minuten",
+                second: "Sekunden",
+                point: "Komma",
+                plus: "plus",
+                minus: "minus",
+                suffix: false,
+            },
+            number,
         ))
     }
 

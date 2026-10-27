@@ -15,6 +15,13 @@ no new dependencies and makes no network calls.
 Normalization is not a fix for model pronunciation. It only rewrites symbolic
 text. Nothing here has been verified acoustically (see [Limitations](#limitations)).
 
+Valid standalone JSON objects and arrays are preserved as written and reported
+as `structured_data`; extract the prose to normalize its contents. RFC 3339
+timestamps with seconds and a timezone are read as a date, time and UTC offset
+in every supported language, retaining each fractional-second digit. Malformed
+or unsupported timestamps are preserved with an `ambiguous_time` warning.
+Leap seconds and fractions longer than nine digits are currently preserved.
+
 ## Modes
 
 | Mode   | Behavior |
@@ -290,7 +297,7 @@ Protected and never rewritten:
 
 Warnings use the snake_case codes `ambiguous_number`, `ambiguous_date`,
 `invalid_date`, `ambiguous_currency`, `ambiguous_time`, `ambiguous_fraction` and
-`number_too_large`. Byte offsets refer to the original text. When
+`number_too_large`, and `structured_data`. Byte offsets refer to the original text. When
 `report_ambiguities` is false, no warnings are returned.
 
 ## Sentence segmentation (Supertonic)

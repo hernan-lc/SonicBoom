@@ -534,6 +534,37 @@ impl LanguageRules for Portuguese {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, Gender::Masculine, locale);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "horas",
+                minute: "minutos",
+                second: "segundos",
+                point: "vírgula",
+                plus: "mais",
+                minus: "menos",
+                suffix: false,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,

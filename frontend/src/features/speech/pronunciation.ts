@@ -101,7 +101,8 @@ export const WARNING_LABELS: Readonly<Record<string, { title: string; explanatio
   ambiguous_date: { title: 'Ambiguous date', explanation: 'The day and month can be read in either order, so the date was left as written. Choose a regional pronunciation to resolve it.' },
   invalid_date: { title: 'Invalid date', explanation: 'This is not a real calendar date, so it was left as written.' },
   ambiguous_currency: { title: 'Ambiguous currency', explanation: 'The currency is unclear, so the amount was left as written.' },
-  ambiguous_time: { title: 'Ambiguous time', explanation: 'This could be a time or a ratio, so it was left as written.' },
+  ambiguous_time: { title: 'Ambiguous time', explanation: 'This time or timestamp could not be read reliably, so it was left as written.' },
   ambiguous_fraction: { title: 'Ambiguous fraction', explanation: 'This could be a fraction, a date or a ratio, so it was left as written.' },
   number_too_large: { title: 'Number too large', explanation: 'This number is too large to read out reliably, so it was left as written.' },
+  structured_data: { title: 'Structured data preserved', explanation: 'This JSON document was left unchanged to protect its keys and values. Extract the text you want spoken for normalization.' },
 };

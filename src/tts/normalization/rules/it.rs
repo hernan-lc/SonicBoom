@@ -387,6 +387,37 @@ impl LanguageRules for Italian {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "ore",
+                minute: "minuti",
+                second: "secondi",
+                point: "virgola",
+                plus: "più",
+                minus: "meno",
+                suffix: false,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,

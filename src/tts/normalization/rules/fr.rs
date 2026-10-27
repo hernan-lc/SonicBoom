@@ -363,6 +363,37 @@ impl LanguageRules for French {
         ))
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::Datelike;
+        let number = |n: u64| cardinal(n, false);
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        Some(super::timestamp_parts(
+            date,
+            value,
+            fraction,
+            &super::TimestampLabels {
+                hour: "heures",
+                minute: "minutes",
+                second: "secondes",
+                point: "virgule",
+                plus: "plus",
+                minus: "moins",
+                suffix: false,
+            },
+            number,
+        ))
+    }
+
     fn time(
         &self,
         hour: u32,
