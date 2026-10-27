@@ -278,6 +278,16 @@ pub(crate) trait LanguageRules: Sync {
         None
     }
 
+    /// RFC 3339 timestamp with its original fractional digits and offset.
+    fn datetime(
+        &self,
+        _value: &chrono::DateTime<chrono::FixedOffset>,
+        _fraction: &str,
+        _locale: &str,
+    ) -> Option<String> {
+        None
+    }
+
     /// Quantity with unit.
     fn unit(&self, _amount: &Amount, _unit: Unit, _locale: &str) -> Option<String> {
         None

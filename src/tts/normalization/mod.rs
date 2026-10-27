@@ -120,6 +120,7 @@ pub enum WarningCode {
     AmbiguousTime,
     AmbiguousFraction,
     NumberTooLarge,
+    StructuredData,
 }
 
 impl WarningCode {
@@ -133,6 +134,7 @@ impl WarningCode {
             Self::AmbiguousTime => "ambiguous_time",
             Self::AmbiguousFraction => "ambiguous_fraction",
             Self::NumberTooLarge => "number_too_large",
+            Self::StructuredData => "structured_data",
         }
     }
 }
@@ -200,6 +202,20 @@ pub fn normalize(text: &str, opts: &NormalizeOptions) -> Result<NormalizedText, 
 
     let (changes, warnings) = match opts.mode {
         NormalizationMode::Off => (Vec::new(), Vec::new()),
+        NormalizationMode::Auto
+            if matches!(text.trim_start().chars().next(), Some('{' | '['))
+                && serde_json::from_str::<serde_json::Value>(text)
+                    .is_ok_and(|v| v.is_object() || v.is_array()) =>
+        {
+            (
+                Vec::new(),
+                vec![NormalizationWarning {
+                    code: WarningCode::StructuredData,
+                    start: 0,
+                    end: text.len(),
+                }],
+            )
+        }
         NormalizationMode::Auto => classify::classify(text, language_rules, opts),
     };
     let spoken = if changes.is_empty() {

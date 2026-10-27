@@ -30,6 +30,49 @@ fn spoken(text: &str, language: &str, locale: Option<&str>) -> String {
     normalize(text, &opts(language, locale)).unwrap().spoken
 }
 
+#[test]
+fn zeros_and_rfc3339_are_preserved_in_spoken_forms() {
+    for (language, zero) in [
+        ("es", "cero"),
+        ("en", "zero"),
+        ("pt", "zero"),
+        ("fr", "zéro"),
+        ("de", "null"),
+        ("it", "zero"),
+        ("ru", "ноль"),
+        ("zh", "零"),
+        ("ja", "零"),
+        ("ko", "영"),
+    ] {
+        assert_eq!(spoken("0", language, None), zero, "{language}");
+    }
+    for locale in ["es-ES", "es-PE", "es-MX"] {
+        assert_eq!(
+            spoken("2026-10-16T03:36:46Z", "es", Some(locale)),
+            "dieciséis de octubre de dos mil veintiséis, tres horas, treinta y seis minutos y cuarenta y seis segundos UTC"
+        );
+        assert_eq!(
+            spoken("2026-10-16T03:36:46.005-05:30", "es", Some(locale)),
+            "dieciséis de octubre de dos mil veintiséis, tres horas, treinta y seis minutos y cuarenta y seis coma cero cero cinco segundos UTC menos cinco horas y treinta minutos"
+        );
+    }
+    let bad = "2026-10-16T03:36:99Z";
+    assert_eq!(spoken(bad, "es", None), bad);
+    assert_eq!(
+        warning_codes(bad, "es", None),
+        vec![WarningCode::AmbiguousTime]
+    );
+}
+
+#[test]
+fn json_remains_byte_identical() {
+    let json =
+        "{\"id\": 0, \"timestamp\": \"2026-10-16T03:36:46Z\", \"url\": \"https://example.org/0\"}";
+    let result = normalize(json, &opts("es", None)).unwrap();
+    assert_eq!(result.spoken, json);
+    assert_eq!(result.warnings[0].code, WarningCode::StructuredData);
+}
+
 fn warning_codes(text: &str, language: &str, locale: Option<&str>) -> Vec<WarningCode> {
     normalize(text, &opts(language, locale))
         .unwrap()

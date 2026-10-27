@@ -277,8 +277,11 @@ impl LanguageRules for German {
     }
 
     fn number(&self, amount: &Amount, _locale: &str) -> Option<String> {
-        // Integers may be ordinals written with a stripped period.
-        amount.frac.as_ref()?;
+        // Positive integers may be ordinals written with a stripped period;
+        // zero has no such ordinal reading.
+        if amount.frac.is_none() && amount.int != 0 {
+            return None;
+        }
         Some(amount_words(amount, One::Eins))
     }
 

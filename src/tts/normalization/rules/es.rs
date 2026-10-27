@@ -536,6 +536,65 @@ impl LanguageRules for Spanish {
         })
     }
 
+    fn datetime(
+        &self,
+        value: &chrono::DateTime<chrono::FixedOffset>,
+        fraction: &str,
+        locale: &str,
+    ) -> Option<String> {
+        use chrono::{Datelike, Timelike};
+        let date = self.date(
+            value.year().try_into().ok()?,
+            value.month(),
+            value.day(),
+            locale,
+        )?;
+        let hour = value.hour();
+        let minute = value.minute();
+        let second = value.second();
+        let mut result = format!(
+            "{date}, {} {}, {} {} y {}",
+            cardinal(u64::from(hour), Form::Feminine),
+            if hour == 1 { "hora" } else { "horas" },
+            cardinal(u64::from(minute), Form::Masculine),
+            if minute == 1 { "minuto" } else { "minutos" },
+            cardinal(u64::from(second), Form::Masculine)
+        );
+        if !fraction.is_empty() {
+            result.push_str(" coma ");
+            result.push_str(
+                &fraction
+                    .bytes()
+                    .map(digit_word)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+        }
+        result.push_str(if second == 1 && fraction.is_empty() {
+            " segundo"
+        } else {
+            " segundos"
+        });
+        let offset = value.offset().local_minus_utc();
+        result.push_str(" UTC");
+        if offset != 0 {
+            result.push_str(if offset < 0 { " menos " } else { " más " });
+            let minutes = offset.unsigned_abs() / 60;
+            result.push_str(&cardinal(u64::from(minutes / 60), Form::Masculine));
+            result.push_str(if minutes / 60 == 1 { " hora" } else { " horas" });
+            if !minutes.is_multiple_of(60) {
+                result.push_str(" y ");
+                result.push_str(&cardinal(u64::from(minutes % 60), Form::Masculine));
+                result.push_str(if minutes % 60 == 1 {
+                    " minuto"
+                } else {
+                    " minutos"
+                });
+            }
+        }
+        Some(result)
+    }
+
     fn unit(&self, amount: &Amount, unit: Unit, _locale: &str) -> Option<String> {
         let (singular, plural) = unit_names(unit);
         Some(quantity(amount, singular, plural))

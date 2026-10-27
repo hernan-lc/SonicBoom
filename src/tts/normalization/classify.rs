@@ -18,6 +18,7 @@ use super::rules::{
 use super::{
     ChangeKind, Confidence, NormalizationWarning, NormalizeOptions, TextChange, WarningCode,
 };
+use chrono::{Datelike, Timelike};
 
 /// Largest integer read as a number (15 digits).
 pub(crate) const MAX_INTEGER: u64 = 999_999_999_999_999;
@@ -541,6 +542,40 @@ impl<'a> Classifier<'a> {
         let core = self.core(index);
         let (start, end) = (field.core_start, field.core_end);
         let done = index + 1;
+
+        // A timestamp is one span: never partially rewrite its date or offset.
+        if core.len() >= 11
+            && core.as_bytes().get(4) == Some(&b'-')
+            && core
+                .as_bytes()
+                .get(10)
+                .is_some_and(|b| *b == b'T' || *b == b't')
+        {
+            let fraction = core
+                .get(19..)
+                .and_then(|s| s.strip_prefix('.'))
+                .map(|s| s.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""))
+                .unwrap_or("");
+            match chrono::DateTime::parse_from_rfc3339(core) {
+                Ok(value)
+                    if fraction.len() <= 9
+                        && valid_date(
+                            value.date_naive().year() as u32,
+                            value.date_naive().month(),
+                            value.date_naive().day(),
+                        )
+                        && value.time().nanosecond() < 1_000_000_000 =>
+                {
+                    if let Some(spoken) = self.rules.datetime(&value, fraction, self.locale) {
+                        self.change(ChangeKind::Date, start, end, spoken);
+                    } else {
+                        self.warn(WarningCode::AmbiguousTime, start, end);
+                    }
+                }
+                _ => self.warn(WarningCode::AmbiguousTime, start, end),
+            }
+            return done;
+        }
 
         // Attached currency prefix / suffix.
         for prefix in ATTACHED_PREFIXES {
