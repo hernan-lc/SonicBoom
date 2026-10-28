@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import { t } from '../../i18n';
 import BaseButton from '../ui/BaseButton.vue';
 import CloneEngineStep from '../voice/CloneEngineStep.vue';
@@ -8,9 +9,13 @@ import FeedbackNotice from '../FeedbackNotice.vue';
 import { useCloneWizard } from '../../features/cloning/useCloneWizard';
 const emit = defineEmits<{ created: []; engines: [] }>();
 const { originalFile, applyTrim, restoreOriginal, created, fieldErrors, cancelAnalysis, createAnother, tryVoice, limits, metadata, pending, feedback, step, provider, model, language, mode, referenceWarnings, referenceDefects, referenceGuidance, referenceMessage, name, consent, transcript, file, choices, providers, cap, languages, needsTranscript, engineReady, selectFile, next, save } = useCloneWizard(event => event === 'created' ? emit('created') : emit('engines'));
+const wizard = ref<HTMLElement | null>(null);
+watch([step, created], () => {
+  wizard.value?.closest<HTMLElement>('.voice-creator-body')?.scrollTo?.({ top: 0 });
+});
 </script>
 <template>
-  <section class="clone-wizard" aria-labelledby="clone-heading"><h2 id="clone-heading" class="sr-only">{{ t('Add a voice') }}</h2>
+  <section ref="wizard" class="clone-wizard" aria-labelledby="clone-heading"><h2 id="clone-heading" class="sr-only">{{ t('Add a voice') }}</h2>
     <ol class="stepper" :aria-label="t('Voice setup progress')"><li v-for="(label, index) in ['Choose an engine', 'Reference recording', 'Review and save']" :key="label" :aria-current="step === index ? 'step' : undefined" :class="{ current: step === index }">{{ index + 1 }}. {{ t(label) }}</li></ol>
     <FeedbackNotice :feedback="feedback"/>
     <form v-if="!created" id="cloneForm" :aria-busy="pending" @submit.prevent="step < 2 ? next() : save()">

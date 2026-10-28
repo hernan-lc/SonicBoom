@@ -86,6 +86,30 @@ button.danger {
   color: var(--accent);
   padding: 6px 8px;
 }
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+}
+.btn-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-with-icon svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
 .btn-small,
 .btn-secondary {
   font-size: 13px;

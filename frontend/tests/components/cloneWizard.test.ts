@@ -57,7 +57,7 @@ describe('cloning wizard', () => {
     expect(mode.text()).toContain('No transcript is needed');
     expect(wrapper.get('.file-name').text()).toBe('ref.wav');
     expect(wrapper.get('.file-meta').text()).toContain('5.00 s · 8000 Hz');
-    expect(wrapper.get('.status-pill').text()).toContain('Good length');
+    await vi.waitFor(() => expect(wrapper.get('.status-pill').text()).toContain('Good length'));
   });
   it('returns to the empty drop zone when the recording is removed', async () => {
     await reference(wav(5));
@@ -66,7 +66,7 @@ describe('cloning wizard', () => {
     await flushPromises();
     expect(wrapper.find('.dropzone-empty').exists()).toBe(true);
     expect(wrapper.find('.file-name').exists()).toBe(false);
-    expect(wrapper.find('.reference-preview').exists()).toBe(false);
+    expect(wrapper.find('.reference-editor').exists()).toBe(false);
   });
   it('retains draft on failure and successful report until explicit next action', async () => {
     await reference(wav());

@@ -555,7 +555,6 @@
   "Text exceeds the server limit of {chars} characters or {bytes} bytes.": "El texto supera el límite del servidor de {chars} caracteres o {bytes} bytes.",
   "Greater than {min}, up to {max}": "Mayor que {min}, hasta {max}",
   "Show voices": "Mostrar voces",
-  "Waveform and trim": "Forma de onda y recorte",
   "Select original sample frames without resampling or changing encoding. Your original file is kept until you apply a trim. Export omits ancillary WAV metadata.": "Selecciona muestras originales sin remuestrear ni cambiar la codificación. El archivo original se conserva al aplicar un recorte. La exportación omite los metadatos auxiliares del WAV.",
   "Analyzing reference…": "Analizando referencia…",
   "Waveform of the original recording": "Forma de onda de la grabación original",
@@ -565,12 +564,10 @@
   "Trim end (seconds)": "Fin del recorte (segundos)",
   "Choose a valid start and end time.": "Elige tiempos de inicio y fin válidos.",
   "Selected duration: {seconds} s": "Duración seleccionada: {seconds} s",
-  "Trim preview": "Vista previa del recorte",
   "Preview selection": "Escuchar selección",
   "Export selected WAV": "Exportar WAV seleccionado",
   "Use trimmed recording": "Usar grabación recortada",
   "Cancel analysis": "Cancelar análisis",
-  "Close editor": "Cerrar editor",
   "Restore original recording": "Restaurar grabación original",
   "Review the transcript to match the trimmed recording. The transcript has not been rewritten.": "Revisa que la transcripción coincida con la grabación recortada. La transcripción no se ha reescrito.",
   "channels": "canales",
@@ -718,5 +715,11 @@
   "Unavailable models": "Modelos no disponibles",
   "No voices for this model yet.": "Todavía no hay voces para este modelo.",
   "Create a voice to use this cloning model.": "Crea una voz para usar este modelo de clonación.",
-  "Create a voice": "Crear una voz"
+  "Create a voice": "Crear una voz",
+  "Reference editor": "Editor de referencia",
+  "Drag the handles, or click the waveform to move the nearest edge.": "Arrastra los tiradores o haz clic en la onda para mover el borde más cercano.",
+  "Drag to move the selection": "Arrastra para mover la selección",
+  "Play full recording": "Reproducir grabación completa",
+  "Trim start handle": "Ajustar el inicio",
+  "Trim end handle": "Ajustar el final"
 }

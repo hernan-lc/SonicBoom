@@ -16,24 +16,25 @@ test('speech outputs remain isolated and comparisons stay at four', async ({ pag
   await expect(page.locator('.result-list .waveform-player')).toHaveCount(4);
   expect((await analyze(page)).violations).toEqual([]);
 });
-test('the waveform player draws the recording and the keyboard seeks', async ({ page }) => {
+test('the reference editor draws the waveform and its trim handles navigate by keyboard', async ({ page }) => {
   await studioFixtures(page);
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
   await page.getByRole('button', { name: 'New voice', exact: true }).first().click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'reference.wav', mimeType: 'audio/wav', buffer: wav(5) });
-  const scrubber = page.getByRole('slider', { name: 'Reference recording' });
-  await expect(scrubber).toBeVisible();
-  await expect(scrubber).toHaveAttribute('aria-valuemax', '5');
-  // The waveform is drawn on a canvas inside the player.
-  await expect(page.locator('.waveform-canvas canvas').first()).toBeVisible();
-  await scrubber.focus();
+  const editor = page.locator('.reference-editor');
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('img', { name: 'Waveform of the original recording' })).toBeVisible();
+  const start = editor.getByRole('slider', { name: 'Trim start handle' });
+  await expect(start).toHaveAttribute('aria-valuemax', '5');
+  await start.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(scrubber).toHaveAttribute('aria-valuenow', '5');
+  await expect(start).toHaveAttribute('aria-valuenow', '0.01');
+  await expect(page.getByLabel('Trim start (seconds)')).toHaveValue('0.01');
   await page.keyboard.press('Home');
-  await expect(scrubber).toHaveAttribute('aria-valuenow', '0');
-  await expect(page.getByRole('button', { name: 'Play' })).toBeVisible();
+  await expect(start).toHaveAttribute('aria-valuenow', '0');
+  await expect(page.getByRole('button', { name: 'Preview selection', exact: true })).toBeVisible();
 });
 test('cloning upload, retained report and keyboard delete dialog', async ({ page }) => {
   const fixture = await studioFixtures(page);
@@ -98,7 +99,7 @@ test('large voice picker virtualizes and supports keyboard search and selection'
   expect((await analyze(page)).violations).toEqual([]);
 });
 
-test('waveform trim is opt-in and original recording can be restored', async ({ page }) => {
+test('waveform trim stays editable and original recording can be restored', async ({ page }) => {
   await studioFixtures(page);
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
@@ -106,9 +107,16 @@ test('waveform trim is opt-in and original recording can be restored', async ({ 
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'original.wav', mimeType: 'audio/wav', buffer: wav(5) });
   await expect(page.getByText('5.00 s · 8000 Hz', { exact: false })).toBeVisible();
-  await expect(page.locator('.audio-waveform')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Waveform and trim', exact: true }).click();
+  await expect(page.locator('.reference-editor')).toBeVisible();
   await expect(page.getByRole('img', { name: 'Waveform of the original recording' })).toBeVisible();
+  const endHandle = page.locator('.trim-handle.end');
+  await endHandle.scrollIntoViewIfNeeded();
+  const box = (await endHandle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await page.getByLabel('Trim end (seconds)').inputValue())).toBeLessThan(5);
   await page.getByLabel('Trim start (seconds)').fill('1');
   await page.getByLabel('Trim end (seconds)').fill('2.25');
   await page.getByRole('button', { name: 'Preview selection', exact: true }).click();

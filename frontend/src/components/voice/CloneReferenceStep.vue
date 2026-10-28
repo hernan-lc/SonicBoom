@@ -1,21 +1,17 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, useId, watch } from 'vue';
+import { computed, defineAsyncComponent, ref } from 'vue';
 import { t } from '../../i18n';
 import BaseTextarea from '../ui/BaseTextarea.vue';
 import FileDropzone from '../ui/FileDropzone.vue';
-import WaveformPlayer from '../audio/WaveformPlayer.vue';
 import type { VoiceConstraints } from '../../services/contracts';
 import type { ReferenceMetadata } from '../../features/cloning/validateReference';
 const ReferenceEditor = defineAsyncComponent(() => import('../audio/ReferenceEditor.vue'));
 const props = defineProps<{ disabled: boolean; analyzing?: boolean; provider: string; modes: string[]; file: File | null; originalFile: File | null; metadata: ReferenceMetadata | null; limits: VoiceConstraints | null; errors: Record<string, string>; needsTranscript: boolean }>();
 const emit = defineEmits<{ select: [file: File | null]; trim: [file: File]; restore: [] }>();
 const transcript = defineModel<string>('transcript', { required: true }), mode = defineModel<string>('mode', { required: true });
-const editing = ref(false);
 const picker = ref<{ open: () => void } | null>(null);
-const previewId = useId();
-watch(() => props.disabled, value => { if (value) editing.value = false; });
-function select(file: File | null) { editing.value = false; emit('select', file); }
-function trim(file: File) { editing.value = false; emit('trim', file); }
+function select(file: File | null) { emit('select', file); }
+function trim(file: File) { emit('trim', file); }
 function modeLabel(value: string) { const key = `mode.${value}`; const label = t(key); return label === key ? value : label; }
 function modeHint(value: string) { const key = `mode.${value}.hint`; const hint = t(key); return hint === key ? '' : hint; }
 const modeOptions = computed(() => props.modes.map(value => ({ value, label: modeLabel(value), hint: modeHint(value) })));
@@ -25,7 +21,7 @@ const metaText = computed(() => {
   const meta = props.metadata;
   return `${meta.duration.toFixed(2)} s · ${meta.sampleRate} Hz · ${meta.channels} ${meta.channels === 1 ? t('channel') : t('channels')} · ${meta.encoding}`;
 });
-const durationState = computed(() => {
+const durationState = computed<{ kind: 'ok' | 'warn' | 'bad'; text: string } | null>(() => {
   const duration = props.metadata?.duration;
   const range = props.limits?.providers?.[props.provider]?.duration_seconds;
   if (duration === undefined || !range) return null;
@@ -41,7 +37,6 @@ const uploadLimit = computed(() => {
   return bytes >= 1048576 ? `${Math.round(bytes / 1048576)} MB` : `${Math.round(bytes / 1024)} KB`;
 });
 const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size}', { size: uploadLimit.value }) : t('WAV only'));
-const oversized = computed(() => !!props.file && !!props.limits && props.file.size > props.limits.max_upload_bytes);
 </script>
 <template><fieldset class="reference-step" :disabled="disabled"><legend class="sr-only">{{ t('Reference recording') }}</legend>
   <p class="step-intro">{{ t('Upload 3–10 seconds of clear speech. Only use a voice you own or have permission to use.') }}</p>
@@ -65,18 +60,17 @@ const oversized = computed(() => !!props.file && !!props.limits && props.file.si
     </div>
   </FileDropzone>
 
-  <div v-if="file" class="reference-preview">
-    <p class="preview-label" :id="previewId">{{ t('Preview') }}</p>
-    <WaveformPlayer :blob="file" :label="t('Reference recording')" :aria-describedby="previewId"/>
-    <p v-if="analyzing" class="help-note" role="status">{{ t('Analyzing reference…') }}</p>
-    <p v-else-if="durationState" class="status-pill" :class="durationState.kind" role="status">{{ durationState.text }}</p>
-    <div class="toolbar">
-      <button v-if="!editing" type="button" :disabled="disabled || oversized" @click="editing = true">{{ t('Waveform and trim') }}</button>
-      <button v-if="originalFile && file !== originalFile" type="button" @click="editing = false; emit('restore')">{{ t('Restore original recording') }}</button>
-    </div>
-  </div>
-
-  <ReferenceEditor v-if="editing && file && limits" :file="file" :max-bytes="limits.max_upload_bytes" @close="editing = false" @apply="trim"/>
+  <ReferenceEditor
+    v-if="file && limits"
+    :file="file"
+    :max-bytes="limits.max_upload_bytes"
+    :analyzing="analyzing"
+    :status="durationState"
+    :can-restore="!!originalFile && file !== originalFile"
+    :disabled="disabled"
+    @apply="trim"
+    @restore="emit('restore')"
+  />
 
   <fieldset id="cloneMode" class="mode-picker" tabindex="-1">
     <legend>{{ t('Mode') }}</legend>

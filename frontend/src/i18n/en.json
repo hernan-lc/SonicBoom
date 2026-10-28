@@ -555,7 +555,6 @@
   "Text exceeds the server limit of {chars} characters or {bytes} bytes.": "Text exceeds the server limit of {chars} characters or {bytes} bytes.",
   "Greater than {min}, up to {max}": "Greater than {min}, up to {max}",
   "Show voices": "Show voices",
-  "Waveform and trim": "Waveform and trim",
   "Select original sample frames without resampling or changing encoding. Your original file is kept until you apply a trim. Export omits ancillary WAV metadata.": "Select original sample frames without resampling or changing encoding. Your original file is kept until you apply a trim. Export omits ancillary WAV metadata.",
   "Analyzing reference…": "Analyzing reference…",
   "Waveform of the original recording": "Waveform of the original recording",
@@ -565,12 +564,10 @@
   "Trim end (seconds)": "Trim end (seconds)",
   "Choose a valid start and end time.": "Choose a valid start and end time.",
   "Selected duration: {seconds} s": "Selected duration: {seconds} s",
-  "Trim preview": "Trim preview",
   "Preview selection": "Preview selection",
   "Export selected WAV": "Export selected WAV",
   "Use trimmed recording": "Use trimmed recording",
   "Cancel analysis": "Cancel analysis",
-  "Close editor": "Close editor",
   "Restore original recording": "Restore original recording",
   "Review the transcript to match the trimmed recording. The transcript has not been rewritten.": "Review the transcript to match the trimmed recording. The transcript has not been rewritten.",
   "channels": "channels",
@@ -718,5 +715,11 @@
   "Unavailable models": "Unavailable models",
   "No voices for this model yet.": "No voices for this model yet.",
   "Create a voice to use this cloning model.": "Create a voice to use this cloning model.",
-  "Create a voice": "Create a voice"
+  "Create a voice": "Create a voice",
+  "Reference editor": "Reference editor",
+  "Drag the handles, or click the waveform to move the nearest edge.": "Drag the handles, or click the waveform to move the nearest edge.",
+  "Drag to move the selection": "Drag to move the selection",
+  "Play full recording": "Play full recording",
+  "Trim start handle": "Trim start handle",
+  "Trim end handle": "Trim end handle"
 }

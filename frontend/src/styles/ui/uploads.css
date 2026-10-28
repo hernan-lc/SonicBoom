@@ -62,20 +62,6 @@
 .voice-combobox-item[data-state="checked"] {
   background: var(--accent-surface);
 }
-.reference-editor {
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: var(--radius);
-  margin-block: 16px;
-}
-.audio-waveform {
-  display: block;
-  width: 100%;
-  height: 120px;
-  color: var(--accent);
-  background: var(--surface-raised);
-  border-radius: var(--radius-control);
-}
 .audio-graph {
   display: block;
   width: 100%;

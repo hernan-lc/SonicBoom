@@ -51,12 +51,12 @@ it('editor keeps original untouched, emits only after explicit apply and release
   // Analysis yields to permit cancellation; wait for its two sample batches.
   await vi.waitFor(() => expect(wrapper.find('.audio-waveform').exists()).toBe(true));
   expect(wrapper.emitted('apply')).toBeUndefined();
+  // One object URL powers the preview; playback reuses it.
+  expect(create).toHaveBeenCalledTimes(1);
   const inputs = wrapper.findAll('input[type="number"]');
   await inputs[0].setValue(.25); await inputs[1].setValue(.75);
-  await wrapper.findAll('button').find(button => button.text() === 'Preview selection')!.trigger('click');
-  // The preview keeps the cropped audio in memory: no object URL is created.
-  expect(create).not.toHaveBeenCalled();
-  expect(wrapper.find('.waveform-player').exists()).toBe(true);
+  await wrapper.get('.player-toggle').trigger('click');
+  expect(create).toHaveBeenCalledTimes(1);
   await wrapper.findAll('button').find(button => button.text() === 'Use trimmed recording')!.trigger('click');
   const result = wrapper.emitted('apply')![0][0] as File;
   expect(inspectWave(await result.arrayBuffer()).duration).toBe(.5);
@@ -76,7 +76,22 @@ it('the exported selection releases its temporary URL', async () => {
   const inputs = wrapper.findAll('input[type="number"]');
   await inputs[0].setValue(.25); await inputs[1].setValue(.75);
   await wrapper.findAll('button').find(button => button.text() === 'Export selected WAV')!.trigger('click');
-  expect(create).toHaveBeenCalledTimes(1);
+  expect(create).toHaveBeenCalledTimes(2);
   await vi.waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:trim'));
   click.mockRestore();
+});
+
+it('moves the trim handles with the keyboard and keeps the inputs in sync', async () => {
+  vi.stubGlobal('File', NodeFile);
+  const file = new NodeFile([source()], 'original.wav', { type: 'audio/wav' });
+  const wrapper = mount(ReferenceEditor, { props: { file: file as unknown as File, maxBytes: 1000000 } });
+  await flushPromises();
+  await vi.waitFor(() => expect(wrapper.find('.reference-track').exists()).toBe(true));
+  const startHandle = wrapper.get('[role="slider"][aria-label="Trim start handle"]');
+  await startHandle.trigger('keydown', { key: 'ArrowRight' });
+  expect((wrapper.findAll('input[type="number"]')[0].element as HTMLInputElement).value).toBe('0.01');
+  expect(startHandle.attributes('aria-valuenow')).toBe('0.01');
+  const endHandle = wrapper.get('[role="slider"][aria-label="Trim end handle"]');
+  await endHandle.trigger('keydown', { key: 'ArrowLeft', shiftKey: true });
+  expect((wrapper.findAll('input[type="number"]')[1].element as HTMLInputElement).value).toBe('0.9');
 });
