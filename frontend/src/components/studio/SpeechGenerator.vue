@@ -4,6 +4,7 @@ import { t } from "../../i18n";
 import { useStudio } from "../../composables/useStudio";
 import { useSynthesis } from "../../composables/useSynthesis";
 import EmptyState from "../ui/EmptyState.vue";
+import SectionCard from "../ui/SectionCard.vue";
 import WaveformPlayer from "../audio/WaveformPlayer.vue";
 import type { PlayerHandle } from "../audio/playerTypes";
 import ModelSelector from "./ModelSelector.vue";
@@ -152,97 +153,100 @@ onBeforeUnmount(() => {
             @submit.prevent="generate()"
             :aria-busy="pending"
         >
-            <div class="form-group">
-                <div class="label-row">
-                    <label for="text">{{
-                        t("What would you like to say?")
-                    }}</label
-                    ><span id="charCount" class="char-count"
-                        >{{
-                            t(
-                                codepoints === 1
-                                    ? "{count} character"
-                                    : "{count} characters",
-                                { count: codepoints },
-                            )
-                        }}<template v-if="constraints">
-                            / {{ constraints.max_text_chars }}</template
-                        ><template v-if="bytesRelevant && constraints">
-                            · {{ textBytes }} /
-                            {{ constraints.max_body_bytes }} bytes</template
-                        ></span
-                    >
-                </div>
-                <textarea
-                    id="text"
-                    v-model="text"
-                    :placeholder="
-                        t(
-                            'A story, an idea, a welcome message… Start writing here.',
-                        )
-                    "
-                    :readonly="pending"
-                />
-            </div>
-            <SpokenPreview />
-            <div class="row">
-                <div class="field">
-                    <ModelSelector
-                        v-model="model"
-                        :models="models"
-                        :disabled="pending"
-                        @enable="emit('navigate', 'engines')"
-                    />
-                </div>
-                <div class="field">
-                    <label for="lang">{{ t("Language") }}</label
-                    ><select id="lang" v-model="language" :disabled="pending">
-                        <option
-                            v-for="code in languages"
-                            :key="code"
-                            :value="code"
+            <SectionCard>
+                <div class="form-group">
+                    <div class="label-row">
+                        <label for="text">{{
+                            t("What would you like to say?")
+                        }}</label
+                        ><span id="charCount" class="char-count" :aria-label="t(codepoints === 1 ? '{count} character' : '{count} characters', { count: codepoints })"
+                            >{{ codepoints }}<template v-if="constraints">
+                                / {{ constraints.max_text_chars }}</template
+                            ></span
                         >
-                            {{ t(`language.${code}`) }}
-                        </option>
-                    </select>
+                    </div>
+                    <textarea
+                        id="text"
+                        v-model="text"
+                        :placeholder="
+                            t(
+                                'A story, an idea, a welcome message… Start writing here.',
+                            )
+                        "
+                        :readonly="pending"
+                        rows="6"
+                    />
+                    <p v-if="bytesRelevant && constraints" class="field-hint">
+                        {{ textBytes }} / {{ constraints.max_body_bytes }} bytes
+                    </p>
                 </div>
-            </div>
-            <PronunciationSettings :disabled="pending" />
-            <EmptyState
-                v-if="selectedModel.cloned && !availableVoices.length"
-                :title="t('No voices for this model yet.')"
-                :hint="t('Create a voice to use this cloning model.')"
-            >
-                <button type="button" class="primary" @click="emit('navigate', 'voices')">
-                    {{ t("Create a voice") }}
-                </button>
-            </EmptyState>
-            <VoiceSelector
-                v-else
-                v-model="voice"
-                :voices="availableVoices"
-                :disabled="pending"
-            />
-            <AdvancedSampling
-                v-if="advancedAvailable"
-                :sampling="sampling"
-                :issues="samplingIssues"
-                :bounds="samplingBounds"
-                :pending="pending"
-                @reset="resetSampling"
-            />
-            <p v-if="!selectedModel.ready" class="help-note">
-                {{ t("This model is not ready. Check its status in Engines.") }}
-            </p>
-            <p v-if="active" class="help-note">
-                {{
-                    t("Previous generation: {text}", {
-                        text: active.input.text,
-                    })
-                }}
-                · {{ active.input.model }} · {{ active.input.voice }} ·
-                {{ active.input.language }}
-            </p>
+            </SectionCard>
+            <SpokenPreview />
+            <SectionCard :title="t('Model')">
+                <div class="control-grid">
+                    <div class="field">
+                        <ModelSelector
+                            v-model="model"
+                            :models="models"
+                            :disabled="pending"
+                            @enable="emit('navigate', 'engines')"
+                        />
+                    </div>
+                    <div class="field">
+                        <label for="lang">{{ t("Language") }}</label
+                        ><select id="lang" v-model="language" :disabled="pending">
+                            <option
+                                v-for="code in languages"
+                                :key="code"
+                                :value="code"
+                            >
+                                {{ t(`language.${code}`) }}
+                            </option>
+                        </select>
+                    </div>
+                </div>
+                <EmptyState
+                    v-if="selectedModel.cloned && !availableVoices.length"
+                    :title="t('No voices for this model yet.')"
+                    :hint="t('Create a voice to use this cloning model.')"
+                >
+                    <button type="button" class="primary" @click="emit('navigate', 'voices')">
+                        {{ t("Create a voice") }}
+                    </button>
+                </EmptyState>
+                <VoiceSelector
+                    v-else
+                    v-model="voice"
+                    :voices="availableVoices"
+                    :disabled="pending"
+                />
+                <p v-if="!selectedModel.ready" class="help-note">
+                    {{ t("This model is not ready. Check its status in Engines.") }}
+                </p>
+            </SectionCard>
+            <details class="advanced-options">
+                <summary>{{ t("Pronunciation") }}</summary>
+                <PronunciationSettings :disabled="pending" />
+                <AdvancedSampling
+                    v-if="advancedAvailable"
+                    :sampling="sampling"
+                    :issues="samplingIssues"
+                    :bounds="samplingBounds"
+                    :pending="pending"
+                    @reset="resetSampling"
+                />
+            </details>
+            <details v-if="active" class="prev-run">
+                <summary class="prev-run-summary">
+                    <span class="prev-run-text">{{
+                        t("Previous generation: {text}", {
+                            text: active.input.text,
+                        })
+                    }}</span>
+                    <span class="prev-run-meta"> · {{ active.input.model }} · {{ active.input.voice }} ·
+                    {{ active.input.language }}</span>
+                </summary>
+            </details>
             <div class="toolbar">
                 <button
                     id="btn"
@@ -287,7 +291,7 @@ onBeforeUnmount(() => {
                 </button>
             </div>
         </form>
-        <aside class="create-side" :aria-label="t('Result')">
+        <SectionCard :title="t('Result')" class="create-side">
             <GenerationStatus
                 :pending="pending"
                 :snapshot="snapshot"
@@ -325,6 +329,6 @@ onBeforeUnmount(() => {
                 @play="comparisonPlay"
                 @remove="removeResult"
             />
-        </aside>
+        </SectionCard>
     </div>
 </template>

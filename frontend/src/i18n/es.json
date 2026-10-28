@@ -173,6 +173,7 @@
   "Mode": "Modo",
   "Model": "Modelo",
   "Model directory": "Carpeta de modelos",
+  "Models": "Modelos",
   "Model load failed. Check server logs.": "No se pudo cargar el modelo. Revisa los registros del servidor.",
   "Model {model} is not ready — enable its engine first.": "El modelo {model} no está listo; primero activa su motor.",
   "Model: Supertonic 3": "Modelo: Supertonic 3",

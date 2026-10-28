@@ -173,6 +173,7 @@
   "Mode": "Mode",
   "Model": "Model",
   "Model directory": "Model directory",
+  "Models": "Models",
   "Model load failed. Check server logs.": "Model load failed. Check server logs.",
   "Model {model} is not ready — enable its engine first.": "Model {model} is not ready — enable its engine first.",
   "Model: Supertonic 3": "Model: Supertonic 3",
