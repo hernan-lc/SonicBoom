@@ -705,5 +705,6 @@
   "This could be a fraction, a date or a ratio, so it was left as written.": "This could be a fraction, a date or a ratio, so it was left as written.",
   "Number too large": "Number too large",
   "This number is too large to read out reliably, so it was left as written.": "This number is too large to read out reliably, so it was left as written.",
-  "This expression was left as written.": "This expression was left as written."
+  "This expression was left as written.": "This expression was left as written.",
+  "{done} of {total} fragments": "{done} of {total} fragments"
 }

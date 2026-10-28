@@ -136,7 +136,9 @@ never blocks the next inference.
 ## Instrumentation and profiling
 
 Authenticated `/api/providers` includes actual selected device, model residency,
-load count and Qwen conditioning counters. Jobs expose measured stage durations,
+load count and Qwen conditioning counters. Jobs expose measured stage durations (`generating`/`decoding`/`encoding` plus
+`normalization` at enqueue and `queue_wait` until the executor starts),
+fragment progress (`fragments_total`/`fragments_done` in original order),
 frames, elapsed time, timestamps and actual provider/model/voice/device context.
 Logs identify request paths and job IDs, not request bodies, query transcripts,
 credentials or recordings. No provider logs raw reference audio or transcripts

@@ -33,6 +33,12 @@ pub struct Progress {
     /// Deterministic quality report for the produced audio, when detection ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<QualityReport>,
+    /// Long-form fragment progress: total fragments of the request, when the
+    /// request was segmented, and how many fragments have completed audio.
+    /// `None` total means the request was never segmented (single unit).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragments_total: Option<usize>,
+    pub fragments_done: usize,
 }
 
 #[derive(Debug)]
@@ -61,6 +67,8 @@ impl InferenceControl {
                 updated_at: chrono::Utc::now(),
                 stage_secs: std::collections::BTreeMap::new(),
                 quality: None,
+                fragments_total: None,
+                fragments_done: 0,
             }),
         })
     }
@@ -100,6 +108,37 @@ impl InferenceControl {
         {
             context.seed = Some(seed.to_string());
         }
+    }
+    /// Declare how many independently completable fragments the request was
+    /// split into. Published before fragment synthesis starts so pollers and
+    /// SSE consumers can render total progress while audio is still pending.
+    pub fn set_fragments_total(&self, total: usize) {
+        let mut p = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        p.fragments_total = Some(total);
+        p.updated_at = chrono::Utc::now();
+    }
+    /// Mark fragment `index` (`0`-based) as completed. `fragments_done`
+    /// always tracks the highest completed prefix (`index + 1`), so a slow
+    /// consumer never observes reordered or duplicated completion.
+    pub fn set_fragment_done(&self, index: usize) {
+        let mut p = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        p.fragments_done = p.fragments_done.max(index.saturating_add(1));
+        if let Some(total) = p.fragments_total {
+            p.fragments_done = p.fragments_done.min(total);
+        }
+        p.updated_at = chrono::Utc::now();
+    }
+    /// Add a measured duration to a stage bucket without changing the current
+    /// stage. Used for work that happens outside staged inference, such as
+    /// text normalization at enqueue time and queue waiting before the
+    /// blocking task starts. Never carries user text.
+    pub fn record_stage_secs(&self, stage: &str, secs: f64) {
+        if !secs.is_finite() || secs <= 0.0 {
+            return;
+        }
+        let mut p = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        *p.stage_secs.entry(stage.into()).or_default() += secs;
+        p.updated_at = chrono::Utc::now();
     }
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
@@ -181,6 +220,35 @@ mod tests {
         control.set_seed(u64::MAX);
         let value = serde_json::to_value(control.snapshot()).unwrap();
         assert_eq!(value["context"]["seed"], "18446744073709551615");
+    }
+
+    #[test]
+    fn fragment_progress_is_ordered_and_clamped() {
+        let control = InferenceControl::new(Duration::from_secs(60));
+        assert_eq!(control.snapshot().fragments_total, None);
+        assert_eq!(control.snapshot().fragments_done, 0);
+        control.set_fragments_total(3);
+        control.set_fragment_done(1);
+        // Highest completed prefix wins; out-of-order completion never
+        // moves the counter backwards.
+        control.set_fragment_done(0);
+        let snapshot = control.snapshot();
+        assert_eq!(snapshot.fragments_total, Some(3));
+        assert_eq!(snapshot.fragments_done, 2);
+        control.set_fragment_done(99);
+        assert_eq!(control.snapshot().fragments_done, 3);
+    }
+
+    #[test]
+    fn stage_recording_ignores_non_positive_or_non_finite_durations() {
+        let control = InferenceControl::new(Duration::from_secs(60));
+        control.record_stage_secs("normalization", 0.5);
+        control.record_stage_secs("normalization", 0.0);
+        control.record_stage_secs("queue_wait", -1.0);
+        control.record_stage_secs("queue_wait", f64::NAN);
+        let snapshot = control.snapshot();
+        assert_eq!(snapshot.stage_secs.get("normalization"), Some(&0.5));
+        assert!(!snapshot.stage_secs.contains_key("queue_wait"));
     }
 
     #[test]

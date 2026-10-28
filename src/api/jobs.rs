@@ -109,6 +109,13 @@ pub struct JobStatus {
     /// for synthesis-only jobs, so the legacy contract is unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playback: Option<PlaybackStatus>,
+    /// Long-form fragment progress, mirrored from the execution control:
+    /// total fragments and completed fragments. Absent total means the
+    /// request was never segmented (single unit). Additive: legacy clients
+    /// ignore unknown fields, and `None` serializes to nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragments_total: Option<usize>,
+    pub fragments_done: usize,
 }
 impl JobStatus {
     fn terminal(&self) -> bool {
@@ -292,6 +299,8 @@ impl JobStore {
             status.updated_at = p.updated_at;
             status.stage_secs = p.stage_secs;
             status.quality = p.quality;
+            status.fragments_total = p.fragments_total;
+            status.fragments_done = p.fragments_done;
         }
         Ok(status)
     }
@@ -740,9 +749,14 @@ where
     // executor receives the prepared text. The legacy trimming matches the
     // synchronous routes.
     let language = job_speech_language(&state, &owner, &query).await?;
+    // Time exactly-once normalization separately from queueing and
+    // inference so baseline profiles can tell application overhead apart
+    // from model latency. The duration carries no user text.
+    let normalize_started = Instant::now();
     let speech = query
         .speech_options()
         .prepare(&config, &language, body.trim())?;
+    let normalization_secs = normalize_started.elapsed().as_secs_f64();
     let fingerprint = request_fingerprint(&query, &body, &playback, speech.identity());
     // Pin the language the text was prepared for, so the executor cannot
     // resolve a different one later.
@@ -768,6 +782,7 @@ where
         config.inference.generation_deadline_secs,
     ));
     let id = control.id.clone();
+    control.record_stage_secs("normalization", normalization_secs);
     let now = chrono::Utc::now();
     let status = JobStatus {
         id: id.clone(),
@@ -785,6 +800,8 @@ where
         stage_secs: std::collections::BTreeMap::new(),
         quality: None,
         playback: None,
+        fragments_total: None,
+        fragments_done: 0,
     };
     {
         // Re-check under the idempotency lock and insert atomically: two
@@ -830,6 +847,7 @@ where
             );
         }
     }
+    let admitted_at = Instant::now();
     tokio::spawn(async move {
         let job_id = id.clone();
         #[cfg(feature = "playback")]
@@ -837,6 +855,10 @@ where
         let execution = tokio::spawn(ADMISSION.scope(
             std::cell::RefCell::new(Some(admission)),
             ACTIVE.scope(control.clone(), async move {
+                // Queue wait covers admission reservation until the executor
+                // actually starts: waiting jobs are distinguished from
+                // executing inference in every profile and progress snapshot.
+                control.record_stage_secs("queue_wait", admitted_at.elapsed().as_secs_f64());
                 let response = execute(token, state, query, body, speech).await?;
                 let content_type = response
                     .headers()
@@ -873,6 +895,8 @@ where
                 j.status.audio_secs = p.audio_secs;
                 j.status.rtf = p.audio_secs.map(|audio| p.elapsed_secs / audio);
                 j.status.stage_secs = p.stage_secs;
+                j.status.fragments_total = p.fragments_total;
+                j.status.fragments_done = p.fragments_done;
                 Some(j.control.stopped())
             } else {
                 // Entry vanished mid-completion (only expiry removes entries,
@@ -1436,6 +1460,8 @@ mod tests {
                     stage_secs: Default::default(),
                     quality: None,
                     playback: None,
+                    fragments_total: None,
+                    fragments_done: 0,
                 },
                 finished: Some(Instant::now()),
                 retention: Duration::ZERO,
@@ -1449,6 +1475,29 @@ mod tests {
         assert_eq!(store.snapshot("id", "alice").unwrap().stage, "failed");
         store.reap_locked(&mut store.entries.lock().unwrap());
         assert!(store.snapshot("id", "alice").is_err());
+    }
+
+    #[test]
+    fn snapshots_merge_live_fragment_progress_and_serialize_additively() {
+        let store = JobStore::default();
+        let (id, job) = unfinished_job("alice", Duration::from_secs(60));
+        job.control.set_fragments_total(4);
+        job.control.set_fragment_done(1);
+        store.entries.lock().unwrap().insert(id.clone(), job);
+        // The stored status still has the init values; the live control
+        // wins for non-terminal jobs, in original order.
+        let snapshot = store.snapshot(&id, "alice").unwrap();
+        assert_eq!(snapshot.fragments_total, Some(4));
+        assert_eq!(snapshot.fragments_done, 2);
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["fragments_total"], 4);
+        assert_eq!(value["fragments_done"], 2);
+        // Single-unit requests omit the total, so legacy clients observe no
+        // new field; the zero count stays explicit.
+        let (_, single) = unfinished_job("alice", Duration::from_secs(60));
+        let value = serde_json::to_value(&single.status).unwrap();
+        assert!(value.get("fragments_total").is_none());
+        assert_eq!(value["fragments_done"], 0);
     }
 
     fn unfinished_job(owner: &str, retention: Duration) -> (String, Job) {
@@ -1474,6 +1523,8 @@ mod tests {
                 stage_secs: Default::default(),
                 quality: None,
                 playback: None,
+                fragments_total: None,
+                fragments_done: 0,
             },
             finished: None,
             retention,

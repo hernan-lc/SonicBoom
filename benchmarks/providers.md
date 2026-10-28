@@ -96,8 +96,28 @@ nonzero, quarter-second RMS trace
 
 - BC-250 (`gfx1013`) CPU rows for both providers.
 - NVIDIA RTX 3060 CUDA rows for Qwen.
+- Fragmented long-form runs reporting `fragments_total`/`fragments_done`
+  with per-fragment completion order (backend support landed; no measured
+  rows yet).
 - ~~GPT-SoVITS Chinese (`zh`) model-backed run~~ — retired with the provider.
 - ~~GPT-SoVITS-only peak RSS (VmHWM capture)~~ — retired with the provider.
+
+## Per-stage breakdown (job API; no model needed to read it)
+
+Every job snapshot and SSE event now separates application overhead from
+model latency, so baselines can attribute time without guessing:
+
+- `stage_secs.normalization` — exactly-once text preparation at enqueue.
+- `stage_secs.queue_wait` — admission reservation until the executor starts
+  (waiting vs. executing, per Phase 5).
+- `stage_secs.generating` / `decoding` / `encoding` — native inference stages.
+- `fragments_total` / `fragments_done` — segmented long-form progress in
+  original order (`total` absent for single-unit requests).
+
+Capture a reproducible baseline without audio hardware using the mock-job
+regression path (`cargo test --bin SonicBoom -- api::jobs`), then record
+real-model rows on the target hardware with the pinned revisions in
+`docs/providers.md`, following the table shape above. Never invent rows.
 
 
 ## 2026-10-13 BC-250 refactor measurements

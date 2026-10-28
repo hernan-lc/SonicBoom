@@ -705,5 +705,6 @@
   "This could be a fraction, a date or a ratio, so it was left as written.": "Puede ser una fracción, una fecha o una proporción, así que se dejó como está escrito.",
   "Number too large": "Número demasiado grande",
   "This number is too large to read out reliably, so it was left as written.": "Este número es demasiado grande para leerlo con fiabilidad, así que se dejó como está escrito.",
-  "This expression was left as written.": "Esta expresión se dejó como está escrita."
+  "This expression was left as written.": "Esta expresión se dejó como está escrita.",
+  "{done} of {total} fragments": "{done} de {total} fragmentos"
 }

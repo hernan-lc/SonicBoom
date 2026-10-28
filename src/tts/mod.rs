@@ -10,6 +10,7 @@ pub mod providers;
 pub mod quality;
 #[cfg(feature = "playback")]
 pub mod queue;
+pub mod segmentation;
 pub mod text;
 pub mod voices;
 

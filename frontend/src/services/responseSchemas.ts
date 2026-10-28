@@ -85,6 +85,7 @@ const qualitySchema: z.ZodType<QualityReport> = z.object({
 });
 export const jobSchema: z.ZodType<Job> = z.object({
   id: z.string().optional(), stage: z.string().min(1), elapsed_secs: optionalNumber, audio_secs: optionalNumber, rtf: optionalNumber, frames: optionalNumber,
+  fragments_total: optionalNumber, fragments_done: optionalNumber,
   cancellation_requested: z.boolean().optional(), deadline_exceeded: z.boolean().optional(), error: optionalString,
   quality: qualitySchema.nullish().transform(value => value ?? undefined),
   context: z.object({ provider: z.string(), model: z.string(), voice: z.string(), effective_device: z.string(), seed: optionalString }).nullish().transform(value => value ?? undefined),

@@ -174,20 +174,28 @@ pub fn synthesize(
     let chunk_size = cfg.ae.base_chunk_size * cfg.ttl.chunk_compress_factor;
     let latent_dim_eff = cfg.ttl.latent_dim * cfg.ttl.chunk_compress_factor;
 
-    let chunks = crate::tts::text::TextProcessor::split_sentences_with_limit(text, max_chunk_chars);
+    // Long text is segmented through the shared policy interface after the
+    // caller normalized the full text once, so numbers and dates spanning a
+    // potential boundary were expanded before any cut. Chunking output is
+    // identical to the previous direct call; only fragment tracking is new.
+    let policy = crate::tts::segmentation::SegmentPolicy::supertonic(max_chunk_chars);
+    let fragments = crate::tts::segmentation::segment_text(text, &policy);
+    if let Some(control) = crate::tts::control::current() {
+        control.set_fragments_total(fragments.len());
+    }
     let sample_rate_u32 = sample_rate as u32;
     let request_budget = max_request_samples(sample_rate_u32)?;
     let mut total_samples: usize = 0;
     let mut all_samples: Vec<f32> = Vec::new();
 
-    for (i, chunk) in chunks.iter().enumerate() {
+    for fragment in fragments.iter() {
         if let Some(control) = crate::tts::control::current() {
             anyhow::ensure!(
                 !control.stopped(),
                 "inference cancelled or deadline exceeded"
             );
         }
-        if i > 0 {
+        if fragment.index > 0 {
             // 0.2 seconds of silence between chunks (checked arithmetic;
             // counted against the whole-request budget like chunk audio).
             let silence = inter_chunk_silence_samples(sample_rate_u32)?;
@@ -195,7 +203,7 @@ pub fn synthesize(
             all_samples.extend(vec![0.0f32; silence]);
         }
         // Reference: wrap with language tag and add period at the end
-        let tagged = preprocess_chunk(chunk, lang);
+        let tagged = preprocess_chunk(&fragment.text, lang);
         let chunk_samples = synthesize_chunk(
             model,
             &tagged,
@@ -208,6 +216,12 @@ pub fn synthesize(
         total_samples =
             checked_accumulate_samples(total_samples, chunk_samples.len(), request_budget)?;
         all_samples.extend(chunk_samples);
+        // Publish per-fragment completion in original order so progress
+        // consumers can render TTFA-adjacent readiness while later
+        // fragments still generate.
+        if let Some(control) = crate::tts::control::current() {
+            control.set_fragment_done(fragment.index);
+        }
     }
 
     Ok(all_samples)

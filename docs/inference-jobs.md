@@ -114,6 +114,17 @@ native stage: Pocket TTS reports sentence-level generation, including its
 Mimi decoding, rather than inventing fine-grained progress. Frame counts refer to
 Qwen codec frames; Supertonic denoising iterations are not labeled frames.
 
+Long-form requests are segmented after exactly-once normalization through the
+shared policy interface (`src/tts/segmentation.rs`; Supertonic uses the
+character-bounded sentence policy with `tts.max_chunk_chars`, Pocket TTS its
+tokenizer-aware splitter). Every status snapshot and SSE event carries
+`fragments_total` (absent for single-unit requests) and `fragments_done`
+(highest completed prefix, in original order), so clients can render
+fragment-level progress while later fragments still generate. `stage_secs`
+additionally records `normalization` (exactly-once preparation at enqueue)
+and `queue_wait` (admission reservation until the executor starts), keeping
+application overhead separate from model latency in every profile.
+
 `cancellation_requested` and `deadline_exceeded` describe stop requests.
 The terminal `cancelled` state is published only after execution has actually
 returned. Cancelling completed/failed/cancelled jobs preserves terminal state.
