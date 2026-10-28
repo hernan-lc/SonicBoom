@@ -706,5 +706,17 @@
   "Number too large": "Number too large",
   "This number is too large to read out reliably, so it was left as written.": "This number is too large to read out reliably, so it was left as written.",
   "This expression was left as written.": "This expression was left as written.",
-  "{done} of {total} fragments": "{done} of {total} fragments"
+  "{done} of {total} fragments": "{done} of {total} fragments",
+  "Search…": "Search…",
+  "No results.": "No results.",
+  "Show options": "Show options",
+  "Search models": "Search models",
+  "Search engines": "Search engines",
+  "Search languages": "Search languages",
+  "No models match this search.": "No models match this search.",
+  "Show unavailable models ({count})": "Show unavailable models ({count})",
+  "Unavailable models": "Unavailable models",
+  "No voices for this model yet.": "No voices for this model yet.",
+  "Create a voice to use this cloning model.": "Create a voice to use this cloning model.",
+  "Create a voice": "Create a voice"
 }

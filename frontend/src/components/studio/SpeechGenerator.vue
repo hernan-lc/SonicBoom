@@ -3,14 +3,17 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { t } from "../../i18n";
 import { useStudio } from "../../composables/useStudio";
 import { useSynthesis } from "../../composables/useSynthesis";
+import EmptyState from "../ui/EmptyState.vue";
 import WaveformPlayer from "../audio/WaveformPlayer.vue";
 import type { PlayerHandle } from "../audio/playerTypes";
+import ModelSelector from "./ModelSelector.vue";
 import VoiceSelector from "./VoiceSelector.vue";
 import PronunciationSettings from "./PronunciationSettings.vue";
 import SpokenPreview from "./SpokenPreview.vue";
 import AdvancedSampling from "./AdvancedSampling.vue";
 import GenerationStatus from "./GenerationStatus.vue";
 import ResultComparison from "./ResultComparison.vue";
+const emit = defineEmits<{ navigate: [tab: "voices" | "engines"] }>();
 const studio = useStudio();
 const {
     text,
@@ -184,17 +187,12 @@ onBeforeUnmount(() => {
             <SpokenPreview />
             <div class="row">
                 <div class="field">
-                    <label for="model">{{ t("Model") }}</label
-                    ><select id="model" v-model="model" :disabled="pending">
-                        <option
-                            v-for="item in models"
-                            :key="item.id"
-                            :value="item.id"
-                        >
-                            {{ item.id }} ·
-                            {{ t(item.ready ? "ready" : "Not ready") }}
-                        </option>
-                    </select>
+                    <ModelSelector
+                        v-model="model"
+                        :models="models"
+                        :disabled="pending"
+                        @enable="emit('navigate', 'engines')"
+                    />
                 </div>
                 <div class="field">
                     <label for="lang">{{ t("Language") }}</label
@@ -210,7 +208,17 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <PronunciationSettings :disabled="pending" />
+            <EmptyState
+                v-if="selectedModel.cloned && !availableVoices.length"
+                :title="t('No voices for this model yet.')"
+                :hint="t('Create a voice to use this cloning model.')"
+            >
+                <button type="button" class="primary" @click="emit('navigate', 'voices')">
+                    {{ t("Create a voice") }}
+                </button>
+            </EmptyState>
             <VoiceSelector
+                v-else
                 v-model="voice"
                 :voices="availableVoices"
                 :disabled="pending"

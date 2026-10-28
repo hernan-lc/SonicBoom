@@ -34,7 +34,7 @@
   border-radius: var(--radius);
   width: var(--reka-combobox-trigger-width);
   max-width: 94vw;
-  z-index: 50;
+  z-index: 120;
 }
 .voice-combobox-viewport {
   position: relative;

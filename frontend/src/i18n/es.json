@@ -706,5 +706,17 @@
   "Number too large": "Número demasiado grande",
   "This number is too large to read out reliably, so it was left as written.": "Este número es demasiado grande para leerlo con fiabilidad, así que se dejó como está escrito.",
   "This expression was left as written.": "Esta expresión se dejó como está escrita.",
-  "{done} of {total} fragments": "{done} de {total} fragmentos"
+  "{done} of {total} fragments": "{done} de {total} fragmentos",
+  "Search…": "Buscar…",
+  "No results.": "Sin resultados.",
+  "Show options": "Mostrar opciones",
+  "Search models": "Buscar modelos",
+  "Search engines": "Buscar motores",
+  "Search languages": "Buscar idiomas",
+  "No models match this search.": "No hay modelos que coincidan con esta búsqueda.",
+  "Show unavailable models ({count})": "Mostrar modelos no disponibles ({count})",
+  "Unavailable models": "Modelos no disponibles",
+  "No voices for this model yet.": "Todavía no hay voces para este modelo.",
+  "Create a voice to use this cloning model.": "Crea una voz para usar este modelo de clonación.",
+  "Create a voice": "Crear una voz"
 }

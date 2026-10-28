@@ -4,6 +4,8 @@ import { ref } from 'vue';
 import { File as NodeFile } from 'node:buffer';
 import CloneWizard from '../../src/components/studio/CloneWizard.vue';
 import FileDropzone from '../../src/components/ui/FileDropzone.vue';
+// jsdom has no layout engine; the combobox popper scrolls its highlighted item into view.
+Element.prototype.scrollIntoView ??= () => {};
 const mock = vi.hoisted(() => ({ studio: null as any }));
 vi.mock('../../src/composables/useStudio', () => ({ useStudio: () => mock.studio }));
 const constraints = { version: 1, max_upload_bytes: 1_000_000, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'pocket-tts': { duration_seconds: [1, 30], models: ['pocket-tts-en'], languages: ['en'], clone_modes: ['audio_prompt'], transcript_required_for: [] } } };
@@ -27,6 +29,17 @@ afterEach(() => { wrapper.unmount(); vi.unstubAllGlobals(); });
 async function reference(file: File) {
   await wrapper.get('form').trigger('submit');
   wrapper.getComponent(FileDropzone).vm.$emit('select', file);
+  await flushPromises();
+}
+/** Pick an option from the searchable combobox, which portals its list to the body. */
+async function choose(id: string, label: string) {
+  await wrapper.get(id).trigger('click');
+  await flushPromises();
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+    item.textContent?.includes(label),
+  );
+  if (!option) throw new Error(`Option not found: ${label}`);
+  option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await flushPromises();
 }
 describe('cloning wizard', () => {
@@ -105,8 +118,8 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   await reference(wav());
   // Return to engine selection after choosing a Pocket recording.
   await wrapper.findAll('button').find(button => button.text() === 'Back')!.trigger('click');
-  await wrapper.get('#cloneProvider').setValue('qwen3-gguf'); await flushPromises();
-  expect((wrapper.get('#cloneModel').element as HTMLSelectElement).value).toBe('qwen-base');
+  await choose('#cloneProvider', 'qwen3-gguf');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('qwen-base');
   await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('form').trigger('submit'); await flushPromises();
   expect(wrapper.get('#cloneTranscript').attributes('aria-invalid')).toBe('true');

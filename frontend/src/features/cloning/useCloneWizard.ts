@@ -263,6 +263,7 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
     transcript,
     file,
     choices,
+    providers,
     cap,
     languages,
     needsTranscript,
