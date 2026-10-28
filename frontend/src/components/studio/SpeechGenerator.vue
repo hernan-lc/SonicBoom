@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { t, renderMessage } from "../../i18n";
+import { t } from "../../i18n";
 import { useStudio } from "../../composables/useStudio";
 import { useSynthesis } from "../../composables/useSynthesis";
-import NumberField from "../ui/NumberField.vue";
 import WaveformPlayer from "../audio/WaveformPlayer.vue";
+import type { PlayerHandle } from "../audio/playerTypes";
 import VoiceSelector from "./VoiceSelector.vue";
 import PronunciationSettings from "./PronunciationSettings.vue";
 import SpokenPreview from "./SpokenPreview.vue";
+import AdvancedSampling from "./AdvancedSampling.vue";
+import GenerationStatus from "./GenerationStatus.vue";
+import ResultComparison from "./ResultComparison.vue";
 const studio = useStudio();
 const {
     text,
@@ -42,10 +45,6 @@ const {
     resume,
     cancel,
 } = useSynthesis(studio);
-type PlayerHandle = {
-    play: () => Promise<unknown> | undefined;
-    pause: () => void;
-};
 const player = ref<PlayerHandle | null>(null);
 const comparisons = new Map<string, PlayerHandle>();
 function registerComparison(id: string, handle: PlayerHandle | null) {
@@ -63,8 +62,6 @@ function comparisonPlay(id: string) {
 watch(pending, (value) => {
     if (value) pauseComparisons();
 });
-const advancedOpen = ref(false);
-const predictorOpen = ref(false);
 const languages = computed(() => selectedModel.value.languages);
 // Advanced controls only exist for the Qwen3-TTS cloning engine.
 const advancedAvailable = computed(
@@ -140,9 +137,6 @@ watch(
     },
     { flush: "sync" },
 );
-watch(advancedAvailable, (value) => {
-    if (!value) advancedOpen.value = false;
-});
 onBeforeUnmount(() => {
     detachPlayback();
     pauseComparisons();
@@ -221,206 +215,14 @@ onBeforeUnmount(() => {
                 :voices="availableVoices"
                 :disabled="pending"
             />
-            <details
+            <AdvancedSampling
                 v-if="advancedAvailable"
-                id="advancedGeneration"
-                :open="advancedOpen"
-                @toggle="
-                    advancedOpen = ($event.target as HTMLDetailsElement).open
-                "
-            >
-                <summary>{{ t("Advanced generation settings") }}</summary>
-                <p class="help-note">
-                    {{
-                        t(
-                            "Sampling presets, a fixed seed and quality detection. Defaults reproduce the stock behavior; changes are experimental.",
-                        )
-                    }}
-                </p>
-                <div class="row">
-                    <div class="field">
-                        <label for="samplingPreset">{{ t("Preset") }}</label
-                        ><select
-                            id="samplingPreset"
-                            v-model="sampling.preset"
-                            :disabled="pending"
-                        >
-                            <option value="balanced">
-                                {{ t("balanced") }}
-                            </option>
-                            <option value="stable">{{ t("stable") }}</option>
-                            <option value="expressive">
-                                {{ t("expressive") }}
-                            </option>
-                            <option value="custom">{{ t("custom") }}</option>
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label for="samplingSeed">{{
-                            t("Seed (optional)")
-                        }}</label
-                        ><input
-                            id="samplingSeed"
-                            v-model="sampling.seed"
-                            maxlength="20"
-                            :aria-invalid="!!samplingIssues.seed || undefined"
-                            aria-describedby="seed-error"
-                            inputmode="numeric"
-                            autocomplete="off"
-                            :placeholder="t('random')"
-                            :disabled="pending"
-                        />
-                    </div>
-                    <div class="field">
-                        <label for="qualityMode">{{
-                            t("Quality detection")
-                        }}</label
-                        ><select
-                            id="qualityMode"
-                            v-model="sampling.quality"
-                            :disabled="pending"
-                        >
-                            <option value="">{{ t("Server default") }}</option>
-                            <option value="off">{{ t("off") }}</option>
-                            <option value="report">{{ t("report") }}</option>
-                            <option value="retry">{{ t("retry") }}</option>
-                        </select>
-                    </div>
-                </div>
-                <fieldset :disabled="pending">
-                    <legend>{{ t("Talker sampling") }}</legend>
-                    <div class="row">
-                        <NumberField
-                            id="talkerTemperature"
-                            v-model="sampling.talkerTemperature"
-                            :label="t('Temperature')"
-                            :bounds="samplingBounds?.temperature"
-                            :error="
-                                samplingIssues.talkerTemperature
-                                    ? t(samplingIssues.talkerTemperature)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="talkerTopK"
-                            v-model="sampling.talkerTopK"
-                            :label="t('Top K')"
-                            :bounds="samplingBounds?.top_k"
-                            :error="
-                                samplingIssues.talkerTopK
-                                    ? t(samplingIssues.talkerTopK)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="talkerTopP"
-                            v-model="sampling.talkerTopP"
-                            :label="t('Top P')"
-                            :bounds="samplingBounds?.top_p"
-                            :error="
-                                samplingIssues.talkerTopP
-                                    ? t(samplingIssues.talkerTopP)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="talkerRepetitionPenalty"
-                            v-model="sampling.talkerRepetitionPenalty"
-                            :label="t('Repetition penalty')"
-                            :bounds="samplingBounds?.repetition_penalty"
-                            :error="
-                                samplingIssues.talkerRepetitionPenalty
-                                    ? t(samplingIssues.talkerRepetitionPenalty)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                    </div>
-                </fieldset>
-                <p
-                    v-if="samplingIssues.seed"
-                    id="seed-error"
-                    class="field-error"
-                    role="alert"
-                >
-                    {{ t(samplingIssues.seed) }}
-                </p>
-                <details
-                    id="predictorSampling"
-                    :open="predictorOpen"
-                    @toggle="
-                        predictorOpen = ($event.target as HTMLDetailsElement)
-                            .open
-                    "
-                >
-                    <summary>{{ t("Predictor sampling (advanced)") }}</summary>
-                    <div class="row">
-                        <NumberField
-                            id="predictorTemperature"
-                            v-model="sampling.predictorTemperature"
-                            :label="t('Temperature')"
-                            :bounds="samplingBounds?.temperature"
-                            :error="
-                                samplingIssues.predictorTemperature
-                                    ? t(samplingIssues.predictorTemperature)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="predictorTopK"
-                            v-model="sampling.predictorTopK"
-                            :label="t('Top K')"
-                            :bounds="samplingBounds?.top_k"
-                            :error="
-                                samplingIssues.predictorTopK
-                                    ? t(samplingIssues.predictorTopK)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="predictorTopP"
-                            v-model="sampling.predictorTopP"
-                            :label="t('Top P')"
-                            :bounds="samplingBounds?.top_p"
-                            :error="
-                                samplingIssues.predictorTopP
-                                    ? t(samplingIssues.predictorTopP)
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                        <NumberField
-                            id="predictorRepetitionPenalty"
-                            v-model="sampling.predictorRepetitionPenalty"
-                            :label="t('Repetition penalty')"
-                            :bounds="samplingBounds?.repetition_penalty"
-                            :error="
-                                samplingIssues.predictorRepetitionPenalty
-                                    ? t(
-                                          samplingIssues.predictorRepetitionPenalty,
-                                      )
-                                    : undefined
-                            "
-                            :disabled="pending"
-                        />
-                    </div>
-                </details>
-                <div class="toolbar">
-                    <button
-                        id="resetSampling"
-                        type="button"
-                        :disabled="pending"
-                        @click="resetSampling"
-                    >
-                        {{ t("Reset to defaults") }}
-                    </button>
-                </div>
-            </details>
+                :sampling="sampling"
+                :issues="samplingIssues"
+                :bounds="samplingBounds"
+                :pending="pending"
+                @reset="resetSampling"
+            />
             <p v-if="!selectedModel.ready" class="help-note">
                 {{ t("This model is not ready. Check its status in Engines.") }}
             </p>
@@ -478,109 +280,15 @@ onBeforeUnmount(() => {
             </div>
         </form>
         <aside class="create-side" :aria-label="t('Result')">
-            <div id="status" role="status" aria-live="polite">
-                <progress
-                    v-if="pending"
-                    class="generate-progress"
-                    :aria-label="t('Generating…')"
-                /><template v-if="pending && snapshot"
-                    ><span v-if="snapshot.context"
-                        >{{ snapshot.context.model }} ·
-                        {{ snapshot.context.effective_device }} · </span
-                    >{{ t(snapshot.stage) }} ·
-                    {{
-                        t("{seconds}s elapsed", {
-                            seconds: Math.floor(snapshot.elapsed_secs || 0),
-                        })
-                    }}<span v-if="snapshot.frames">
-                        ·
-                        {{
-                            t("{count} generated frames", {
-                                count: snapshot.frames,
-                            })
-                        }}</span
-                    ><span v-if="snapshot.fragments_total">
-                        ·
-                        {{
-                            t("{done} of {total} fragments", {
-                                done: snapshot.fragments_done ?? 0,
-                                total: snapshot.fragments_total,
-                            })
-                        }}</span
-                    >
-                    <p
-                        v-if="
-                            snapshot.context?.provider === 'qwen3-gguf' &&
-                            snapshot.context.effective_device === 'cpu'
-                        "
-                        class="muted"
-                    >
-                        {{ t("CPU inference can be slow.") }}
-                    </p></template
-                ><span v-if="complete">{{
-                    t("Completed. Audio is ready to play or download.")
-                }}</span>
-            </div>
-            <details v-if="snapshot?.context" id="generationDiagnostics">
-                <summary>{{ t("Generation diagnostics") }}</summary>
-                <p>
-                    {{ snapshot.context.provider }} ·
-                    {{ snapshot.context.model }} ·
-                    {{ snapshot.context.effective_device }} ·
-                    {{ snapshot.context.voice }}
-                </p>
-                <p v-if="snapshot.audio_secs">
-                    {{
-                        t("Generated duration: {seconds}s", {
-                            seconds: snapshot.audio_secs.toFixed(2),
-                        })
-                    }}
-                    · RTF {{ snapshot.rtf?.toFixed(2) ?? "—" }}
-                </p>
-                <p v-if="snapshot.context.seed">
-                    {{ t("Seed: {seed}", { seed: snapshot.context.seed }) }}
-                </p>
-                <p v-else>{{ t("Seed: not exposed by this API") }}</p>
-                <p v-if="quality">
-                    {{
-                        t("Sampling preset: {preset}", { preset: quality.mode })
-                    }}
-                    ·
-                    {{
-                        t("Quality: {status}", {
-                            status: quality.quality_status,
-                        })
-                    }}
-                    ·
-                    {{
-                        t("Warnings: {count}", { count: qualityIssues.length })
-                    }}
-                    · {{ t("Retries: {count}", { count: quality.retries }) }}
-                </p>
-                <ul v-if="qualityIssues.length" class="quality-issues">
-                    <li v-for="issue in qualityIssues" :key="issue.kind">
-                        {{
-                            t("{kind}: {detail}", {
-                                kind: issue.kind,
-                                detail: issue.detail,
-                            })
-                        }}
-                    </li>
-                </ul>
-                <p v-if="quality?.echo?.asr_required" class="muted">
-                    {{
-                        t(
-                            "Reference-echo detection needs an offline ASR transcript; none is claimed here.",
-                        )
-                    }}
-                </p>
-            </details>
-            <p v-if="error" role="alert" class="feedback error">
-                {{ renderMessage(error) }}
-                <span v-if="jobId">{{
-                    t("Use Resume monitoring or Cancel generation.")
-                }}</span>
-            </p>
+            <GenerationStatus
+                :pending="pending"
+                :snapshot="snapshot"
+                :complete="complete"
+                :quality="quality"
+                :quality-issues="qualityIssues"
+                :error="error"
+                :job-id="jobId"
+            />
             <template v-if="audioUrl"
                 ><WaveformPlayer
                     id="player"
@@ -603,70 +311,12 @@ onBeforeUnmount(() => {
                     )
                 }}
             </p>
-            <details v-if="results.length > 1" id="resultComparison">
-                <summary>{{ t("Compare generated versions") }}</summary>
-                <ul class="result-list">
-                    <li v-for="(result, index) in results" :key="result.jobId">
-                        <WaveformPlayer
-                            :ref="
-                                (handle) =>
-                                    registerComparison(
-                                        result.jobId,
-                                        handle as PlayerHandle | null,
-                                    )
-                            "
-                            :blob="result.blob"
-                            :label="
-                                t('Generated version {version}', {
-                                    version: index + 1,
-                                })
-                            "
-                            compact
-                            @play="comparisonPlay(result.jobId)"
-                        />
-                        <span class="muted"
-                            >{{ result.text.slice(0, 80) }} ·
-                            {{ result.voice }} ·
-                            {{ t(`language.${result.language}`) }} ·
-                            {{ result.model }} ·
-                            {{
-                                t("{seconds}s", {
-                                    seconds: result.durationSecs.toFixed(2),
-                                })
-                            }}<template v-if="result.preset">
-                                ·
-                                {{
-                                    t("Preset: {preset}", {
-                                        preset: result.preset,
-                                    })
-                                }}</template
-                            ><template v-if="result.seed">
-                                ·
-                                {{
-                                    t("Seed: {seed}", { seed: result.seed })
-                                }}</template
-                            ><template v-if="result.quality">
-                                ·
-                                {{
-                                    t("Quality: {status}", {
-                                        status: result.quality.quality_status,
-                                    })
-                                }}</template
-                            ></span
-                        >
-                        <a :href="result.url" :download="result.filename">{{
-                            t("Download")
-                        }}</a>
-                        <button
-                            type="button"
-                            class="btn-inline"
-                            @click="removeResult(index)"
-                        >
-                            {{ t("Remove") }}
-                        </button>
-                    </li>
-                </ul>
-            </details>
+            <ResultComparison
+                :results="results"
+                :register="registerComparison"
+                @play="comparisonPlay"
+                @remove="removeResult"
+            />
         </aside>
     </div>
 </template>
