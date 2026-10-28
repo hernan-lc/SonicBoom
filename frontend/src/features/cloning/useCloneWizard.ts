@@ -1,10 +1,12 @@
 import { computed, ref, watch, onBeforeUnmount, reactive, nextTick } from 'vue';
-import { t, uiError, msg, renderMessage, errorMessage, computedMessage, type Message } from '../../i18n';
+import { uiError, msg, renderMessage, errorMessage, type Message } from '../../i18n';
 import { useStudio } from '../../composables/useStudio';
-import { modelLanguages } from '../../services/providerLanguages';
 import { ApiError } from '../../services/http';
 import { useTask } from '../../composables/useTask';
 import { validateReference, type ReferenceMetadata } from './validateReference';
+import { referenceMessage } from './referenceMessages';
+import { useCloneSelection } from './useCloneSelection';
+import { cloneFieldIssues, stepForField } from './cloneApiErrors';
 import type { VoiceCreateResult, VoiceConstraints } from '../../services/contracts';
 
 export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
@@ -58,68 +60,16 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
       document.getElementById(Object.keys(fieldIssues)[0])?.focus();
     }
   });
-  const step = ref(0);
-  const provider = ref('');
-  const model = ref('');
-  const language = ref('en');
-  const mode = ref('icl');
+  const { step, provider, model, language, mode, choices, cap, languages, needsTranscript, engineReady } =
+    useCloneSelection(capabilities, providers, limits);
   const referenceWarnings = ref<string[]>([]);
   const referenceDefects = ref<string[]>([]);
   const referenceGuidance = ref<string[]>([]);
-  function referenceMessage(code: string) {
-    const messages: Record<string, string> = {
-      reference_nearly_silent: 'The reference recording is nearly silent. Choose a clearer recording.',
-      reference_heavily_clipped: 'The reference recording has heavy clipping. Try recording at a lower input level.',
-      reference_large_dc_offset: 'The reference recording has a large DC offset. Check the recording source.',
-      reference_non_finite_samples:
-        'The reference recording contains invalid (non-finite) samples and must be replaced.',
-      reference_unusually_quiet: 'The reference recording is unusually quiet. Increase the recording level.',
-      reference_ends_during_speech:
-        'The recording appears to end during speech. A little trailing silence may help cloning.',
-      reference_possible_background_noise:
-        'The reference may contain background noise. A quieter recording is recommended.',
-      reference_short_for_cloning: 'A 5-10 second recording usually clones better than this short clip.',
-      reference_leading_silence: 'The recording starts with a long silence.',
-      reference_trailing_silence: 'The recording ends with a long silence.',
-    };
-    return t(messages[code] || code);
-  }
   const originalFile = ref<File | null>(null);
   const name = ref('');
   const consent = ref('');
   const transcript = ref('');
   const file = ref<File | null>(null);
-  const choices = computed(() => capabilities.value.filter((cap) => cap.requires_reference_audio));
-  const cap = computed(() => choices.value.find((item) => item.provider_id === provider.value));
-  const languages = computed(() => modelLanguages(cap.value, model.value));
-  watch(languages, (value) => {
-    if (!value.includes(language.value)) language.value = value[0] || 'en';
-  });
-  const needsTranscript = computed(() => {
-    const constraint = limits.value?.providers[provider.value];
-    return constraint
-      ? constraint.transcript_required_for.includes(mode.value)
-      : mode.value === 'icl' || !!cap.value?.requires_reference_transcript;
-  });
-  const engineReady = computed(() =>
-    providers.value.some((item) => item.provider_id === provider.value && item.state === 'ready'),
-  );
-  watch(
-    choices,
-    (value) => {
-      if (!value.some((item) => item.provider_id === provider.value)) provider.value = value[0]?.provider_id || '';
-    },
-    { immediate: true },
-  );
-  watch(
-    cap,
-    (value) => {
-      if (!value?.models.includes(model.value)) model.value = value?.models[0] || '';
-      if (!value?.languages.includes(language.value)) language.value = value?.languages[0] || 'en';
-      if (!value?.clone_modes.includes(mode.value)) mode.value = value?.clone_modes[0] || 'icl';
-    },
-    { immediate: true },
-  );
   watch(name, () => {
     delete fieldIssues.cloneName;
   });
@@ -216,41 +166,11 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
       } catch (error) {
         if (disposed || owner !== identity()) return;
         if (error instanceof ApiError && error.fields) {
-          const ids: Record<string, string> = {
-            name: 'cloneName',
-            transcript: 'cloneTranscript',
-            consent_basis: 'cloneConsent',
-            provider: 'cloneProvider',
-            model: 'cloneModel',
-            language: 'cloneLang',
-            mode: 'cloneMode',
-            file: 'cloneFile',
-          };
-          const trace = error.requestId ? ` (${t('Request ID: {id}', { id: error.requestId })})` : '';
-          for (const issue of error.fields) {
-            const id = ids[issue.field];
-            if (!id) continue;
-            const base =
-              issue.field === 'transcript' && issue.code === 'required'
-                ? msg('ICL mode needs the exact reference transcript.')
-                : issue.field === 'transcript' && issue.code === 'too_long' && typeof issue.expected === 'number'
-                  ? msg('Transcript exceeds {max} characters.', { max: issue.expected })
-                  : issue.field === 'name'
-                    ? msg('Name must be 1–{max} characters.', { max: limits.value!.name_max_chars })
-                    : issue.field === 'consent_basis'
-                      ? msg('Consent basis is required (e.g. owner).')
-                      : msg(issue.message);
-            // The field shows the message, so the correlation id travels with it.
-            fieldIssues[id] = trace ? computedMessage(() => renderMessage(base) + trace) : base;
-          }
+          Object.assign(fieldIssues, cloneFieldIssues(error, limits.value!.name_max_chars));
           const id = Object.keys(fieldIssues)[0];
           if (id) {
             fieldFailure = true;
-            step.value = ['cloneName', 'cloneConsent'].includes(id)
-              ? 2
-              : ['cloneProvider', 'cloneModel', 'cloneLang'].includes(id)
-                ? 0
-                : 1;
+            step.value = stepForField(id);
           }
         }
         throw error;
