@@ -1,17 +1,11 @@
 import { computed, inject, onMounted, onUnmounted, ref, shallowRef, watch, type InjectionKey } from 'vue';
-import { samplingQuery, samplingErrors, type SamplingDraft } from '../features/speech/generationSchemas';
-export { samplingQuery } from '../features/speech/generationSchemas';
+import { samplingQuery, samplingErrors } from '../features/speech/generationSchemas';
 import { isCancelledError } from '@tanstack/vue-query';
 import { createResourceCache } from '../app/queryClient';
-import { createHttpClient, ApiError } from '../services/http';
+import { createHttpClient } from '../services/http';
 import { createApi, type Api } from '../services/api';
-import { effectiveLocale, localeChoices, showLocaleChoice } from '../features/speech/pronunciation';
-import { modelLanguages } from '../services/providerLanguages';
-import { activatePocketModel as activatePocketBundle } from '../services/pocketActivation';
 import type { HomeData } from '../types';
 import type {
-  NormalizationMode,
-  SpeechPronunciation,
   ServerInfo,
   ProviderStatus,
   Capabilities,
@@ -20,77 +14,26 @@ import type {
   ConfigSnapshot,
   ConfigStatus,
   Schema,
-  Json,
-  JsonObject,
   AudioDevice,
 } from '../services/contracts';
 import { errorMessage, type Message } from '../i18n';
-export function getPath(object: JsonObject | undefined, path: string): Json | undefined {
-  return path
-    .split('.')
-    .reduce<Json | undefined>(
-      (value, key) => (value && typeof value === 'object' && !Array.isArray(value) ? value[key] : undefined),
-      object,
-    );
-}
-export function nestedChange(path: string, value: Json): JsonObject {
-  return path
-    .split('.')
-    .reverse()
-    .reduce<Json>((result, key) => ({ [key]: result }), value) as JsonObject;
-}
-/** Fast background cadence: provider/job-facing status only. */
-export const STUDIO_FAST_MS = 5000;
-/** Slow background cadence: low-frequency metadata (voice list, snapshots). */
-export const STUDIO_SLOW_EVERY = 6;
-/** Decides whether the slow metadata refresh is due on a fast tick. */
-export function slowRefreshDue(tick: number): boolean {
-  return tick % STUDIO_SLOW_EVERY === 0;
-}
+import {
+  DEFAULT_SAMPLING,
+  loadSampling,
+  persistSampling,
+  type SamplingState,
+} from '../features/speech/samplingStorage';
+import { STUDIO_FAST_MS, slowRefreshDue } from './studioRefresh';
+import { useModelCatalog } from './useModelCatalog';
+import { useSettingsActions } from './useSettingsActions';
+import { usePronunciation } from './usePronunciation';
 
-/** Qwen3-TTS advanced generation settings (all optional, string-backed). */
-export type SamplingState = SamplingDraft;
-export const DEFAULT_SAMPLING: SamplingState = {
-  preset: 'balanced',
-  seed: '',
-  quality: '',
-  talkerTemperature: '',
-  talkerTopK: '',
-  talkerTopP: '',
-  talkerRepetitionPenalty: '',
-  predictorTemperature: '',
-  predictorTopK: '',
-  predictorTopP: '',
-  predictorRepetitionPenalty: '',
-};
-const samplingStorageKey = 'sonicboom.sampling';
-function loadSampling(): SamplingState {
-  try {
-    const saved = localStorage.getItem(samplingStorageKey);
-    if (saved) {
-      const value: unknown = JSON.parse(saved);
-      if (value && typeof value === 'object')
-        return Object.fromEntries(
-          Object.entries(DEFAULT_SAMPLING).map(([key, fallback]) => [
-            key,
-            typeof (value as Record<string, unknown>)[key] === 'string'
-              ? (value as Record<string, string>)[key]
-              : fallback,
-          ]),
-        ) as unknown as SamplingState;
-    }
-  } catch {
-    /* Storage can be unavailable in restricted contexts. */
-  }
-  return { ...DEFAULT_SAMPLING };
-}
-function persistSampling(sampling: SamplingState) {
-  try {
-    localStorage.setItem(samplingStorageKey, JSON.stringify(sampling));
-  } catch {
-    /* session-only */
-  }
-}
+// Re-exported so existing consumers keep a single studio entry point.
+export { getPath, nestedChange } from '../services/configPaths';
+export { STUDIO_FAST_MS, STUDIO_SLOW_EVERY, slowRefreshDue } from './studioRefresh';
+export { DEFAULT_SAMPLING, type SamplingState } from '../features/speech/samplingStorage';
+export { samplingQuery } from '../features/speech/generationSchemas';
+
 export function createStudio(data: HomeData, overrides?: { api?: Api }) {
   const token = ref('');
   const scopeEpoch = ref(0);
@@ -118,45 +61,15 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
   function resetSampling() {
     sampling.value = { ...DEFAULT_SAMPLING };
   }
-  // Pronunciation (text normalization). The speech language is the form's language,
-  // never the UI language, and every locale comes from /api/info.
-  const normalizationInfo = computed(() => info.value?.normalization);
-  const normalizationAvailable = computed(() => !!normalizationInfo.value);
-  const normalizationChoice = ref<NormalizationMode | null>(null);
-  const normalizationMode = computed<NormalizationMode>({
-    get: () =>
-      normalizationInfo.value?.enabled === false
-        ? 'off'
-        : (normalizationChoice.value ?? normalizationInfo.value?.default_mode ?? 'auto'),
-    set: (value) => {
-      normalizationChoice.value = value;
-    },
-  });
-  const pronunciationLocale = ref('');
-  const normalizationLanguage = computed(() =>
-    normalizationInfo.value?.languages.find((entry) => entry.language === language.value),
-  );
-  const pronunciationLocales = computed(() => localeChoices(normalizationLanguage.value));
-  const showPronunciationLocale = computed(() =>
-    showLocaleChoice(normalizationLanguage.value, normalizationMode.value),
-  );
-  /** Query fields for synthesis; undefined when the server predates normalization (legacy behavior). */
-  const pronunciation = computed<SpeechPronunciation | undefined>(() =>
-    normalizationInfo.value
-      ? {
-          normalization: normalizationMode.value,
-          locale: effectiveLocale(normalizationLanguage.value, pronunciationLocale.value, normalizationMode.value),
-        }
-      : undefined,
-  );
-  watch(pronunciationLocales, (options) => {
-    if (
-      pronunciationLocale.value &&
-      pronunciationLocale.value !== 'auto' &&
-      !options.includes(pronunciationLocale.value)
-    )
-      pronunciationLocale.value = '';
-  });
+  const {
+    normalizationAvailable,
+    normalizationMode,
+    pronunciationLocale,
+    normalizationLanguage,
+    pronunciationLocales,
+    showPronunciationLocale,
+    pronunciation,
+  } = usePronunciation(info, language);
   let session = new AbortController();
   const cache = createResourceCache();
   const api =
@@ -290,101 +203,27 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
       }
     }
   }
-  async function saveSetting(path: string, value: Json) {
-    try {
-      await api.patchConfig(nestedChange(path, value), config.value?.revision);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        await refreshConfig(true);
-        throw Object.assign(error, {
-          localizedMessage: {
-            key: 'Settings changed on the server. Your draft is preserved. Review the current value before saving again.',
-          },
-        });
-      }
-      throw error;
-    }
-    await refreshConfig(true);
-    if (errors.value.settings) throw Object.assign(new Error(), { localizedMessage: errors.value.settings });
-  }
-  async function toggleProvider(provider: ProviderStatus) {
-    const path = `providers.${provider.provider_id.replaceAll('-', '_')}.enabled`;
-    const snapshot = await api.config();
-    try {
-      await api.patchConfig(nestedChange(path, !provider.enabled), snapshot.revision);
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 409) throw error;
-      const latest = await api.config();
-      await api.patchConfig(nestedChange(path, !provider.enabled), latest.revision);
-    }
-    await Promise.all([refreshConfig(true), refreshProviders()]);
-  }
-  async function activatePocketModel(model: string) {
-    const supported = capabilities.value.find((cap) => cap.provider_id === 'pocket-tts')?.models || [];
-    await activatePocketBundle(api, model, supported);
-    await Promise.all([refreshConfig(true), refreshProviders()]);
-    if (errors.value.settings) throw Object.assign(new Error(), { localizedMessage: errors.value.settings });
-    if (errors.value.providers) throw Object.assign(new Error(), { localizedMessage: errors.value.providers });
-  }
-  const models = computed(() => [
-    {
-      id: 'supertonic-3',
-      provider: 'supertonic',
-      cloned: false,
-      languages: capabilities.value.find((cap) => cap.provider_id === 'supertonic')?.languages || ['en'],
-      ready: info.value ? info.value.model.status === 'ready' : data.modelReady,
-    },
-    ...capabilities.value
-      .filter((cap) => cap.requires_reference_audio)
-      .flatMap((cap) =>
-        cap.models.map((id) => ({
-          id,
-          provider: cap.provider_id,
-          cloned: true,
-          languages: modelLanguages(cap, id),
-          ready: providers.value.some(
-            (provider) =>
-              provider.provider_id === cap.provider_id &&
-              provider.state === 'ready' &&
-              (cap.provider_id !== 'pocket-tts' || provider.active_model === id),
-          ),
-        })),
-      ),
-  ]);
-  const selectedModel = computed(() => models.value.find((item) => item.id === model.value) || models.value[0]);
-  function profileCompatible(profile: Voice) {
-    const provider = providers.value.find((item) => item.provider_id === profile.provider);
-    const cap = capabilities.value.find((item) => item.provider_id === profile.provider);
-    return (
-      !(provider?.model_revision && profile.model_revision && provider.model_revision !== profile.model_revision) &&
-      (!cap ||
-        (cap.models.includes(profile.model) &&
-          cap.clone_modes.includes(profile.clone_mode) &&
-          cap.languages.includes(profile.language)))
-    );
-  }
-  const availableVoices = computed(() =>
-    selectedModel.value.cloned
-      ? voices.value
-          .filter((item) => item.model === model.value && profileCompatible(item))
-          .map((item) => ({
-            id: item.id,
-            name: item.name,
-            detail: `${item.provider} · ${item.language}`,
-            cloned: true,
-          }))
-      : builtinVoices.value.map((item) => ({ ...item, detail: 'Built-in voice', cloned: false })),
-  );
-  watch(availableVoices, (value) => {
-    if (!value.some((item) => item.id === voice.value)) voice.value = value[0]?.id || '';
+  const { saveSetting, toggleProvider, activatePocketModel } = useSettingsActions({
+    api,
+    config,
+    capabilities,
+    errors,
+    refreshConfig,
+    refreshProviders,
   });
-  watch(voice, (value) => {
-    const profile = voices.value.find((item) => item.id === value);
-    if (profile) language.value = profile.language;
+
+  const { models, selectedModel, availableVoices, profileCompatible } = useModelCatalog({
+    model,
+    voice,
+    language,
+    voices,
+    builtinVoices,
+    providers,
+    capabilities,
+    info,
+    modelReady: data.modelReady,
   });
-  watch(selectedModel, (value) => {
-    if (value.languages.length && !value.languages.includes(language.value)) language.value = value.languages[0];
-  });
+
   function invalidateSession() {
     generation++;
     scopeEpoch.value = generation;
