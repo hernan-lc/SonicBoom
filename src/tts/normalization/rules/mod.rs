@@ -310,6 +310,15 @@ pub(crate) trait LanguageRules: Sync {
         false
     }
 
+    /// `true` when `next_word` makes a preceding number a high-confidence
+    /// count (`007 errores`, `10.005 solicitudes`). This is only used to
+    /// resolve numeric shapes that are otherwise preserved; it never
+    /// overrides identifier protection. Languages where a following word
+    /// does not prove a count keep the default.
+    fn quantity_context(&self, _next_word: &str) -> bool {
+        false
+    }
+
     /// Ordinal reading. `next_word` enables apocope (`1º piso` -> "primer").
     fn ordinal(
         &self,

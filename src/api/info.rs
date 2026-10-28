@@ -146,7 +146,7 @@ mod tests {
         );
         let body = serde_json::to_value(get_info(State(state)).await.0).unwrap();
         let block = &body["normalization"];
-        assert_eq!(block["ruleset_version"], "tn-v2");
+        assert_eq!(block["ruleset_version"], "tn-v2.1");
         assert_eq!(block["default_mode"], "auto");
         assert_eq!(block["default_reading_style"], "precise");
         let spanish = block["languages"]

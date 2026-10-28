@@ -1,4 +1,4 @@
-# Text normalization (`tn-v2`)
+# Text normalization (`tn-v2.1`)
 
 Normalization defaults to `auto`, including for existing clients that omit the
 new option. This can change spoken output compared with earlier releases. Set
@@ -13,12 +13,15 @@ speakable text before synthesis. The normalizer lives in
 no new dependencies and makes no network calls.
 
 Normalization is not a fix for model pronunciation. It only rewrites symbolic
-text. Nothing here has been verified acoustically (see [Limitations](#limitations)).
+text. Acoustic behavior is checked with a manual paired-audio harness and
+ASR-assisted diagnostics, not a fluent-speaker listening pass (see
+[Audio evaluation](#audio-evaluation-supertonic) and [Limitations](#limitations)).
 
-The default reading style is `precise`, which reproduces `tn-v1` readings for
-everything that was already supported. `natural` and `digits` are opt-in (see
-[Reading styles](#reading-styles)); all styles share the same byte-preserving
-ambiguity and protection policy.
+The default reading style is `precise`, which keeps the `tn-v1` reading
+conventions for forms that were already unambiguous. `tn-v2.1` additionally
+resolves high-confidence counts (see [Feature coverage](#feature-coverage-es--en)).
+`natural` and `digits` are opt-in (see [Reading styles](#reading-styles)); all
+styles share the same byte-preserving ambiguity and protection policy.
 
 Valid standalone JSON objects and arrays are preserved as written and reported
 as `structured_data`; extract the prose to normalize its contents. RFC 3339
@@ -74,7 +77,7 @@ original text (immutable)
 
 - `mod.rs` holds the public API: `normalize`, `SpeechText`, `NormalizeOptions::resolve`,
   `NormalizeOptions::resolve_with_style`, `language_coverage`,
-  `RULESET_VERSION = "tn-v2"`, and the change, warning and error types.
+  `RULESET_VERSION = "tn-v2.1"`, and the change, warning and error types.
 - `options.rs` holds the locale table, BCP-47 canonicalization, defaults,
   `ReadingStyle` and limits.
 - `lexer.rs` splits text into whitespace-delimited fields. Each field has a *core*,
@@ -147,7 +150,7 @@ Locale resolution rules:
 
 | Feature | es | en | Notes |
 |---|---|---|---|
-| cardinal_numbers | full | full | Exact integers up to 999 999 999 999 999. Larger values are preserved and produce `number_too_large`. Leading zeros (`007`) are preserved and produce `ambiguous_number`. |
+| cardinal_numbers | full | full | Exact integers up to 999 999 999 999 999. Larger values are preserved and produce `number_too_large`. Leading zeros (`007`) are preserved with `ambiguous_number` in plain prose. A following lowercase common noun or unit proves a count, so `007 errores` reads "siete errores" and, in Spanish, `10.005 solicitudes` reads "diez mil cinco solicitudes". Standalone `007`, `10.005`, `007 Bond`, postal codes and versions stay as written. `digits` reads the written sequence, including padding (`007` → "cero cero siete"). |
 | decimals | partial | partial | Every fractional digit is kept, up to 12 digits. en reads digit by digit (`3.140` → "three point one four zero"). es reads one digit, or two digits without a leading zero, as a number (`12,5` → "doce coma cinco", `1.234,56` → "… coma cincuenta y seis"). Otherwise es reads digit by digit (`3,05` → "tres coma cero cinco"). A single dot/comma in a comma/dot locale is read as a decimal when the integer part is exactly `0` (`0.05`, `-0.0001`) or the fraction has four or more digits (`3.1415926535`); `3.14`, `12.5` and `1.234` stay ambiguous for compatibility. Scientific notation (`1e6`, `2.5e-3`) is read in every style. |
 | ordinals | partial | partial | en: `1st`, `2nd`, `21st`, … The suffix is validated, so `1th` is preserved. es: `1º`/`1ª`/`1.º` from 1 to 100, with apocope before a noun (`3º piso` → "tercer piso"). |
 | percentages | full | full | `12,5%`, `12,5 %`, `-3%`. |
@@ -388,28 +391,73 @@ never the characters. `encode` returns the same ids and mask as before.
     still need review by a fluent speaker; they are not human-reviewed.
   - There is one fixture file per language with rules (`es`, `en`, `pt`, `fr`,
     `de`, `it`, `ru`, `zh`, `ja`, `ko`), plus `negative.jsonl` for protected,
-    ambiguous and invalid inputs, and `tn_v2_styles.jsonl` for decimal shapes,
-    reading styles, scientific notation, durations and fractions.
+    ambiguous and invalid inputs, `tn_v2_styles.jsonl` for decimal shapes,
+    reading styles, scientific notation, durations and fractions, and
+    `tn_v2_quantities.jsonl` for padded counts, quantity grouping and `digits`
+    padding across locales.
   - `passthrough.jsonl` holds the case for a well-formed language without rules
     (`nl`): text with a number, a date and a currency word stays byte-identical
     with no warnings. The former pt/fr/de/it/ru/zh/ja/ko pass-through rows were
     removed when those languages got rules; their per-language files now cover
     them.
 
+## Audio evaluation (Supertonic)
+
+`examples/normalization_audio_eval.rs` is a manual harness, separate from the
+normalization tests. For every case it prepares the text twice (`off` and
+`auto`), synthesizes both through the real `SupertonicProvider` boundary, and
+writes paired WAVs plus `manifest.jsonl` (text sent to the provider, identity,
+resolved changes and warnings, chunks, indexer drop count, duration and WAV
+hash). Outputs default to `temp_audio/normalization-eval`, which is ignored by
+git.
+
+```sh
+cargo run --locked --example normalization_audio_eval --no-default-features
+```
+
+The defaults are `supertonic-3`, `F1`, `es`, `es-ES`, `precise`, and the
+`models/` directory. Override them with `SONICBOOM_EVAL_VOICE`,
+`SONICBOOM_EVAL_LANGUAGE`, `SONICBOOM_EVAL_LOCALE`, `SONICBOOM_EVAL_STYLE`,
+`SONICBOOM_MODEL_DIR` and `SONICBOOM_AUDIO_OUT`.
+
+Run on 2026-10-28 with `supertonic-3`, `F1`, `es-ES`, `precise`:
+
+- In the API integration test the preview response, prepared `SpeechText` and
+  `ProviderRequest.text` were identical (`/api/tts/normalize`,
+  `SpeechText::prepare` and the provider boundary share one preparation path).
+- `10.005 solicitudes` → `diez mil cinco solicitudes`,
+  `00042 registros` → `cuarenta y dos registros`,
+  `007 errores` → `siete errores`, `00 notificaciones` → `cero notificaciones`.
+  Standalone `007`, `007 Bond` and `El código es 007` stayed as written with
+  `ambiguous_number`.
+- Every case was a single chunk under the 200-character limit, so segmentation
+  never cut a number. The unicode indexer dropped zero characters for the
+  normalized Spanish text, including accents and `ñ`.
+- ASR-assisted diagnostics on the same WAVs were noisy and sometimes switched
+  languages, so they are not authoritative. They nevertheless transcribed the
+  raw glyph runs inconsistently (for example, the raw `10.005` run lost
+  "mil"), while the normalized runs preserved the intended cardinal value.
+  This points at the model reading literal digits rather than at normalization
+  or segmentation; the paired WAVs remain available for a fluent-speaker
+  listening pass.
+
+`TextProcessor::encode` applies NFKD before the unicode indexer. Checked
+against the shipped `models/onnx/unicode_indexer.json`: precomposed accented
+letters (`á`, `é`, `í`, `ó`, `ú`, `ñ`, `ü`, `Á`, `Ñ`) map to `-1`, while their
+NFKD base letters and combining marks are mapped (`a` + U+0301, `n` + U+0303,
+and so on). NFKD is therefore required, not merely tolerated, and normalized
+Spanish text loses no characters.
+
 ## Limitations
 
-- **No acoustic verification.** No paired raw/normalized audio has been produced or
-  listened to.
+- **Acoustic review is ASR-assisted.** Paired WAVs are produced by the harness
+  and were checked with a local diagnostic ASR model, not listened to by a
+  fluent speaker. Treat the ASR transcripts as a weak signal, not ground truth.
 - **No dictionary API.** `dictionary.rs` is not wired into `normalize`, ships no
   entries, and has no storage or authorization. `ChangeKind` has no dictionary
   variant yet.
 - **Pocket splitter untouched.** Only the text that Pocket receives changes. Pocket
   parity with real ONNX models is a follow-up.
-- **Indexer NFKD open item.** `TextProcessor::encode` still applies NFKD before the
-  unicode indexer. NFKD decomposes `ñ`/`á` into a base letter plus a combining mark.
-  Whether the Supertonic indexer maps those marks needs checking against the real
-  `unicode_indexer.json`. `encode_with_report` exposes the dropped count for that
-  check.
 - pt, fr, de, it, ru, zh, ja and ko have partial rules (see the
   multilingual table). Their expectations have not been reviewed by fluent
   speakers.

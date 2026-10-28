@@ -238,6 +238,35 @@ mod tests {
     }
 
     #[test]
+    fn nfkd_keeps_accented_spanish_when_the_indexer_maps_combining_marks() {
+        // Model indexers may map precomposed letters to -1 while mapping the
+        // decomposed base letter and combining mark. NFKD is what makes that
+        // text encodable, so this test guards the normalization step rather
+        // than one specific indexer file.
+        let mut indexer = vec![-1i64; (0x036Fu32 as usize) + 1];
+        for c in ' '..='~' {
+            indexer[c as usize] = c as i64;
+        }
+        for mark in ['\u{0301}', '\u{0303}', '\u{0308}'] {
+            indexer[mark as usize] = mark as i64;
+        }
+        let processor = TextProcessor { indexer };
+
+        let (ids, mask, dropped) = processor.encode_with_report("á é í ó ú ñ ü");
+        assert_eq!(dropped, 0);
+        assert_eq!(ids.len(), 20);
+        assert_eq!(mask, vec![1; ids.len()]);
+
+        // The precomposed forms themselves are unsupported, so bypassing
+        // NFKD (for example by encoding raw bytes) would drop every one.
+        let raw_dropped = "áéíóúñü"
+            .chars()
+            .filter(|c| processor.indexer.get(*c as usize).copied().unwrap_or(-1) < 0)
+            .count();
+        assert_eq!(raw_dropped, 7);
+    }
+
+    #[test]
     fn chunks_never_exceed_hard_limit_on_small_limit() {
         let text = "one two three four five six seven eight nine ten. ".repeat(10);
         for limit in [1, 7, 50] {

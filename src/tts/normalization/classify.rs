@@ -38,6 +38,23 @@ pub(crate) enum NumParse {
     NotNumber,
 }
 
+/// How much surrounding context may resolve an otherwise ambiguous number.
+///
+/// `Plain` is the conservative default: a leading-zero sequence or a single
+/// ambiguous separator is preserved. `Currency` and `Quantity` only resolve
+/// shapes that are provable in those contexts; they never reinterpret an
+/// identifier-shaped core.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NumberContext {
+    /// Standalone prose; ambiguous shapes are preserved.
+    Plain,
+    /// A currency amount (a three-digit group is a thousands group).
+    Currency,
+    /// A high-confidence count before a noun (`007 errores`,
+    /// `10.005 solicitudes`).
+    Quantity,
+}
+
 fn strip_sign(raw: &str) -> (bool, &str) {
     if let Some(rest) = raw.strip_prefix('-') {
         (true, rest)
@@ -70,6 +87,21 @@ fn integer(negative: bool, digits: &str) -> NumParse {
     }
 }
 
+/// Read a zero-padded count in a quantity context. Leading zeros are only
+/// dropped here, after the caller has established that the token is a count;
+/// the original span is still what the change replaces.
+fn quantity_integer(negative: bool, digits: &str) -> NumParse {
+    let significant = digits.trim_start_matches('0');
+    integer(
+        negative,
+        if significant.is_empty() {
+            "0"
+        } else {
+            significant
+        },
+    )
+}
+
 fn decimal(negative: bool, int_digits: &str, frac: &str) -> NumParse {
     if frac.len() > MAX_FRACTION_DIGITS {
         return NumParse::TooLarge;
@@ -87,8 +119,23 @@ fn decimal(negative: bool, int_digits: &str, frac: &str) -> NumParse {
 ///
 /// `currency_ctx`: a single separator followed by exactly three digits is a
 /// thousands group when it is the locale's group separator (a currency
-/// subunit has two digits).
+/// subunit has two digits). Kept as a compatibility wrapper for callers and
+/// tests that only distinguish currency from plain prose.
 pub(crate) fn parse_number(raw: &str, conv: &Conventions, currency_ctx: bool) -> NumParse {
+    let context = if currency_ctx {
+        NumberContext::Currency
+    } else {
+        NumberContext::Plain
+    };
+    parse_number_in(raw, conv, context)
+}
+
+/// Parse a number in `context`. Only `Quantity` may discard leading zeros
+/// from an integer or accept the locale's group separator without a currency
+/// marker; both decisions are made before any rendering.
+pub(crate) fn parse_number_in(raw: &str, conv: &Conventions, context: NumberContext) -> NumParse {
+    let currency_ctx = context == NumberContext::Currency;
+    let quantity_ctx = context == NumberContext::Quantity;
     let (negative, body) = strip_sign(raw);
     let bytes = body.as_bytes();
     if bytes.is_empty()
@@ -111,8 +158,14 @@ pub(crate) fn parse_number(raw: &str, conv: &Conventions, currency_ctx: bool) ->
     match separators.len() {
         0 => {
             if body.len() > 1 && body.starts_with('0') {
-                // Leading-zero sequences (007, postal codes) are IDs.
-                return NumParse::Ambiguous;
+                // Leading-zero sequences are IDs in plain prose. A count
+                // before a noun is the one context where they are provably
+                // padded integers (`007 errores`).
+                return if quantity_ctx {
+                    quantity_integer(negative, body)
+                } else {
+                    NumParse::Ambiguous
+                };
             }
             integer(negative, body)
         }
@@ -120,7 +173,9 @@ pub(crate) fn parse_number(raw: &str, conv: &Conventions, currency_ctx: bool) ->
             let (int_part, rest) = (groups[0], groups[1]);
             let sep = separators[0];
             if valid_first_group(int_part) && rest.len() == 3 {
-                if sep == conv.group && (conv.separators_unambiguous || currency_ctx) {
+                if sep == conv.group
+                    && (conv.separators_unambiguous || currency_ctx || quantity_ctx)
+                {
                     return integer(negative, &format!("{int_part}{rest}"));
                 }
                 if sep == conv.decimal && conv.separators_unambiguous && !currency_ctx {
@@ -988,18 +1043,18 @@ impl<'a> Classifier<'a> {
         let field = self.fields[index];
         let core = self.core(index);
         let (start, end) = (field.core_start, field.core_end);
-        let amount = match parse_number(core, &self.conv, false) {
-            NumParse::Value(amount) => amount,
-            NumParse::Ambiguous => {
-                self.warn(WarningCode::AmbiguousNumber, start, end);
-                return index + 1;
-            }
-            NumParse::TooLarge => {
-                self.warn(WarningCode::NumberTooLarge, start, end);
-                return index + 1;
-            }
-            NumParse::NotNumber => return index + 1,
+        let quantity_context = self
+            .next_word(index)
+            .is_some_and(|word| self.rules.quantity_context(word));
+        let context = if quantity_context {
+            NumberContext::Quantity
+        } else {
+            NumberContext::Plain
         };
+        let parsed = parse_number_in(core, &self.conv, context);
+        let (negative, body) = strip_sign(core);
+        let pure_digits = !negative && all_digits(body) && !is_protected_identifier(core);
+
         if let Some(next) = self.joinable(index) {
             let next_core = self.core(next);
             let next_end = self.fields[next].core_end;
@@ -1016,12 +1071,48 @@ impl<'a> Classifier<'a> {
                     .unwrap_or(next + 1);
             }
             if let Some(unit) = unit_from_str(next_core) {
-                if let Some(spoken) = self.rules.unit(&amount, unit, self.locale) {
-                    self.change(ChangeKind::Unit, start, next_end, spoken);
+                match parsed {
+                    NumParse::Value(amount) => {
+                        if let Some(spoken) = self.rules.unit(&amount, unit, self.locale) {
+                            self.change(ChangeKind::Unit, start, next_end, spoken);
+                        }
+                    }
+                    NumParse::Ambiguous => {
+                        self.warn(WarningCode::AmbiguousNumber, start, end);
+                    }
+                    NumParse::TooLarge => {
+                        self.warn(WarningCode::NumberTooLarge, start, end);
+                    }
+                    NumParse::NotNumber => {}
                 }
                 return next + 1;
             }
         }
+
+        // `digits` reads the written sequence, including leading zeros. It
+        // bypasses cardinal parsing (and gender agreement) only for a pure
+        // unsigned digit run, so identifiers and versions keep their
+        // existing protection.
+        if self.style == ReadingStyle::Digits
+            && pure_digits
+            && let Some(spoken) = self.rules.digits(body, self.locale)
+        {
+            self.change(ChangeKind::Number, start, end, spoken);
+            return index + 1;
+        }
+
+        let amount = match parsed {
+            NumParse::Value(amount) => amount,
+            NumParse::Ambiguous => {
+                self.warn(WarningCode::AmbiguousNumber, start, end);
+                return index + 1;
+            }
+            NumParse::TooLarge => {
+                self.warn(WarningCode::NumberTooLarge, start, end);
+                return index + 1;
+            }
+            NumParse::NotNumber => return index + 1,
+        };
         if amount.frac.is_none()
             && let Some(word) = self.next_word(index)
             && self.rules.number_gender_ambiguous(amount.int, word)
@@ -1029,12 +1120,18 @@ impl<'a> Classifier<'a> {
             self.warn(WarningCode::AmbiguousNumber, start, end);
             return index + 1;
         }
-        if self.style == ReadingStyle::Digits
-            && amount.frac.is_none()
-            && let Some(spoken) = self.rules.digits(&amount.int.to_string(), self.locale)
-        {
-            self.change(ChangeKind::Number, start, end, spoken);
-            return index + 1;
+        if self.style == ReadingStyle::Digits && amount.frac.is_none() {
+            // Grouped and signed integers still use their written digits
+            // (without separators or the sign), never the parsed value.
+            let digits: String = body
+                .bytes()
+                .filter(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            if let Some(spoken) = self.rules.digits(&digits, self.locale) {
+                self.change(ChangeKind::Number, start, end, spoken);
+                return index + 1;
+            }
         }
         let kind = if amount.frac.is_some() {
             ChangeKind::Decimal
@@ -1105,6 +1202,32 @@ mod tests {
         assert_eq!(parse_number("1,", &ES, false), NumParse::NotNumber);
         assert_eq!(parse_number(",5", &ES, false), NumParse::NotNumber);
         assert_eq!(parse_number("1..2", &ES, false), NumParse::NotNumber);
+    }
+
+    #[test]
+    fn quantity_context_resolves_padding_and_grouping() {
+        let quantity = |raw| parse_number_in(raw, &ES, NumberContext::Quantity);
+        assert_eq!(quantity("0"), value(false, 0, None));
+        assert_eq!(quantity("00"), value(false, 0, None));
+        assert_eq!(quantity("007"), value(false, 7, None));
+        assert_eq!(quantity("00042"), value(false, 42, None));
+        assert_eq!(quantity("-00042"), value(true, 42, None));
+        assert_eq!(quantity("10.005"), value(false, 10_005, None));
+        assert_eq!(quantity("1.234"), value(false, 1234, None));
+        // Still ambiguous: the separator has a non-grouping tail, or the
+        // token has an identifier shape.
+        assert_eq!(quantity("3.14"), NumParse::Ambiguous);
+        assert_eq!(quantity("1.21.11"), NumParse::NotNumber);
+        assert_eq!(quantity("10.0.0.1"), NumParse::NotNumber);
+        // Plain prose keeps leading zeros and single groups ambiguous.
+        assert_eq!(
+            parse_number_in("007", &ES, NumberContext::Plain),
+            NumParse::Ambiguous
+        );
+        assert_eq!(
+            parse_number_in("10.005", &ES, NumberContext::Plain),
+            NumParse::Ambiguous
+        );
     }
 
     #[test]

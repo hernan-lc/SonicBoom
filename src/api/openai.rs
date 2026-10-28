@@ -649,7 +649,7 @@ mod tests {
             speech.as_str(),
             "Pago veintiséis de octubre de dos mil veintiséis"
         );
-        assert_eq!(speech.identity(), "tn-v2|auto|es|es-PE|precise");
+        assert_eq!(speech.identity(), "tn-v2.1|auto|es|es-PE|precise");
         // Legacy aliases synthesize English: a Spanish locale is a 400.
         assert!(matches!(
             request.speech(&config, "en"),
@@ -673,7 +673,7 @@ mod tests {
                 .unwrap();
         let speech = natural.speech(&config, "es").unwrap();
         assert_eq!(speech.as_str(), "doce y media");
-        assert_eq!(speech.identity(), "tn-v2|auto|es|es-ES|natural");
+        assert_eq!(speech.identity(), "tn-v2.1|auto|es|es-ES|natural");
         let invalid: SpeechRequest =
             serde_json::from_str(r#"{"input":"hi","reading_style":"loud"}"#).unwrap();
         assert!(matches!(

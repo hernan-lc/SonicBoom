@@ -2188,21 +2188,21 @@ mod normalization_tests {
         let (app, state, token, recorder) = recording_app().await;
         let config = state.config.get().await;
         for (query, expected_text, expected_identity) in [
-            ("lang=es", SPOKEN, "tn-v2|auto|es|es-ES|precise"),
+            ("lang=es", SPOKEN, "tn-v2.1|auto|es|es-ES|precise"),
             (
                 "lang=es&locale=es-PE",
                 SPOKEN,
-                "tn-v2|auto|es|es-PE|precise",
+                "tn-v2.1|auto|es|es-PE|precise",
             ),
             (
                 "lang=es&reading_style=natural",
                 SPOKEN,
-                "tn-v2|auto|es|es-ES|natural",
+                "tn-v2.1|auto|es|es-ES|natural",
             ),
             (
                 "lang=es&normalization=off",
                 TEXT.trim(),
-                "tn-v2|off|es|es-ES|precise",
+                "tn-v2.1|off|es|es-ES|precise",
             ),
         ] {
             let (status, body) =
@@ -2386,7 +2386,7 @@ mod normalization_tests {
         assert_eq!(seen.len(), 4);
         for entry in &seen {
             assert_eq!(entry.0, SPOKEN);
-            assert_eq!(entry.1.as_deref(), Some("tn-v2|auto|es|es-PE|precise"));
+            assert_eq!(entry.1.as_deref(), Some("tn-v2.1|auto|es|es-PE|precise"));
             assert_eq!(entry.2.as_deref(), Some(TRANSCRIPT));
         }
         // Raw text never reaches inference through the bounded boundary.

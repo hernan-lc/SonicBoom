@@ -371,6 +371,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preview_resolves_padded_counts_and_matches_provider_input() {
+        let (app, token) = app().await;
+        let config = crate::api::tests::test_config();
+        let text = "Hay 10.005 solicitudes y 00042 registros; el código 007.";
+        let body = serde_json::json!({
+            "text": text,
+            "language": "es",
+            "locale": "es-ES",
+            "mode": "auto",
+            "reading_style": "precise",
+            "model": "supertonic-3",
+        })
+        .to_string();
+        let (status, _, body) = post(&app, Some(&token), &body).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["spoken"],
+            "Hay diez mil cinco solicitudes y cuarenta y dos registros; el código 007."
+        );
+        assert_eq!(body["warnings"][0]["code"], "ambiguous_number");
+        assert_eq!(body["warnings"][0]["before"], "007");
+        assert_eq!(body["changes"][0]["before"], "10.005");
+        assert_eq!(body["changes"][0]["after"], "diez mil cinco");
+        assert_eq!(body["changes"][1]["before"], "00042");
+        assert_eq!(body["changes"][1]["after"], "cuarenta y dos");
+        assert_eq!(body["normalizer_version"], RULESET_VERSION);
+
+        // The provider receives exactly this spoken text (the preview and
+        // synthesis share one preparation path).
+        let options = super::super::speech_prep::resolve_options(
+            &config,
+            Some("auto"),
+            Some("es-ES"),
+            Some("precise"),
+            "es",
+        )
+        .unwrap();
+        let prepared = super::super::speech_prep::prepare_speech(
+            &config,
+            Some("auto"),
+            Some("es-ES"),
+            Some("precise"),
+            "es",
+            text,
+        )
+        .unwrap();
+        assert_eq!(prepared.as_str(), body["spoken"].as_str().unwrap());
+        assert_eq!(prepared.identity(), "tn-v2.1|auto|es|es-ES|precise");
+        assert_eq!(options.reading_style, ReadingStyle::Precise);
+        let request =
+            super::super::speech_prep::provider_request("supertonic-3", "F1", prepared, "es");
+        assert_eq!(request.text, body["spoken"].as_str().unwrap());
+
+        // Padded input in `digits` mode keeps the written sequence.
+        let (status, _, body) = post(
+            &app,
+            Some(&token),
+            r#"{"text":"007","language":"es","locale":"es-ES","mode":"auto","reading_style":"digits"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["spoken"], "cero cero siete");
+        assert!(body["warnings"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn preview_accepts_maximum_length_escaped_text() {
         let (app, token) = app().await;
         for text in [

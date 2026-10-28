@@ -494,7 +494,7 @@ mod tests {
             auto.as_str(),
             "Pago el veintiséis de octubre de dos mil veintiséis"
         );
-        assert_eq!(auto.identity(), "tn-v2|auto|es|es-ES|precise");
+        assert_eq!(auto.identity(), "tn-v2.1|auto|es|es-ES|precise");
         let shared = prepare_speech_text(
             "Pago el 26/10/2026",
             "es",
@@ -510,16 +510,16 @@ mod tests {
             .prepare_speech(NormalizationMode::Off, None)
             .unwrap();
         assert_eq!(off.as_str(), "Pago el 26/10/2026");
-        assert_eq!(off.identity(), "tn-v2|off|es|es-ES|precise");
+        assert_eq!(off.identity(), "tn-v2.1|off|es|es-ES|precise");
         // A configured locale of another language falls back to the default.
         let other = request
             .prepare_speech(NormalizationMode::Auto, Some("en-GB"))
             .unwrap();
-        assert_eq!(other.identity(), "tn-v2|auto|es|es-ES|precise");
+        assert_eq!(other.identity(), "tn-v2.1|auto|es|es-ES|precise");
         let peru = request
             .prepare_speech(NormalizationMode::Auto, Some("es-PE"))
             .unwrap();
-        assert_eq!(peru.identity(), "tn-v2|auto|es|es-PE|precise");
+        assert_eq!(peru.identity(), "tn-v2.1|auto|es|es-PE|precise");
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tagged.as_str(), "I have 3 cats");
-        assert_eq!(tagged.identity(), "tn-v2|auto|en-us|en-us|precise");
+        assert_eq!(tagged.identity(), "tn-v2.1|auto|en-us|en-us|precise");
         // A concrete locale with a non-base language is still an error.
         assert_eq!(
             prepare_speech_text("x", "en-US", NormalizationMode::Auto, Some("en-US"), limits)

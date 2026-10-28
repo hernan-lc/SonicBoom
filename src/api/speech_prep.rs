@@ -205,7 +205,7 @@ mod tests {
         let auto = prepare_speech(&config, None, None, None, "es", text).unwrap();
         assert!(auto.changed());
         assert!(auto.as_str().contains("veintiséis de octubre"));
-        assert_eq!(auto.identity(), "tn-v2|auto|es|es-ES|precise");
+        assert_eq!(auto.identity(), "tn-v2.1|auto|es|es-ES|precise");
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
         let mut config = config();
         let secret = "secreto 123";
         let peru = prepare_speech(&config, None, Some("es-pe"), None, "es", secret).unwrap();
-        assert_eq!(peru.identity(), "tn-v2|auto|es|es-PE|precise");
+        assert_eq!(peru.identity(), "tn-v2.1|auto|es|es-PE|precise");
         for (locale, language) in [("es-AR", "es"), ("en-US", "es"), ("not a tag", "es")] {
             let error =
                 prepare_speech(&config, None, Some(locale), None, language, secret).unwrap_err();
@@ -223,12 +223,12 @@ mod tests {
         // Configured default applies only to its own language.
         config.tts.normalization.default_locale = "es-PE".into();
         let es = prepare_speech(&config, None, None, None, "es", secret).unwrap();
-        assert_eq!(es.identity(), "tn-v2|auto|es|es-PE|precise");
+        assert_eq!(es.identity(), "tn-v2.1|auto|es|es-PE|precise");
         let en = prepare_speech(&config, None, None, None, "en", "1 cat").unwrap();
-        assert_eq!(en.identity(), "tn-v2|auto|en|en-US|precise");
+        assert_eq!(en.identity(), "tn-v2.1|auto|en|en-US|precise");
         // `auto` in the request selects the language default, not the config.
         let auto = prepare_speech(&config, None, Some("auto"), None, "es", secret).unwrap();
-        assert_eq!(auto.identity(), "tn-v2|auto|es|es-ES|precise");
+        assert_eq!(auto.identity(), "tn-v2.1|auto|es|es-ES|precise");
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let text = "12:30";
         let precise = prepare_speech(&config, None, None, None, "es", text).unwrap();
         assert_eq!(precise.as_str(), "doce treinta");
-        assert_eq!(precise.identity(), "tn-v2|auto|es|es-ES|precise");
+        assert_eq!(precise.identity(), "tn-v2.1|auto|es|es-ES|precise");
         let natural = prepare_speech(&config, None, None, Some("natural"), "es", text).unwrap();
         assert_eq!(natural.as_str(), "doce y media");
         assert!(natural.identity().ends_with("|natural"));

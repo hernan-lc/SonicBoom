@@ -97,7 +97,7 @@ Text normalization is frozen at enqueue. Jobs accept the same optional
 fingerprint is computed, and the executor receives that prepared text, so
 it is never normalized again during execution or on resume. The fingerprint
 also covers the prepared text's identity (`ruleset version|effective
-mode|language|effective locale|reading style`, e.g. `tn-v2|auto|es|es-PE|precise`). Effective
+mode|language|effective locale|reading style`, e.g. `tn-v2.1|auto|es|es-PE|precise`). Effective
 values count, not spellings: omitting `normalization` while the server
 default is `auto` matches `normalization=auto`. The same key with a
 different effective mode, locale, reading style, ruleset version or server default mode is

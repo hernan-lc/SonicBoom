@@ -352,6 +352,15 @@ fn noun_like(next_word: &str) -> bool {
     next_word.chars().next().is_some_and(char::is_alphabetic) && !is_standalone_follower(next_word)
 }
 
+/// A common noun after a number is strong evidence of a count. Proper nouns
+/// start uppercase, which keeps identifiers and names (`007 Bond`,
+/// `28002 Madrid`) out of the quantity context.
+fn count_noun(next_word: &str) -> bool {
+    next_word.chars().next().is_some_and(|c| c.is_lowercase())
+        && next_word.chars().all(char::is_alphabetic)
+        && !is_standalone_follower(next_word)
+}
+
 fn currency_names(
     currency: Currency,
 ) -> (&'static str, &'static str, Form, &'static str, &'static str) {
@@ -487,6 +496,10 @@ impl LanguageRules for Spanish {
         let thousands = (int / 1000) % 1000;
         (units > 0 && gender_sensitive_group(units))
             || (thousands > 0 && gender_sensitive_group(thousands))
+    }
+
+    fn quantity_context(&self, next_word: &str) -> bool {
+        count_noun(next_word) || super::unit_from_str(next_word).is_some()
     }
 
     fn ordinal(
@@ -932,6 +945,27 @@ mod tests {
             "veintiuna veintiuno"
         );
         assert_eq!(rules.time(3, 30, Some(Meridiem::Pm), "es-PE"), None);
+    }
+
+    #[test]
+    fn quantity_context_requires_a_common_noun_or_unit() {
+        let rules = Spanish;
+        for word in [
+            "mensajes",
+            "notificaciones",
+            "errores",
+            "registros",
+            "solicitudes",
+            // Units are counts even when the symbol is not alphabetic.
+            "kg",
+            "°C",
+            "km/h",
+        ] {
+            assert!(rules.quantity_context(word), "{word}");
+        }
+        for word in ["de", "Bond", "Madrid", "007", ""] {
+            assert!(!rules.quantity_context(word), "{word}");
+        }
     }
 
     #[test]

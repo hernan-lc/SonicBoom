@@ -319,7 +319,7 @@ fn spec_preview_example() {
         "S/ 150,50"
     );
     assert!(result.warnings.is_empty());
-    assert_eq!(result.ruleset_version, "tn-v2");
+    assert_eq!(result.ruleset_version, "tn-v2.1");
 }
 
 #[test]
@@ -628,12 +628,12 @@ fn speech_text_identity() {
     let o = opts("es", Some("es-PE"));
     let prepared = SpeechText::prepare("Son 5.", &o).unwrap();
     assert_eq!(prepared.as_str(), "Son cinco.");
-    assert_eq!(prepared.identity(), "tn-v2|auto|es|es-PE|precise");
+    assert_eq!(prepared.identity(), "tn-v2.1|auto|es|es-PE|precise");
     assert!(prepared.changed());
     let mut off = o.clone();
     off.mode = NormalizationMode::Off;
     let raw = SpeechText::prepare("Son 5.", &off).unwrap();
-    assert_eq!(raw.identity(), "tn-v2|off|es|es-PE|precise");
+    assert_eq!(raw.identity(), "tn-v2.1|off|es|es-PE|precise");
     assert!(!raw.changed());
     assert_eq!(raw.into_string(), "Son 5.");
 }
@@ -1012,6 +1012,154 @@ fn digit_style_reads_integers_digit_by_digit_in_every_language() {
 }
 
 #[test]
+fn padded_counts_are_read_in_quantity_context() {
+    let cases = [
+        ("0 mensajes", "cero mensajes"),
+        ("00 notificaciones", "cero notificaciones"),
+        ("007 errores", "siete errores"),
+        ("00042 registros", "cuarenta y dos registros"),
+        ("10.005 solicitudes", "diez mil cinco solicitudes"),
+    ];
+    for locale in locales_for("es") {
+        for style in [ReadingStyle::Precise, ReadingStyle::Natural] {
+            for (input, expected) in cases {
+                assert_eq!(
+                    styled(input, "es", Some(locale), style),
+                    expected,
+                    "{locale} {style:?} {input}"
+                );
+            }
+        }
+    }
+    // A unit is also a high-confidence quantity, so the same padding and
+    // grouping rules apply before it.
+    assert_eq!(
+        styled("007 kg", "es", Some("es-ES"), ReadingStyle::Precise),
+        "siete kilogramos"
+    );
+    assert_eq!(
+        styled("10.005 km", "es", Some("es-ES"), ReadingStyle::Precise),
+        "diez mil cinco kilómetros"
+    );
+    assert_eq!(
+        styled("007 °C", "es", Some("es-ES"), ReadingStyle::Precise),
+        "siete grados Celsius"
+    );
+
+    // The resolved span still refers to the original padded token.
+    let text = "Hay 00042 registros";
+    let result = normalize(text, &opts("es", Some("es-ES"))).unwrap();
+    let change = &result.changes[0];
+    assert_eq!(&text[change.start..change.end], "00042");
+    assert_eq!(change.replacement, "cuarenta y dos");
+    assert_eq!(change.kind, ChangeKind::Number);
+
+    // Grouping is only resolved in a count context; standalone stays as
+    // written. `3.14` has no valid three-digit group even before a noun.
+    assert_eq!(spoken("10.005", "es", Some("es-ES")), "10.005");
+    assert_eq!(
+        warning_codes("10.005", "es", Some("es-ES")),
+        vec![WarningCode::AmbiguousNumber]
+    );
+    assert_eq!(spoken("3.14 casas", "es", Some("es-ES")), "3.14 casas");
+    assert_eq!(
+        warning_codes("3.14 casas", "es", Some("es-ES")),
+        vec![WarningCode::AmbiguousNumber]
+    );
+}
+
+#[test]
+fn digits_style_preserves_written_padding() {
+    for (input, expected) in [
+        ("00", "cero cero"),
+        ("007", "cero cero siete"),
+        ("00042", "cero cero cero cuatro dos"),
+    ] {
+        assert_eq!(
+            styled(input, "es", Some("es-ES"), ReadingStyle::Digits),
+            expected,
+            "{input}"
+        );
+    }
+    // Padding is likewise preserved before a count.
+    assert_eq!(
+        styled("007 errores", "es", Some("es-ES"), ReadingStyle::Digits),
+        "cero cero siete errores"
+    );
+    // Grouped digits keep the written sequence rather than the parsed value.
+    assert_eq!(
+        styled(
+            "10.005 solicitudes",
+            "es",
+            Some("es-ES"),
+            ReadingStyle::Digits
+        ),
+        "uno cero cero cero cinco solicitudes"
+    );
+}
+
+#[test]
+fn padded_identifiers_remain_protected_outside_counts() {
+    // Without a noun to prove a count, padded tokens stay as written in the
+    // cardinal styles and report the ambiguity. A proper noun does not make
+    // an identifier a quantity (`007 Bond`).
+    for text in ["007", "00042", "00", "007 Bond", "28001 Madrid", "CP 007"] {
+        for style in [ReadingStyle::Precise, ReadingStyle::Natural] {
+            let result = normalize(text, &styled_opts("es", Some("es-ES"), style)).unwrap();
+            assert_eq!(result.spoken, text, "{style:?} {text}");
+            assert_eq!(
+                result.warnings.iter().map(|w| w.code).collect::<Vec<_>>(),
+                vec![WarningCode::AmbiguousNumber],
+                "{style:?} {text}"
+            );
+        }
+    }
+    // Identifier shapes are never rewritten in any style, including digits.
+    for text in [
+        "Call 987 654 321",
+        "+51 987 654 321",
+        "Minecraft 1.21.11",
+        "v1.2.3-beta.2",
+        "SKU-007",
+        "Qwen3 4K 3D",
+    ] {
+        for style in [
+            ReadingStyle::Precise,
+            ReadingStyle::Natural,
+            ReadingStyle::Digits,
+        ] {
+            let result = normalize(text, &styled_opts("es", Some("es-ES"), style)).unwrap();
+            assert_eq!(result.spoken, text, "{style:?} {text}");
+            assert!(result.warnings.is_empty(), "{style:?} {text}");
+        }
+    }
+}
+
+#[test]
+fn quantity_context_does_not_weaken_other_languages() {
+    // Only Spanish proves a count from a following common noun. Other
+    // locales keep their existing ambiguity policy (and their `digits`
+    // padding behavior is covered by the fixture corpus).
+    for (language, locale) in [
+        ("en", "en-US"),
+        ("pt", "pt-BR"),
+        ("fr", "fr-FR"),
+        ("de", "de-DE"),
+        ("it", "it-IT"),
+        ("ru", "ru-RU"),
+        ("zh", "zh-CN"),
+        ("ja", "ja-JP"),
+        ("ko", "ko-KR"),
+    ] {
+        assert_eq!(
+            styled("007 errores", language, Some(locale), ReadingStyle::Precise),
+            "007 errores",
+            "{language}"
+        );
+    }
+}
+
+#[test]
 fn scientific_notation_and_attached_durations() {
     let es = |text| styled(text, "es", Some("es-PE"), ReadingStyle::Natural);
     let en = |text| styled(text, "en", Some("en-US"), ReadingStyle::Natural);
@@ -1099,9 +1247,9 @@ fn identity_includes_the_reading_style() {
     ] {
         let o = styled_opts("es", Some("es-PE"), style);
         let prepared = SpeechText::prepare("Son 5.", &o).unwrap();
-        assert_eq!(prepared.identity(), format!("tn-v2|auto|es|es-PE|{name}"));
+        assert_eq!(prepared.identity(), format!("tn-v2.1|auto|es|es-PE|{name}"));
     }
-    assert_eq!(RULESET_VERSION, "tn-v2");
+    assert_eq!(RULESET_VERSION, "tn-v2.1");
     assert_eq!(ReadingStyle::parse("literal"), Some(ReadingStyle::Precise));
     assert_eq!(ReadingStyle::parse("digit"), Some(ReadingStyle::Digits));
     assert_eq!(

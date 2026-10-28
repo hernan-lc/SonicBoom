@@ -216,7 +216,7 @@ curl -X POST "http://localhost:17842/api/tts/normalize"   -H "Authorization: Bea
   "locale": "es-PE",
   "mode": "auto",
   "reading_style": "precise",
-  "normalizer_version": "tn-v2",
+  "normalizer_version": "tn-v2.1",
   "changes": [
     { "kind": "date", "before": "26/10/2026", "after": "veintiséis de octubre de dos mil veintiséis",
       "start": 18, "end": 28, "confidence": "high" }
@@ -229,6 +229,12 @@ curl -X POST "http://localhost:17842/api/tts/normalize"   -H "Authorization: Bea
 (Coverage values above are illustrative; the response lists all eleven
 feature keys with the levels documented in [normalization.md](normalization.md).)
 
+Padded counts are resolved only when a following lowercase noun or unit proves
+a quantity: `10.005 solicitudes` in `es-ES` returns `diez mil cinco
+solicitudes`, while standalone `007` stays `007` and reports
+`ambiguous_number`. `reading_style: "digits"` reads the written sequence,
+including leading zeros (`007` → `cero cero siete`).
+
 `start`/`end` are UTF-8 byte offsets into `original` (`before` is
 `original[start..end]`). `warnings` entries have `{code, before, start,
 end}` with codes `ambiguous_number`, `ambiguous_date`, `invalid_date`,
@@ -240,7 +246,7 @@ mode or model/language mismatch, malformed JSON; `401` without a valid
 bearer token; `429` when rate-limited.
 
 `GET /api/info` adds a `normalization` block:
-`{ "ruleset_version": "tn-v2", "default_mode": "auto", "default_locale": "auto", "default_reading_style": "precise", "enabled": true, "languages": [{ "language", "locales", "default_locale", "rules", "features" }] }`.
+`{ "ruleset_version": "tn-v2.1", "default_mode": "auto", "default_locale": "auto", "default_reading_style": "precise", "enabled": true, "languages": [{ "language", "locales", "default_locale", "rules", "features" }] }`.
 Speech-language support is still reported by provider capabilities
 (`/api/providers`); normalization coverage is separate.
 

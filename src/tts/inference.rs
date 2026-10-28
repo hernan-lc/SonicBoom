@@ -392,6 +392,24 @@ mod tests {
     const LATENT_DIM: usize = 128;
 
     #[test]
+    fn preprocess_chunk_wraps_prepared_spanish_text_once() {
+        assert_eq!(
+            preprocess_chunk("Hay diez mil cinco solicitudes.", "es"),
+            "<es>Hay diez mil cinco solicitudes.</es>"
+        );
+        // A missing terminator gets exactly one period, inside the tag.
+        assert_eq!(
+            preprocess_chunk("siete errores", "es"),
+            "<es>siete errores.</es>"
+        );
+        // Existing sentence punctuation is preserved without doubling.
+        assert_eq!(
+            preprocess_chunk("¿Cuántas solicitudes?", "es"),
+            "<es>¿Cuántas solicitudes?</es>"
+        );
+    }
+
+    #[test]
     fn valid_durations_derive_exact_lengths() {
         // 1.0 s at 24 kHz, chunk 480 → 24000 samples, 50 latents.
         let out = chunk_lengths_from_duration(1.0, RATE, CHUNK, LATENT_DIM).unwrap();
