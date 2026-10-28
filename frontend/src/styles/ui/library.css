@@ -1,0 +1,83 @@
+.provider-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.provider {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  min-width: 0;
+}
+.provider-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.provider-name {
+  font-weight: 700;
+}
+.provider p {
+  font-size: 13px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.provider-actions {
+  margin-top: 16px;
+}
+.provider-active code {
+  margin-left: 4px;
+}
+details {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding-block: 8px;
+}
+.voice-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  margin-bottom: 12px;
+}
+.voice-name {
+  font-weight: 650;
+}
+.voice-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.voice-actions,
+.toolbar,
+.nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.subhead {
+  margin: 24px 0 12px;
+}
+.config-filters {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0;
+}
+.config-filters input {
+  flex: 2;
+}
+.config-filters select {
+  flex: 1;
+}

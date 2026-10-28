@@ -1,0 +1,62 @@
+.onboarding {
+  width: min(690px, calc(100% - 32px));
+  margin: 40px auto;
+}
+.onboarding h1 {
+  margin-bottom: 12px;
+}
+#progress {
+  color: var(--accent);
+  background: var(--accent-surface);
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-block: 24px;
+}
+.step {
+  display: none;
+}
+.step.active {
+  display: block;
+}
+.step label {
+  display: block;
+  margin-bottom: 16px;
+}
+.step input:not([type="radio"]),
+.step select {
+  margin-top: 8px;
+}
+.step[data-step="1"] label {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 16px 16px 16px 48px;
+  cursor: pointer;
+}
+.step[data-step="1"] label:has(input:checked) {
+  background: var(--accent-surface);
+  border-color: var(--accent);
+}
+.step input[type="radio"] {
+  position: absolute;
+  left: 16px;
+  top: 18px;
+}
+.nav {
+  justify-content: space-between;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 20px;
+}
+#next,
+#finish {
+  margin-left: auto;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+#summary {
+  white-space: pre-wrap;
+  padding: 16px;
+  background: var(--surface-raised);
+  font: 13px / 1.9 var(--font-mono);
+  border-radius: var(--radius-control);
+}

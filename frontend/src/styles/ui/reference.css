@@ -1,0 +1,94 @@
+/* Reference recording step: one obvious target, one readable file card. */
+.step-intro {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.reference-step .form-group > label {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+}
+.dropzone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 30px 20px;
+  text-align: center;
+}
+.dropzone-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--accent);
+}
+.dropzone-title {
+  font-size: 15px;
+  font-weight: 650;
+}
+.dropzone-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.dropzone-filled {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+  padding: 14px 16px;
+}
+.file-icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--accent);
+  grid-row: span 2;
+}
+.file-details {
+  min-width: 0;
+}
+.file-details .file-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.file-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.file-actions .btn-inline {
+  padding: 6px 10px;
+}
+.reference-preview {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.preview-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.reference-preview .waveform-player {
+  margin-top: 0;
+}
+.reference-preview .toolbar {
+  margin-top: 12px;
+}

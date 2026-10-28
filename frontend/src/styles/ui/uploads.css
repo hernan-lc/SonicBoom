@@ -1,0 +1,86 @@
+/* The native picker covers the whole target: one click anywhere opens it, and the control keeps its focus ring. */
+.file-dropzone-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-dropzone-input:disabled {
+  cursor: not-allowed;
+}
+.clone-report {
+  overflow-wrap: anywhere;
+}
+.clone-report dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.voice-combobox-anchor {
+  display: flex;
+  gap: 8px;
+}
+.voice-combobox-content {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: var(--reka-combobox-trigger-width);
+  max-width: 94vw;
+  z-index: 50;
+}
+.voice-combobox-viewport {
+  position: relative;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+  padding: 4px;
+}
+.voice-combobox-item {
+  min-height: 64px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.voice-combobox-item small {
+  color: var(--text-secondary);
+}
+.voice-combobox-item[data-highlighted] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  background: var(--surface-raised);
+}
+.voice-combobox-item[data-state="checked"] {
+  background: var(--accent-surface);
+}
+.reference-editor {
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: var(--radius);
+  margin-block: 16px;
+}
+.audio-waveform {
+  display: block;
+  width: 100%;
+  height: 120px;
+  color: var(--accent);
+  background: var(--surface-raised);
+  border-radius: var(--radius-control);
+}
+.audio-graph {
+  display: block;
+  width: 100%;
+  height: 56px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-control);
+  margin-top: 12px;
+}

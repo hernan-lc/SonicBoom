@@ -1,0 +1,93 @@
+.stat-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-block: 20px;
+}
+.stat-grid dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.stat-grid dd {
+  margin: 0;
+  font-size: 13px;
+}
+.mono-line {
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.cfg-group {
+  margin-top: 24px;
+}
+.cfg-group > h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.setting {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  padding: 18px;
+  border-radius: var(--radius-control);
+  margin-bottom: 12px;
+}
+.setting.dirty {
+  border-color: var(--warning);
+}
+.setting-title {
+  font-weight: 650;
+}
+.setting-path {
+  font: 12px / 1.7 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.setting-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 10px 0;
+}
+.setting-control {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.setting-control > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.switch,
+.range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.range-wrap input {
+  flex: 1;
+  min-width: 0;
+}
+.range-val {
+  font-variant-numeric: tabular-nums;
+}
+.field-hint,
+.row-msg {
+  font-size: 12px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+}
+#configError,
+.feedback {
+  padding: 14px;
+  border-radius: var(--radius-control);
+  background: var(--danger-surface);
+  margin-top: 16px;
+}
+.empty-result {
+  padding: 24px;
+  color: var(--text-secondary);
+}

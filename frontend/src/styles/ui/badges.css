@@ -1,0 +1,36 @@
+.model-status,
+.badge,
+.apply,
+.device-chip {
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+.model-status,
+.badge-loading,
+.apply-restart_server,
+.apply-restart_subsystem {
+  color: var(--warning);
+  background: var(--warning-surface);
+}
+.badge-ready,
+.apply-hot {
+  color: var(--success);
+  background: var(--success-surface);
+}
+.badge-disabled,
+.device-chip {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+.badge-not_installed,
+.apply-restart_process {
+  color: var(--danger);
+  background: var(--danger-surface);
+}
+.apply-reload_model {
+  color: var(--accent);
+  background: var(--accent-surface);
+}

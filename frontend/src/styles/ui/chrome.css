@@ -1,0 +1,70 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.app-bar {
+  padding: 16px clamp(16px, 3vw, 40px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 21px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+.brand-mark {
+  background: var(--accent-surface);
+  color: var(--accent);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+.brand-caption {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+.app-actions,
+.language-switcher {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.language-switcher {
+  gap: 6px;
+}
+.language-switcher select {
+  width: auto;
+  border-color: transparent;
+  font-size: 13px;
+}
+.admin-link {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.app-footer {
+  margin-top: auto;
+  padding: 24px clamp(16px, 3vw, 40px);
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}

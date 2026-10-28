@@ -1,0 +1,216 @@
+/* Waveform player: the waveform is the scrubber, the button is the transport. */
+.waveform-player {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.waveform-canvas {
+  width: 100%;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  overflow: hidden;
+  cursor: pointer;
+}
+.waveform-canvas:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.player-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.player-toggle {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  flex: none;
+}
+.player-toggle:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.player-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+.player-time {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.waveform-player.compact {
+  gap: 6px;
+}
+.waveform-player.compact .waveform-canvas {
+  background: transparent;
+}
+.waveform-player.compact .player-toggle {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+}
+.waveform-player.compact .player-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+.waveform-player.compact .player-time {
+  font-size: 12px;
+}
+.result-list .waveform-player {
+  margin-bottom: 8px;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.status-pill.ok {
+  color: var(--success);
+  background: var(--success-surface);
+}
+.status-pill.warn {
+  color: var(--warning);
+  background: var(--warning-surface);
+}
+.status-pill.bad {
+  color: var(--danger);
+  background: var(--danger-surface);
+}
+.mode-picker {
+  border: 0;
+  padding: 0;
+  margin: 0 0 24px;
+}
+.mode-picker > legend {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  padding: 0;
+  margin-bottom: 4px;
+}
+.field-intro {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+}
+.mode-option:hover {
+  border-color: var(--accent);
+}
+.mode-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-surface);
+}
+.mode-option:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.mode-option input {
+  flex: none;
+  margin-top: 2px;
+}
+.mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.mode-label {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.mode-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.field-hint-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: -4px 0 8px;
+}
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-control);
+  background: var(--accent-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.callout-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+.callout.warn {
+  background: var(--warning-surface);
+}
+.callout.warn .callout-icon {
+  background: var(--warning);
+}
+.health-notes {
+  border: 0;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.health-notes > summary {
+  font-size: 12px;
+  padding-block: 4px;
+}
+.button-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.1em;
+  margin-inline-end: 0.5em;
+  animation: spinner-turn 0.8s linear infinite;
+}
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .button-spinner {
+    animation: none;
+  }
+}

@@ -1,0 +1,91 @@
+@media (max-width: 900px) {
+  :root {
+    --nav-width: 172px;
+  }
+  .workspace-nav {
+    padding-inline: 8px;
+  }
+  .workspace-content {
+    padding: 24px;
+  }
+}
+@media (max-width: 640px) {
+  .studio-layout {
+    display: block;
+  }
+  .workspace-nav {
+    padding: 12px 8px;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .workspace-nav > .eyebrow,
+  .workspace-tip,
+  .nav-arrow {
+    display: none;
+  }
+  .workspace-nav [role="tablist"] {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .workspace-nav button {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    padding: 8px 3px;
+    text-align: center;
+  }
+  .workspace-content {
+    padding: 24px 16px;
+  }
+  .row,
+  .config-filters {
+    flex-direction: column;
+  }
+  .row > *,
+  .config-filters > * {
+    width: 100%;
+  }
+  .setting-control,
+  .voice-row {
+    flex-wrap: wrap;
+  }
+  .setting-control > input,
+  .setting-control > select {
+    flex-basis: 100%;
+  }
+  .app-bar {
+    padding: 12px 16px;
+  }
+  .app-actions {
+    margin-left: auto;
+    gap: 8px;
+  }
+  .brand {
+    font-size: 18px;
+  }
+  .brand-caption {
+    font-size: 9px;
+  }
+  .language-switcher {
+    gap: 2px;
+  }
+  .language-switcher select {
+    padding-inline: 4px;
+  }
+  .admin-link {
+    font-size: 12px;
+  }
+  .admin-link span {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
