@@ -10,6 +10,8 @@ const { status, result, error, errorStatus, stale, request } = usePronunciationP
 const kindLabel = (kind: string) => CHANGE_KIND_LABELS[kind] ? t(CHANGE_KIND_LABELS[kind]) : kind;
 const warningTitle = (code: string) => WARNING_LABELS[code] ? t(WARNING_LABELS[code].title) : code;
 const warningText = (code: string) => t(WARNING_LABELS[code]?.explanation ?? 'This expression was left as written.');
+const STYLE_LABELS: Readonly<Record<string, string>> = { precise: 'Precise', natural: 'Natural', digits: 'Digit by digit' };
+const styleLabel = (style: string) => t(STYLE_LABELS[style] ?? style);
 const unchanged = computed(() => !!result.value && result.value.changes.length === 0);
 // One concise sentence for the polite live region.
 const announcement = computed(() => {
@@ -36,7 +38,7 @@ function toggled(event: Event) {
       <p v-if="errorStatus === 400">{{ t('The server could not prepare this text. It may be too long, or its spoken form may exceed the allowed length. Shorten the text and try again.') }}</p>
     </div>
     <template v-if="result">
-      <p class="muted spoken-meta">{{ t('Language: {language} · Locale: {locale} · Pronunciation: {mode}', { language: t(`language.${result.language}`), locale: result.locale, mode: t(result.mode === 'auto' ? 'Automatic (recommended)' : 'Original text') }) }}</p>
+      <p class="muted spoken-meta">{{ t('Language: {language} · Locale: {locale} · Pronunciation: {mode}', { language: t(`language.${result.language}`), locale: result.locale, mode: t(result.mode === 'auto' ? 'Automatic (recommended)' : 'Original text') }) }}<span v-if="result.mode === 'auto'"> · {{ t('Reading: {style}', { style: styleLabel(result.reading_style) }) }}</span></p>
       <div class="spoken-compare">
         <div class="field"><label for="spokenOriginal">{{ t('Original text') }}</label><textarea id="spokenOriginal" readonly :value="result.original" rows="4"/></div>
         <div class="field"><label for="spokenText">{{ t('Spoken text') }}</label><textarea id="spokenText" readonly :value="result.spoken" rows="4"/></div>

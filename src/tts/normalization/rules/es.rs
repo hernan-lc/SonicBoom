@@ -16,7 +16,7 @@ use super::{
     AbbrevContext, Amount, Conventions, Currency, DateOrder, Feature, LanguageRules, Meridiem,
     OrdinalMarker, Unit,
 };
-use crate::tts::normalization::CoverageLevel;
+use crate::tts::normalization::{CoverageLevel, ReadingStyle};
 
 /// Spanish rule set.
 pub(crate) struct Spanish;
@@ -372,6 +372,56 @@ fn currency_names(
     }
 }
 
+/// Conversational Spanish clock reading. Hours keep the written 24-hour
+/// value; exact midnight/noon and quarter/half hours get their idiomatic
+/// names. AM/PM forms stay unsupported (preserved with a warning).
+fn natural_time(hour: u32, minute: u32, meridiem: Option<Meridiem>) -> Option<String> {
+    if meridiem.is_some() || hour > 23 || minute > 59 {
+        return None;
+    }
+    if hour == 0 && minute == 0 {
+        return Some("medianoche".to_string());
+    }
+    if hour == 12 && minute == 0 {
+        return Some("mediodía".to_string());
+    }
+    let hour_words = cardinal(u64::from(hour), Form::Feminine);
+    Some(match minute {
+        0 => format!("{hour_words} en punto"),
+        15 => format!("{hour_words} y cuarto"),
+        30 => format!("{hour_words} y media"),
+        _ => format!(
+            "{hour_words} y {}",
+            cardinal(u64::from(minute), Form::Masculine)
+        ),
+    })
+}
+
+fn fraction_names(denominator: u64) -> Option<(&'static str, &'static str)> {
+    Some(match denominator {
+        2 => ("medio", "medios"),
+        3 => ("tercio", "tercios"),
+        4 => ("cuarto", "cuartos"),
+        5 => ("quinto", "quintos"),
+        6 => ("sexto", "sextos"),
+        7 => ("séptimo", "séptimos"),
+        8 => ("octavo", "octavos"),
+        9 => ("noveno", "novenos"),
+        10 => ("décimo", "décimos"),
+        100 => ("centésimo", "centésimos"),
+        1000 => ("milésimo", "milésimos"),
+        _ => return None,
+    })
+}
+
+fn duration_part(value: u64, form: Form, singular: &str, plural: &str) -> String {
+    format!(
+        "{} {}",
+        cardinal(value, form),
+        if value == 1 { singular } else { plural }
+    )
+}
+
 fn unit_names(unit: Unit) -> (&'static str, &'static str) {
     match unit {
         Unit::Kilogram => ("kilogramo", "kilogramos"),
@@ -404,7 +454,7 @@ impl LanguageRules for Spanish {
             | Feature::Units
             | Feature::Abbreviations
             | Feature::Ranges => CoverageLevel::Partial,
-            Feature::Fractions => CoverageLevel::None,
+            Feature::Fractions => CoverageLevel::Partial,
         }
     }
 
@@ -420,6 +470,13 @@ impl LanguageRules for Spanish {
 
     fn number(&self, amount: &Amount, _locale: &str) -> Option<String> {
         Some(amount_words(amount, Form::Masculine))
+    }
+
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(digits.bytes().map(digit_word).collect::<Vec<_>>().join(" "))
     }
 
     fn number_gender_ambiguous(&self, int: u64, next_word: &str) -> bool {
@@ -533,6 +590,80 @@ impl LanguageRules for Spanish {
                 "{hour_words} {}",
                 cardinal(u64::from(minute), Form::Masculine)
             ),
+        })
+    }
+
+    fn time_styled(
+        &self,
+        hour: u32,
+        minute: u32,
+        meridiem: Option<Meridiem>,
+        style: ReadingStyle,
+        locale: &str,
+    ) -> Option<String> {
+        match style {
+            ReadingStyle::Precise => self.time(hour, minute, meridiem, locale),
+            ReadingStyle::Natural => natural_time(hour, minute, meridiem),
+            ReadingStyle::Digits => {
+                if meridiem.is_some() || hour > 23 || minute > 59 {
+                    return None;
+                }
+                self.digits(&format!("{hour:02}{minute:02}"), locale)
+            }
+        }
+    }
+
+    fn fraction(&self, numerator: u64, denominator: u64, _locale: &str) -> Option<String> {
+        if numerator == 0 || denominator == 0 {
+            return None;
+        }
+        let (singular, plural) = fraction_names(denominator)?;
+        if numerator == 1 {
+            Some(format!("un {singular}"))
+        } else {
+            Some(format!("{} {plural}", cardinal(numerator, Form::Masculine)))
+        }
+    }
+
+    fn scientific(&self, mantissa: &Amount, exponent: i32, _locale: &str) -> Option<String> {
+        let power = cardinal(u64::from(exponent.unsigned_abs()), Form::Masculine);
+        Some(if exponent < 0 {
+            format!(
+                "{} por diez elevado a menos {power}",
+                amount_words(mantissa, Form::Masculine)
+            )
+        } else {
+            format!(
+                "{} por diez elevado a {power}",
+                amount_words(mantissa, Form::Masculine)
+            )
+        })
+    }
+
+    fn duration(&self, hours: u64, minutes: u64, seconds: u64, _locale: &str) -> Option<String> {
+        let mut parts = Vec::with_capacity(3);
+        if hours > 0 {
+            parts.push(duration_part(hours, Form::Feminine, "hora", "horas"));
+        }
+        if minutes > 0 {
+            parts.push(duration_part(minutes, Form::Masculine, "minuto", "minutos"));
+        }
+        if seconds > 0 {
+            parts.push(duration_part(
+                seconds,
+                Form::Masculine,
+                "segundo",
+                "segundos",
+            ));
+        }
+        if parts.is_empty() {
+            return None;
+        }
+        Some(match parts.as_slice() {
+            [only] => only.clone(),
+            [first, second] => format!("{first} y {second}"),
+            [first, second, third] => format!("{first}, {second} y {third}"),
+            _ => unreachable!(),
         })
     }
 

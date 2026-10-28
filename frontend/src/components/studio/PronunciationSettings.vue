@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { t } from '../../i18n';
 import { useStudio } from '../../composables/useStudio';
 defineProps<{ disabled?: boolean }>();
-const { info, normalizationAvailable, normalizationMode, pronunciationLocale, pronunciationLocales, showPronunciationLocale, normalizationLanguage } = useStudio();
+const { info, normalizationAvailable, normalizationMode, readingStyle, pronunciationLocale, pronunciationLocales, showPronunciationLocale, normalizationLanguage } = useStudio();
 // Locales and the default come from /api/info; nothing is hard-coded here.
 const defaultLocale = computed(() => {
   const configured = info.value?.normalization?.default_locale;
@@ -27,6 +27,15 @@ const defaultLocale = computed(() => {
         <option value="auto">{{ normalizationLanguage?.default_locale ? `Language default (${normalizationLanguage.default_locale})` : 'Language default' }}</option>
         <option v-for="tag in pronunciationLocales" :key="tag" :value="tag">{{ tag }}</option>
       </select>
+    </div>
+    <div v-if="normalizationMode === 'auto'" class="field">
+      <label for="readingStyle">{{ t('Reading style') }}</label>
+      <select id="readingStyle" v-model="readingStyle" :disabled="disabled">
+        <option value="precise">{{ t('Precise') }}</option>
+        <option value="natural">{{ t('Natural') }}</option>
+        <option value="digits">{{ t('Digit by digit') }}</option>
+      </select>
+      <p class="field-hint">{{ t('Natural uses conversational times and durations; digit by digit reads numbers one digit at a time where the language allows it.') }}</p>
     </div>
   </div>
 </template>

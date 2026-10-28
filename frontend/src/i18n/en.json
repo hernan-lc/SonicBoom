@@ -723,5 +723,12 @@
   "Drag to move the selection": "Drag to move the selection",
   "Play full recording": "Play full recording",
   "Trim start handle": "Trim start handle",
-  "Trim end handle": "Trim end handle"
+  "Trim end handle": "Trim end handle",
+  "Reading style": "Reading style",
+  "Precise": "Precise",
+  "Natural": "Natural",
+  "Digit by digit": "Digit by digit",
+  "Natural uses conversational times and durations; digit by digit reads numbers one digit at a time where the language allows it.": "Natural uses conversational times and durations; digit by digit reads numbers one digit at a time where the language allows it.",
+  "Reading: {style}": "Reading: {style}",
+  "Fraction": "Fraction"
 }

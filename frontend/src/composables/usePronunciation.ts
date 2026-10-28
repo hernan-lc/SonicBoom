@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue';
-import type { NormalizationMode, ServerInfo, SpeechPronunciation } from '../services/contracts';
+import type { NormalizationMode, ReadingStyle, ServerInfo, SpeechPronunciation } from '../services/contracts';
 import { effectiveLocale, localeChoices, showLocaleChoice } from '../features/speech/pronunciation';
 
 /**
@@ -20,6 +20,13 @@ export function usePronunciation(info: Ref<ServerInfo | null>, language: Ref<str
     },
   });
   const pronunciationLocale = ref('');
+  const readingStyleChoice = ref<ReadingStyle | null>(null);
+  const readingStyle = computed<ReadingStyle>({
+    get: () => readingStyleChoice.value ?? normalizationInfo.value?.default_reading_style ?? 'precise',
+    set: (value) => {
+      readingStyleChoice.value = value;
+    },
+  });
   const normalizationLanguage = computed(() =>
     normalizationInfo.value?.languages.find((entry) => entry.language === language.value),
   );
@@ -33,6 +40,7 @@ export function usePronunciation(info: Ref<ServerInfo | null>, language: Ref<str
       ? {
           normalization: normalizationMode.value,
           locale: effectiveLocale(normalizationLanguage.value, pronunciationLocale.value, normalizationMode.value),
+          reading_style: readingStyle.value,
         }
       : undefined,
   );
@@ -48,6 +56,7 @@ export function usePronunciation(info: Ref<ServerInfo | null>, language: Ref<str
     normalizationAvailable,
     normalizationMode,
     pronunciationLocale,
+    readingStyle,
     normalizationLanguage,
     pronunciationLocales,
     showPronunciationLocale,

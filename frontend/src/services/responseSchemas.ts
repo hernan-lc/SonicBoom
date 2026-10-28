@@ -27,12 +27,14 @@ const numericBounds = z
   .refine((value) => value.min <= value.max);
 const coverageLevel = z.enum(['full', 'partial', 'none']);
 const normalizationMode = z.enum(['auto', 'off']);
+const readingStyle = z.enum(['precise', 'natural', 'digits']);
 const byteOffset = number.int().nonnegative();
 /** The `normalization` block of GET /api/info. Locale lists come only from the server. */
 export const normalizationInfoSchema: z.ZodType<NormalizationInfo> = z.object({
   ruleset_version: z.string().min(1),
   default_mode: normalizationMode,
   default_locale: z.string().optional(),
+  default_reading_style: readingStyle.optional(),
   enabled: z.boolean().optional(),
   languages: z.array(
     z.object({
@@ -51,6 +53,7 @@ export const normalizePreviewSchema: z.ZodType<NormalizePreview> = z.object({
   language: z.string().min(1),
   locale: z.string().min(1),
   mode: normalizationMode,
+  reading_style: readingStyle,
   normalizer_version: z.string().min(1),
   changes: z.array(
     z

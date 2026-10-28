@@ -34,6 +34,7 @@ Synthesizes text to speech audio.
 | `format`  | string | No       | `opus`  | Output format: `opus`, `wav`, `mp3`, or `flac` (unknown → `400`) |
 | `normalization` | string | No | server default (`auto`) | Text normalization: `auto` or `off` (case-insensitive; see [Text normalization](#text-normalization)) |
 | `locale`  | string | No       | language default | Pronunciation locale such as `es-PE`; `auto` selects the language default |
+| `reading_style` | string | No | server default (`precise`) | `precise`, `natural` or `digits` (see [Text normalization](#text-normalization)) |
 
 **Request Body:** Plain text string (max `MAX_TEXT_LENGTH` Unicode chars,
 body capped at `TTS_MAX_BODY_BYTES`)
@@ -74,6 +75,7 @@ Synthesizes text and adds it directly to the server's playback queue in a single
 | `play_now` | boolean | No       | `false` | If `true`, clears queue and plays now  |
 | `normalization` | string | No | server default | `auto` or `off` |
 | `locale`   | string  | No       | language default | Pronunciation locale (independent of the profile's base language) |
+| `reading_style` | string | No | server default (`precise`) | `precise`, `natural` or `digits` |
 
 **Request Body:** Plain text string
 
@@ -157,6 +159,7 @@ Request options (query parameters on `POST /api/tts`, `POST /api/tts/play`,
 | ------ | ------ | -------------- |
 | `normalization` | `auto` or `off` (case-insensitive) | `[tts.normalization]` effective mode (`auto`; `off` when `enabled = false`) |
 | `locale` | a supported tag (`es-ES`, `es-MX`, `es-PE`, `en-US`, `en-GB`, `pt-BR`, `pt-PT`, `fr-FR`, `de-DE`, `it-IT`, `ru-RU`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`) or `auto` | `[tts.normalization] default_locale` when it belongs to the speech language, otherwise the language default |
+| `reading_style` | `precise`, `natural`, `digits`, `literal` (alias) or `digit` (alias) | `[tts.normalization] reading_style` (`precise`) |
 
 - `off` hands the provider exactly the text it received before this
   feature (each route's existing trimming still applies).
@@ -173,6 +176,7 @@ Errors (all use the standard JSON error envelope and never echo the text):
 | Condition | Status |
 | --------- | ------ |
 | `normalization` other than `auto`/`off` | `400` |
+| `reading_style` other than `precise`/`natural`/`digits` (or aliases) | `400` |
 | Malformed locale, unsupported locale (e.g. `es-AR`), or locale of another language | `400` |
 | Text over `max_text_length`, or spoken text over `max_normalized_chars` / `max_expansion_ratio` | `400` |
 | Missing or invalid bearer token | `401` |
@@ -195,6 +199,7 @@ access, no job is created. Responses (success and errors) carry
 | `language` | string | Yes | Speech language (base code such as `es`) |
 | `locale` | string | No | Supported tag or `auto` (default: as for synthesis) |
 | `mode` | string | No | `auto` or `off` (default: server default) |
+| `reading_style` | string | No | `precise`, `natural` or `digits` (default: server default) |
 | `model` | string | No | When present, `language` must be valid for that model (e.g. `pocket-tts-es` accepts only `es`) |
 
 ```bash
@@ -210,7 +215,8 @@ curl -X POST "http://localhost:17842/api/tts/normalize"   -H "Authorization: Bea
   "language": "es",
   "locale": "es-PE",
   "mode": "auto",
-  "normalizer_version": "tn-v1",
+  "reading_style": "precise",
+  "normalizer_version": "tn-v2",
   "changes": [
     { "kind": "date", "before": "26/10/2026", "after": "veintiséis de octubre de dos mil veintiséis",
       "start": 18, "end": 28, "confidence": "high" }
@@ -234,7 +240,7 @@ mode or model/language mismatch, malformed JSON; `401` without a valid
 bearer token; `429` when rate-limited.
 
 `GET /api/info` adds a `normalization` block:
-`{ "ruleset_version": "tn-v1", "default_mode": "auto", "languages": [{ "language", "locales", "default_locale", "rules", "features" }] }`.
+`{ "ruleset_version": "tn-v2", "default_mode": "auto", "default_locale": "auto", "default_reading_style": "precise", "enabled": true, "languages": [{ "language", "locales", "default_locale", "rules", "features" }] }`.
 Speech-language support is still reported by provider capabilities
 (`/api/providers`); normalization coverage is separate.
 

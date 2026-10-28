@@ -15,7 +15,7 @@ use super::{
     AbbrevContext, Amount, Conventions, Currency, DateOrder, Feature, LanguageRules, Meridiem,
     OrdinalMarker, Unit,
 };
-use crate::tts::normalization::CoverageLevel;
+use crate::tts::normalization::{CoverageLevel, ReadingStyle};
 
 /// English rule set.
 pub(crate) struct English;
@@ -194,6 +194,68 @@ fn currency_names(currency: Currency) -> (&'static str, &'static str, &'static s
     }
 }
 
+/// Conversational English clock reading, 12-hour. AM/PM is not inferred.
+fn natural_time(hour: u32, minute: u32, meridiem: Option<Meridiem>) -> Option<String> {
+    if minute > 59 {
+        return None;
+    }
+    if meridiem.is_none() && hour > 23 {
+        return None;
+    }
+    let hour = match meridiem {
+        Some(_) if (1..=12).contains(&hour) => hour,
+        None if hour <= 23 => hour,
+        _ => return None,
+    };
+    if hour == 0 && minute == 0 {
+        return Some("midnight".to_string());
+    }
+    if hour == 12 && minute == 0 {
+        return Some("noon".to_string());
+    }
+    let hour12 = match hour % 12 {
+        0 => 12,
+        value => value,
+    };
+    let mut out = match minute {
+        0 => format!("{} o'clock", below_100(u64::from(hour12))),
+        15 => format!("quarter past {}", below_100(u64::from(hour12))),
+        30 => format!("half past {}", below_100(u64::from(hour12))),
+        45 => {
+            let next = hour12 % 12 + 1;
+            format!("quarter to {}", below_100(u64::from(next)))
+        }
+        1..=9 => format!(
+            "{} oh {}",
+            below_100(u64::from(hour12)),
+            ONES[minute as usize]
+        ),
+        _ => format!(
+            "{} {}",
+            below_100(u64::from(hour12)),
+            below_100(u64::from(minute))
+        ),
+    };
+    match meridiem {
+        Some(Meridiem::Am) => out.push_str(" A M"),
+        Some(Meridiem::Pm) => out.push_str(" P M"),
+        None => {}
+    }
+    Some(out)
+}
+
+fn fraction_names(denominator: u64, plural: bool) -> Option<String> {
+    Some(match (denominator, plural) {
+        (2, false) => "half".to_string(),
+        (2, true) => "halves".to_string(),
+        (4, false) => "quarter".to_string(),
+        (4, true) => "quarters".to_string(),
+        (0, _) => return None,
+        (_, false) => ordinalize(&cardinal(denominator, false)),
+        (_, true) => format!("{}s", ordinalize(&cardinal(denominator, false))),
+    })
+}
+
 fn unit_names(unit: Unit, uk: bool) -> (&'static str, &'static str) {
     match (unit, uk) {
         (Unit::Kilogram, _) => ("kilogram", "kilograms"),
@@ -234,7 +296,7 @@ impl LanguageRules for English {
             | Feature::Units
             | Feature::Abbreviations
             | Feature::Ranges => CoverageLevel::Partial,
-            Feature::Fractions => CoverageLevel::None,
+            Feature::Fractions => CoverageLevel::Partial,
         }
     }
 
@@ -255,6 +317,19 @@ impl LanguageRules for English {
 
     fn number(&self, amount: &Amount, locale: &str) -> Option<String> {
         Some(amount_words(amount, british(locale)))
+    }
+
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| ONES[usize::from(digit - b'0')])
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
     }
 
     fn ordinal(
@@ -383,6 +458,81 @@ impl LanguageRules for English {
             None => {}
         }
         Some(out)
+    }
+
+    fn time_styled(
+        &self,
+        hour: u32,
+        minute: u32,
+        meridiem: Option<Meridiem>,
+        style: ReadingStyle,
+        locale: &str,
+    ) -> Option<String> {
+        match style {
+            ReadingStyle::Precise => self.time(hour, minute, meridiem, locale),
+            ReadingStyle::Natural => natural_time(hour, minute, meridiem),
+            ReadingStyle::Digits => {
+                if meridiem.is_some() || hour > 23 || minute > 59 {
+                    return None;
+                }
+                self.digits(&format!("{hour:02}{minute:02}"), locale)
+            }
+        }
+    }
+
+    fn fraction(&self, numerator: u64, denominator: u64, _locale: &str) -> Option<String> {
+        if numerator == 0 || denominator == 0 {
+            return None;
+        }
+        let denominator_words = fraction_names(denominator, numerator != 1)?;
+        Some(format!(
+            "{} {denominator_words}",
+            cardinal(numerator, false)
+        ))
+    }
+
+    fn scientific(&self, mantissa: &Amount, exponent: i32, locale: &str) -> Option<String> {
+        let uk = british(locale);
+        let power = cardinal(u64::from(exponent.unsigned_abs()), uk);
+        Some(if exponent < 0 {
+            format!(
+                "{} times ten to the power of minus {power}",
+                amount_words(mantissa, uk)
+            )
+        } else {
+            format!(
+                "{} times ten to the power of {power}",
+                amount_words(mantissa, uk)
+            )
+        })
+    }
+
+    fn duration(&self, hours: u64, minutes: u64, seconds: u64, locale: &str) -> Option<String> {
+        let uk = british(locale);
+        let part = |value: u64, singular: &str, plural: &str| {
+            format!(
+                "{} {}",
+                cardinal(value, uk),
+                if value == 1 { singular } else { plural }
+            )
+        };
+        let mut parts = Vec::with_capacity(3);
+        if hours > 0 {
+            parts.push(part(hours, "hour", "hours"));
+        }
+        if minutes > 0 {
+            parts.push(part(minutes, "minute", "minutes"));
+        }
+        if seconds > 0 {
+            parts.push(part(seconds, "second", "seconds"));
+        }
+        Some(match parts.as_slice() {
+            [] => return None,
+            [only] => only.clone(),
+            [first, second] => format!("{first} and {second}"),
+            [first, second, third] => format!("{first}, {second} and {third}"),
+            _ => unreachable!(),
+        })
     }
 
     fn unit(&self, amount: &Amount, unit: Unit, locale: &str) -> Option<String> {

@@ -141,6 +141,7 @@ pub const ALL_CONFIG_PATHS: &[&str] = &[
     "tts.normalization.enabled",
     "tts.normalization.mode",
     "tts.normalization.default_locale",
+    "tts.normalization.reading_style",
     "tts.normalization.report_ambiguities",
     "tts.normalization.max_expansion_ratio",
     "tts.normalization.max_normalized_chars",
@@ -709,6 +710,7 @@ max_text_length = 5000
         assert!(n.enabled);
         assert_eq!(n.mode, "auto");
         assert_eq!(n.default_locale, "auto");
+        assert_eq!(n.reading_style, "precise");
         assert!(n.report_ambiguities);
         assert_eq!(n.max_expansion_ratio, 8.0);
         assert_eq!(n.max_normalized_chars, 20_000);
@@ -727,6 +729,7 @@ max_text_length = 5000
             "[tts.normalization]
 mode = \" OFF \"
 default_locale = \"es-PE\"
+reading_style = \" Natural \"
              report_ambiguities = false
 max_expansion_ratio = 4.5
              max_normalized_chars = 1000
@@ -736,10 +739,15 @@ max_expansion_ratio = 4.5
         let n = &effective.config.tts.normalization;
         assert_eq!(n.mode, "off");
         assert_eq!(n.default_locale, "es-PE");
+        assert_eq!(n.reading_style, "natural");
         assert!(!n.report_ambiguities);
         assert_eq!(n.max_expansion_ratio, 4.5);
         assert_eq!(n.max_normalized_chars, 1000);
         assert_eq!(n.effective_mode(), NormalizationMode::Off);
+        assert_eq!(
+            n.effective_reading_style(),
+            crate::tts::normalization::ReadingStyle::Natural
+        );
         assert_eq!(
             effective.source_of("tts.normalization.mode"),
             Some(ConfigSource::Toml)
@@ -785,10 +793,12 @@ strictness = 3
         let mut config = AppConfig::default();
         config.tts.normalization.mode = "off".to_string();
         config.tts.normalization.default_locale = "pt-BR".to_string();
+        config.tts.normalization.reading_style = "natural".to_string();
         let text = toml::to_string_pretty(&config).unwrap();
         let back = parse_toml(&text).unwrap();
         assert_eq!(back.tts.normalization.mode, "off");
         assert_eq!(back.tts.normalization.default_locale, "pt-BR");
+        assert_eq!(back.tts.normalization.reading_style, "natural");
         assert_eq!(back.tts.normalization.max_normalized_chars, 20_000);
     }
 

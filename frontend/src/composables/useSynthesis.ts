@@ -2,7 +2,7 @@ import { computed, getCurrentScope, onScopeDispose, ref, shallowRef, watch } fro
 import { ApiError } from '../services/http';
 import { monitorJob } from '../services/jobs';
 import { t, msg, uiError, errorMessage, type Message } from '../i18n';
-import type { Job, NormalizationMode, QualityReport } from '../services/contracts';
+import type { Job, NormalizationMode, QualityReport, ReadingStyle } from '../services/contracts';
 import type { Studio } from './useStudio';
 /**
  * Everything a generation needs, frozen at submission. `normalization` and `locale`
@@ -17,6 +17,7 @@ export type GenerationInput = Readonly<{
   cloned: boolean;
   normalization?: NormalizationMode;
   locale?: string;
+  reading_style?: ReadingStyle;
 }>;
 type ActiveGeneration = Readonly<{ jobId: string; input: GenerationInput; requestEpoch: number; preset: string }>;
 /** One completed generation, retained for side-by-side comparison. */
@@ -192,7 +193,7 @@ export function useSynthesis(studio: Studio) {
         input.cloned,
         samplingFor(input.model),
         signal,
-        { normalization: input.normalization, locale: input.locale },
+        { normalization: input.normalization, locale: input.locale, reading_style: input.reading_style },
       );
       if (disposed || requestEpoch !== epoch) return;
       const generation = Object.freeze({ jobId: job.id, input, requestEpoch, preset });
@@ -214,6 +215,7 @@ export function useSynthesis(studio: Studio) {
       cloned: studio.selectedModel.value.cloned,
       normalization: studio.pronunciation?.value?.normalization,
       locale: studio.pronunciation?.value?.locale,
+      reading_style: studio.pronunciation?.value?.reading_style,
     });
     lastInput = input;
     await run(input);

@@ -230,6 +230,10 @@ pub struct NormalizationConfig {
     pub mode: String,
     /// `auto` (per-language default) or a supported locale tag.
     pub default_locale: String,
+    /// How written numbers and times are read: `precise`, `natural` or
+    /// `digits` (case-insensitive; stored lowercase).
+    #[serde(deserialize_with = "deserialize_normalization_mode")]
+    pub reading_style: String,
     /// Report ambiguous expressions as warnings.
     pub report_ambiguities: bool,
     /// Maximum spoken/original length ratio (1.0..=16.0).
@@ -244,6 +248,7 @@ impl Default for NormalizationConfig {
             enabled: true,
             mode: "auto".to_string(),
             default_locale: "auto".to_string(),
+            reading_style: "precise".to_string(),
             report_ambiguities: true,
             max_expansion_ratio: 8.0,
             max_normalized_chars: 20_000,
@@ -263,6 +268,12 @@ impl NormalizationConfig {
         NormalizationMode::parse(&self.mode).unwrap_or(NormalizationMode::Auto)
     }
 
+    /// Effective reading style (falls back to [`ReadingStyle::Precise`] for a
+    /// value validation would already have rejected).
+    pub fn effective_reading_style(&self) -> crate::tts::normalization::ReadingStyle {
+        crate::tts::normalization::ReadingStyle::parse(&self.reading_style).unwrap_or_default()
+    }
+
     /// Normalizer limits; the input bound comes from `tts.max_text_length`.
     pub fn limits(&self, max_input_chars: usize) -> crate::tts::normalization::NormalizeLimits {
         crate::tts::normalization::NormalizeLimits {
@@ -273,8 +284,8 @@ impl NormalizationConfig {
     }
 }
 
-/// Trim and lowercase the mode so `"OFF"` is stored as `off`.
-/// Validation rejects values other than `auto`/`off`.
+/// Trim and lowercase the mode or reading style so `"OFF"`/`"Natural"` are
+/// stored as `off`/`natural`. Validation rejects other values.
 fn deserialize_normalization_mode<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,

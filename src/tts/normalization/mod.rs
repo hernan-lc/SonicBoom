@@ -38,12 +38,15 @@ pub(crate) mod segments;
 mod tests;
 
 pub use options::{
-    NormalizationMode, NormalizeLimits, NormalizeOptions, default_locale_for, is_supported_locale,
-    locales_for,
+    NormalizationMode, NormalizeLimits, NormalizeOptions, ReadingStyle, default_locale_for,
+    is_supported_locale, locales_for,
 };
 
 /// Version of the rule set. Participates in [`SpeechText::identity`].
-pub const RULESET_VERSION: &str = "tn-v1";
+///
+/// `tn-v2` changes output semantics: unambiguous dot decimals such as `0.05`
+/// in comma locales are read as decimals, and reading styles were added.
+pub const RULESET_VERSION: &str = "tn-v2";
 
 /// Stable feature keys used in coverage maps.
 pub const FEATURE_KEYS: [&str; 11] = [
@@ -86,6 +89,7 @@ pub enum ChangeKind {
     Unit,
     Abbreviation,
     Range,
+    Fraction,
 }
 
 /// Confidence attached to a change.
@@ -260,11 +264,12 @@ impl SpeechText {
         let changed = normalized.spoken != text;
         Ok(Self {
             identity: format!(
-                "{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}",
                 RULESET_VERSION,
                 opts.mode.as_str(),
                 opts.language,
-                opts.locale
+                opts.locale,
+                opts.reading_style.as_str()
             ),
             spoken: normalized.spoken,
             changed,
@@ -281,7 +286,7 @@ impl SpeechText {
         self.spoken
     }
 
-    /// Stable identity, e.g. `"tn-v1|auto|es|es-PE"`. Contains no user text.
+    /// Stable identity, e.g. `"tn-v2|auto|es|es-PE|precise"`. Contains no user text.
     pub fn identity(&self) -> &str {
         &self.identity
     }

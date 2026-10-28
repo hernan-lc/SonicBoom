@@ -224,6 +224,18 @@ impl LanguageRules for Chinese {
         Some(amount_words(amount, script(locale), false))
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| DIGITS[usize::from(digit - b'0')].to_string())
+                .collect(),
+        )
+    }
+
     /// A following Hanzi word is usually a measure word, which changes the
     /// reading of two (`两个`); preserved.
     fn number_gender_ambiguous(&self, _int: u64, next_word: &str) -> bool {

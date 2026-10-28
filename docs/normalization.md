@@ -1,4 +1,4 @@
-# Text normalization (`tn-v1`)
+# Text normalization (`tn-v2`)
 
 Normalization defaults to `auto`, including for existing clients that omit the
 new option. This can change spoken output compared with earlier releases. Set
@@ -14,6 +14,11 @@ no new dependencies and makes no network calls.
 
 Normalization is not a fix for model pronunciation. It only rewrites symbolic
 text. Nothing here has been verified acoustically (see [Limitations](#limitations)).
+
+The default reading style is `precise`, which reproduces `tn-v1` readings for
+everything that was already supported. `natural` and `digits` are opt-in (see
+[Reading styles](#reading-styles)); all styles share the same byte-preserving
+ambiguity and protection policy.
 
 Valid standalone JSON objects and arrays are preserved as written and reported
 as `structured_data`; extract the prose to normalize its contents. RFC 3339
@@ -31,6 +36,31 @@ Leap seconds and fractions longer than nine digits are currently preserved.
 
 `strict` is not implemented in v1.
 
+## Reading styles
+
+`reading_style` (config `[tts.normalization] reading_style`, query/body
+`reading_style`) selects how numbers and clock times are read. It is part of the
+normalization identity, so a change never reuses cached audio from another style.
+
+| Style | Behavior | Examples (es / en) |
+|---|---|---|
+| `precise` (default) | Literal, high-precision compatibility readings. | `15:30` → "quince treinta" / "fifteen thirty"; `3.140` → "tres coma uno cuatro cero" / "three point one four zero" |
+| `natural` | Conversational times, durations and fractions. | `12:30` → "doce y media" / "half past twelve"; `1h30` → "una hora y treinta minutos" / "one hour and thirty minutes" |
+| `digits` | Applicable integers digit by digit, where the language provides it. | `2026` → "dos cero dos seis" / "two zero two six" |
+
+`literal` is accepted as an alias of `precise`, and `digit` of `digits`.
+Unknown style names are a `400` for requests and a validation error in
+configuration. Styles only apply while the mode is `auto`; `off` stays
+byte-identical in every style.
+
+Natural Spanish times keep the written 24-hour hour value (`15:30` → "quince y
+media"); `00:00` and `12:00` become "medianoche" and "mediodía". Natural English
+times use a 12-hour clock without inferring AM/PM (`15:30` → "half past three").
+Attached durations (`1h`, `1h30`, `1h30min`, `1h30min15s`, `30min`, `45s`) and
+slash fractions (`1/2`, `3/4`) are read only in `natural`; `precise` preserves
+them under the previous policy. Scientific notation (`1e6`, `2.5e-3`) is
+unambiguous and is read in every style.
+
 ## Architecture
 
 ```text
@@ -43,8 +73,10 @@ original text (immutable)
 ```
 
 - `mod.rs` holds the public API: `normalize`, `SpeechText`, `NormalizeOptions::resolve`,
-  `language_coverage`, `RULESET_VERSION = "tn-v1"`, and the change, warning and error types.
-- `options.rs` holds the locale table, BCP-47 canonicalization, defaults and limits.
+  `NormalizeOptions::resolve_with_style`, `language_coverage`,
+  `RULESET_VERSION = "tn-v2"`, and the change, warning and error types.
+- `options.rs` holds the locale table, BCP-47 canonicalization, defaults,
+  `ReadingStyle` and limits.
 - `lexer.rs` splits text into whitespace-delimited fields. Each field has a *core*,
   which is the field without its leading opening punctuation (`( ¿ ¡ "`) and its
   trailing closing or sentence punctuation (`. , ; : ! ? ) "`). Protected regions
@@ -54,9 +86,10 @@ original text (immutable)
   when the whole core matches. Precedence:
   1. protected regions and identifier shapes;
   2. phone-like runs of digit groups;
-  3. currency, percentages, ordinals, units, dates, times, ranges, and fractions/ratios
-     (fractions and ratios produce a warning only);
-  4. plain cardinals and decimals.
+  3. scientific notation, then attached durations in `natural` style;
+  4. currency, percentages, ordinals, units, dates, times, ranges, and fractions/ratios
+     (fractions are named in `natural`, otherwise preserved with a warning);
+  5. plain cardinals and decimals.
 - `rules/*.rs` hold one `LanguageRules` implementation per language. Every renderer
   returns `Option<String>`, and `None` means "preserve".
 - `render.rs` splices the replacements. Bytes outside replaced spans are copied
@@ -115,16 +148,16 @@ Locale resolution rules:
 | Feature | es | en | Notes |
 |---|---|---|---|
 | cardinal_numbers | full | full | Exact integers up to 999 999 999 999 999. Larger values are preserved and produce `number_too_large`. Leading zeros (`007`) are preserved and produce `ambiguous_number`. |
-| decimals | partial | partial | Every fractional digit is kept, up to 12 digits. en reads digit by digit (`3.140` → "three point one four zero"). es reads one digit, or two digits without a leading zero, as a number (`12,5` → "doce coma cinco", `1.234,56` → "… coma cincuenta y seis"). Otherwise es reads digit by digit (`3,05` → "tres coma cero cinco"). Scientific notation is not supported. |
+| decimals | partial | partial | Every fractional digit is kept, up to 12 digits. en reads digit by digit (`3.140` → "three point one four zero"). es reads one digit, or two digits without a leading zero, as a number (`12,5` → "doce coma cinco", `1.234,56` → "… coma cincuenta y seis"). Otherwise es reads digit by digit (`3,05` → "tres coma cero cinco"). A single dot/comma in a comma/dot locale is read as a decimal when the integer part is exactly `0` (`0.05`, `-0.0001`) or the fraction has four or more digits (`3.1415926535`); `3.14`, `12.5` and `1.234` stay ambiguous for compatibility. Scientific notation (`1e6`, `2.5e-3`) is read in every style. |
 | ordinals | partial | partial | en: `1st`, `2nd`, `21st`, … The suffix is validated, so `1th` is preserved. es: `1º`/`1ª`/`1.º` from 1 to 100, with apocope before a noun (`3º piso` → "tercer piso"). |
 | percentages | full | full | `12,5%`, `12,5 %`, `-3%`. |
 | currency | partial | partial | `S/` and `S/.` (PEN), `€`, `£`, `US$`, `R$`, and the codes PEN, EUR, GBP, USD, BRL, JPY. A bare `$` means USD only under en-US. Elsewhere it produces `ambiguous_currency`, and so does `¥`. Amounts must be integers or have exactly two decimals. The renderer handles singular and plural, Spanish gender (`una libra esterlina`), apocope (`veintiún soles`) and `de` after exact millions. An amount followed by a scale word (`$1.5 million`) is preserved. |
 | dates | partial | partial | Slash `D/M/YYYY` and ISO `YYYY-MM-DD`, validated including leap years. Textual months and weekdays are not handled. |
-| times | partial | partial | `H:MM` with hours 0–23. en also accepts AM/PM. es with AM/PM, invalid ranges, and `H:MM:SS` are preserved and produce `ambiguous_time`. |
+| times | partial | partial | `H:MM` with hours 0–23. en also accepts AM/PM. es with AM/PM, invalid ranges, and `H:MM:SS` are preserved and produce `ambiguous_time`. `natural` adds conversational times (`12:30` → "doce y media" / "half past twelve") and attached durations. |
 | units | partial | partial | kg, g, km, m, cm, mm, L, mL, °C, °F, km/h, m/s, GB, MHz, ms. Case-sensitive. The unit must follow the number directly or after one space. en-GB uses `-re` spellings. |
 | abbreviations | partial | partial | es: Dr., Dra., Sr., Sra., Srta. before a capitalized word; Av. before a capitalized word or a number; etc. only when not at a sentence end. en: Dr., Mr., etc. with the same rule. Ambiguous forms such as `St.` are preserved. |
 | ranges | partial | partial | `10–15` (en dash, plain integers, ascending order), optionally followed by a unit. es reads "diez a quince", en reads "ten to fifteen". Hyphenated digits are preserved as IDs. |
-| fractions | none | none | `½`, `3/4`, `1:2` are always preserved and produce `ambiguous_fraction`. |
+| fractions | partial | partial | `natural` names `1/2`, `3/4`, … for denominators 2–10, 100 and 1000 ("un medio", "tres cuartos" / "one half", "three quarters"). Other denominators and ratios (`1:2`, `16:9`) are preserved with `ambiguous_fraction`. `precise` preserves all fractions under the previous policy. |
 
 Overall coverage is `partial` for every language with rules.
 `language_coverage()` and `NormalizedText::coverage` report coverage per feature.
@@ -144,6 +177,10 @@ Overall coverage is `partial` for every language with rules.
 | abbreviations | partial | partial | partial | partial | none | none | none | none |
 | ranges | partial | partial | partial | none | none | none | none | none |
 | fractions | none | none | none | none | none | none | none | none |
+
+Only es and en implement the new `natural` time/duration/fraction renderers.
+Other languages still read their supported features in the styles above, and
+`digits` is available for integers in every supported language.
 
 Coverage is reported per language, not per locale. Where a locale converts
 less (zh-TW), the notes say so.
@@ -253,6 +290,17 @@ framework cannot disable that conversion per locale.
   (`1:30` → "una treinta").
 - en time: `15:30` → "fifteen thirty", `9:05` → "nine oh five", `3:00` → "three o'clock",
   `15:00` → "fifteen hundred", `3:30 PM` → "three thirty P M".
+- es `natural` time: `00:00` → "medianoche", `12:00` → "mediodía",
+  `03:05` → "tres y cinco", `07:15` → "siete y cuarto", `12:30` → "doce y
+  media". The written hour is kept (`15:30` → "quince y media").
+- en `natural` time: `00:00` → "midnight", `12:00` → "noon", `12:30` →
+  "half past twelve", `15:30` → "half past three", `03:05` → "three oh
+  five". AM/PM is not inferred.
+- `natural` durations: `1h30` → "una hora y treinta minutos" / "one hour
+  and thirty minutes"; `1h30min15s` → "una hora, treinta minutos y quince
+  segundos". Components with value zero are omitted.
+- Scientific notation: `1e6` → "uno por diez elevado a seis" / "one times
+  ten to the power of six"; a negative exponent adds "menos" / "minus".
 - en years in dates: `2026` → "twenty twenty-six", `2005` → "two thousand five",
   `1905` → "nineteen oh five". A plain integer `2026` outside a date is a cardinal:
   "two thousand twenty-six".
@@ -280,7 +328,8 @@ Ambiguous input is preserved byte-for-byte and reported. It is never guessed.
 
 Note on es-MX: everyday Mexican writing often uses a decimal point. Every Spanish
 locale reads the decimal comma, so es-MX `3.14` is preserved with a warning rather
-than misread.
+than misread. Leading-zero and high-precision dot forms are unambiguous and are
+read as decimals (`0.05`, `3.1415926535`) in every Spanish locale.
 
 Protected and never rewritten:
 
@@ -332,13 +381,15 @@ never the characters. `encode` returns the same ids and mask as before.
 - Golden corpus: `tests/fixtures/tts_normalization/*.jsonl`, run by
   `cargo test --test tts_normalization --no-default-features`.
   - Each case has: id, language, locale (`auto` means the default), mode, input,
-    expected_spoken or expected_unchanged, warning_codes, features, reviewed_by.
+    optional `reading_style` (default `precise`), expected_spoken or
+    expected_unchanged, warning_codes, features, reviewed_by.
   - `reviewed_by: "spec"` marks rows copied verbatim from the specification.
   - `"agent-unreviewed"` marks expectations written by the implementing agent. They
     still need review by a fluent speaker; they are not human-reviewed.
   - There is one fixture file per language with rules (`es`, `en`, `pt`, `fr`,
     `de`, `it`, `ru`, `zh`, `ja`, `ko`), plus `negative.jsonl` for protected,
-    ambiguous and invalid inputs.
+    ambiguous and invalid inputs, and `tn_v2_styles.jsonl` for decimal shapes,
+    reading styles, scientific notation, durations and fractions.
   - `passthrough.jsonl` holds the case for a well-formed language without rules
     (`nl`): text with a number, a date and a currency word stays byte-identical
     with no warnings. The former pt/fr/de/it/ru/zh/ja/ko pass-through rows were
@@ -364,8 +415,10 @@ never the characters. `encode` returns the same ids and mask as before.
   speakers.
 - Spanish numbers before an unknown noun are preserved when the reading depends on
   gender.
-- Not handled: textual dates, weekdays, durations, UTC offsets, scientific notation,
-  negative money, and `10 – 15` with spaces.
+- Not handled: textual dates, weekdays, UTC offsets in prose, negative money,
+  and `10 – 15` with spaces. Natural durations and fractions are implemented only
+  for es and en; other languages preserve them. Only the first 12 fractional
+  digits are read, and exponents beyond two digits are preserved.
 
 ## Adding a language
 

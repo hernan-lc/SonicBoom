@@ -128,11 +128,13 @@ supported, and the effective device is always reported.
 
 ### Text normalization coverage
 
-Text normalization (`tn-v1`, see [normalization.md](normalization.md)) runs
+Text normalization (`tn-v2`, see [normalization.md](normalization.md)) runs
 before every provider. It is separate from provider language support: a
 provider that cannot synthesize a language still rejects it, whatever the
 normalizer can render. Each language uses its own rules. No language is
-normalized with English or Spanish rules.
+normalized with English or Spanish rules. `reading_style` (`precise`, `natural`
+or `digits`) is applied once by the shared normalizer, so every provider
+receives identical prepared text for the same request.
 
 | Language | Locales | What `auto` converts | Preserved (unchanged, often with a warning) |
 |---|---|---|---|

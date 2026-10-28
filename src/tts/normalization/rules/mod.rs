@@ -297,6 +297,12 @@ pub(crate) trait LanguageRules: Sync {
         None
     }
 
+    /// Digit-by-digit reading of an integer's ASCII digits (`105` ->
+    /// "uno cero cinco"). `None` when the language has no digit renderer.
+    fn digits(&self, _digits: &str, _locale: &str) -> Option<String> {
+        None
+    }
+
     /// `true` when reading `int` before `next_word` needs a grammatical
     /// gender the rules cannot know (Spanish `21 casas`). The number is then
     /// preserved with `ambiguous_number`.
@@ -344,6 +350,40 @@ pub(crate) trait LanguageRules: Sync {
         _meridiem: Option<Meridiem>,
         _locale: &str,
     ) -> Option<String> {
+        None
+    }
+
+    /// Clock time rendered for a reading style. The default keeps the
+    /// original `time` wording for `precise` and `natural`; languages that
+    /// implement natural times override it.
+    fn time_styled(
+        &self,
+        hour: u32,
+        minute: u32,
+        meridiem: Option<Meridiem>,
+        style: super::ReadingStyle,
+        locale: &str,
+    ) -> Option<String> {
+        match style {
+            super::ReadingStyle::Precise | super::ReadingStyle::Natural => {
+                self.time(hour, minute, meridiem, locale)
+            }
+            super::ReadingStyle::Digits => None,
+        }
+    }
+
+    /// Simple fraction `numerator/denominator` (natural style only).
+    fn fraction(&self, _numerator: u64, _denominator: u64, _locale: &str) -> Option<String> {
+        None
+    }
+
+    /// Scientific notation: `mantissa * 10^exponent`.
+    fn scientific(&self, _mantissa: &Amount, _exponent: i32, _locale: &str) -> Option<String> {
+        None
+    }
+
+    /// Attached duration components in natural style (`1h30min`).
+    fn duration(&self, _hours: u64, _minutes: u64, _seconds: u64, _locale: &str) -> Option<String> {
         None
     }
 

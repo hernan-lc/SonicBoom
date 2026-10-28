@@ -96,6 +96,10 @@ pub struct SpeechRequest {
     /// `auto` selects the speech language's documented default.
     #[serde(default)]
     pub locale: Option<String>,
+    /// SonicBoom extension: reading style for written numbers and times
+    /// (`precise`, `natural` or `digits`). Absent uses the server default.
+    #[serde(default)]
+    pub reading_style: Option<String>,
 }
 
 impl SpeechRequest {
@@ -104,6 +108,7 @@ impl SpeechRequest {
         SpeechOptions {
             normalization: self.normalization.clone(),
             locale: self.locale.clone(),
+            reading_style: self.reading_style.clone(),
         }
     }
 
@@ -624,6 +629,7 @@ mod tests {
         assert_eq!(request.seed, None);
         assert_eq!(request.normalization, None);
         assert_eq!(request.locale, None);
+        assert_eq!(request.reading_style, None);
         // Standard OpenAI clients may send fields SonicBoom does not know.
         let request: SpeechRequest =
             serde_json::from_str(r#"{"input":"hi","instructions":"calm","stream_format":"audio"}"#)
@@ -643,7 +649,7 @@ mod tests {
             speech.as_str(),
             "Pago veintiséis de octubre de dos mil veintiséis"
         );
-        assert_eq!(speech.identity(), "tn-v1|auto|es|es-PE");
+        assert_eq!(speech.identity(), "tn-v2|auto|es|es-PE|precise");
         // Legacy aliases synthesize English: a Spanish locale is a 400.
         assert!(matches!(
             request.speech(&config, "en"),
@@ -658,6 +664,18 @@ mod tests {
         );
         let invalid: SpeechRequest =
             serde_json::from_str(r#"{"input":"hi","normalization":"strict"}"#).unwrap();
+        assert!(matches!(
+            invalid.speech(&config, "en"),
+            Err(AppError::BadRequest(_))
+        ));
+        let natural: SpeechRequest =
+            serde_json::from_str(r#"{"input":"12:30","language":"es","reading_style":"natural"}"#)
+                .unwrap();
+        let speech = natural.speech(&config, "es").unwrap();
+        assert_eq!(speech.as_str(), "doce y media");
+        assert_eq!(speech.identity(), "tn-v2|auto|es|es-ES|natural");
+        let invalid: SpeechRequest =
+            serde_json::from_str(r#"{"input":"hi","reading_style":"loud"}"#).unwrap();
         assert!(matches!(
             invalid.speech(&config, "en"),
             Err(AppError::BadRequest(_))

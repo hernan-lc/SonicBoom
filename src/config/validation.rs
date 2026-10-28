@@ -197,9 +197,14 @@ const MIN_EXPANSION_RATIO: f32 = 1.0;
 const MAX_EXPANSION_RATIO: f32 = 16.0;
 
 fn validate_normalization(n: &super::model::NormalizationConfig) -> Result<(), String> {
-    use crate::tts::normalization::{NormalizationMode, is_supported_locale};
+    use crate::tts::normalization::{NormalizationMode, ReadingStyle, is_supported_locale};
     if NormalizationMode::parse(&n.mode).is_none() {
         return Err("tts.normalization.mode must be one of: auto, off".to_string());
+    }
+    if ReadingStyle::parse(&n.reading_style).is_none() {
+        return Err(
+            "tts.normalization.reading_style must be one of: precise, natural, digits".to_string(),
+        );
     }
     let locale = n.default_locale.trim();
     if !locale.eq_ignore_ascii_case("auto") && !is_supported_locale(locale) {
@@ -466,12 +471,16 @@ mod tests {
         let mut config = valid_config();
         config.tts.normalization.mode = "OFF".to_string();
         config.tts.normalization.default_locale = "es-pe".to_string();
+        config.tts.normalization.reading_style = "NATURAL".to_string();
         assert!(validate(&config).is_ok());
 
         type Mutation = fn(&mut AppConfig);
-        let cases: [(&str, Mutation); 8] = [
+        let cases: [(&str, Mutation); 9] = [
             ("tts.normalization.mode", |c| {
                 c.tts.normalization.mode = "strict".into()
+            }),
+            ("tts.normalization.reading_style", |c| {
+                c.tts.normalization.reading_style = "loud".into()
             }),
             ("tts.normalization.default_locale", |c| {
                 c.tts.normalization.default_locale = "xx-YY".into()

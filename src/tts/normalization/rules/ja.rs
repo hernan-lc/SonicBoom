@@ -152,6 +152,18 @@ impl LanguageRules for Japanese {
         Some(amount_words(amount))
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| DIGITS[usize::from(digit - b'0')].to_string())
+                .collect(),
+        )
+    }
+
     /// A following kanji/kana word is usually a counter or a noun whose
     /// reading the rules do not decide; preserved.
     fn number_gender_ambiguous(&self, _int: u64, next_word: &str) -> bool {

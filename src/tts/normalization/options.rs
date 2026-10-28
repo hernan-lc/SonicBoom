@@ -8,6 +8,45 @@ use serde::{Deserialize, Serialize};
 
 use super::NormalizeError;
 
+/// How written numbers and times are read.
+///
+/// [`ReadingStyle::Precise`] is the compatibility default: it reproduces the
+/// original `tn-v1` readings (for example `15:30` -> "quince treinta" in
+/// Spanish). [`ReadingStyle::Natural`] is opt-in conversational speech and
+/// [`ReadingStyle::Digits`] reads applicable integers digit by digit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReadingStyle {
+    /// Literal, high-precision reading. Compatibility default.
+    #[default]
+    Precise,
+    /// Conversational wording (for example `12:30` -> "doce y media").
+    Natural,
+    /// Digit-by-digit reading where the language provides it.
+    Digits,
+}
+
+impl ReadingStyle {
+    /// Parse `"precise"`, `"natural"` or `"digits"` (trimmed, case-insensitive).
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "precise" | "literal" => Some(Self::Precise),
+            "natural" => Some(Self::Natural),
+            "digits" | "digit" => Some(Self::Digits),
+            _ => None,
+        }
+    }
+
+    /// Stable lowercase name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Precise => "precise",
+            Self::Natural => "natural",
+            Self::Digits => "digits",
+        }
+    }
+}
+
 /// Normalization mode requested by the caller or configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -82,6 +121,8 @@ pub struct NormalizeOptions {
     pub limits: NormalizeLimits,
     /// When `false`, [`super::NormalizedText::warnings`] is always empty.
     pub report_ambiguities: bool,
+    /// How numbers and clock times are read.
+    pub reading_style: ReadingStyle,
 }
 
 impl NormalizeOptions {
@@ -96,6 +137,26 @@ impl NormalizeOptions {
         requested_locale: Option<&str>,
         limits: NormalizeLimits,
         report_ambiguities: bool,
+    ) -> Result<Self, NormalizeError> {
+        Self::resolve_with_style(
+            mode,
+            speech_language,
+            requested_locale,
+            limits,
+            report_ambiguities,
+            ReadingStyle::default(),
+        )
+    }
+
+    /// [`Self::resolve`] with an explicit reading style.
+    #[allow(clippy::too_many_arguments)]
+    pub fn resolve_with_style(
+        mode: NormalizationMode,
+        speech_language: &str,
+        requested_locale: Option<&str>,
+        limits: NormalizeLimits,
+        report_ambiguities: bool,
+        reading_style: ReadingStyle,
     ) -> Result<Self, NormalizeError> {
         let language =
             canonical_language(speech_language).ok_or(NormalizeError::InvalidLanguage)?;
@@ -128,6 +189,7 @@ impl NormalizeOptions {
             locale_explicit,
             limits,
             report_ambiguities,
+            reading_style,
         })
     }
 }

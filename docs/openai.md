@@ -50,8 +50,9 @@ Synthesizes text to speech using OpenAI-compatible request format.
 | `seed` | integer | No | - | Deterministic seed for cloning providers, when supported |
 | `normalization` | string | No | server default (`auto`) | SonicBoom extension: text normalization `auto` or `off` (anything else → `400`) |
 | `locale` | string | No | language default | SonicBoom extension: pronunciation locale such as `es-PE`, or `auto`. Must belong to the synthesis language (legacy Supertonic aliases synthesize English, so only `en-US`/`en-GB` apply there); unsupported or mismatched → `400` |
+| `reading_style` | string | No | server default (`precise`) | SonicBoom extension: `precise`, `natural` or `digits` (anything else → `400`) |
 
-Both extension fields are optional and additive: standard OpenAI clients
+These extension fields are optional and additive: standard OpenAI clients
 that omit them keep working, and unknown fields are still ignored. With the
 default `auto` mode, numbers, dates, prices and similar written forms are
 spoken as words; send `"normalization": "off"` for the previous audio.

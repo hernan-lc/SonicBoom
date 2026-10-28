@@ -168,6 +168,7 @@ them correctly. The section is optional: files without
 enabled = true              # false forces mode "off"
 mode = "auto"               # "auto" | "off" (case-insensitive)
 default_locale = "auto"     # "auto" = per-language default, or a tag such as "es-PE"
+reading_style = "precise"   # "precise" | "natural" | "digits" (case-insensitive)
 report_ambiguities = true
 max_expansion_ratio = 8.0   # 1.0..=16.0
 max_normalized_chars = 20000  # 1..=200000
@@ -178,6 +179,7 @@ max_normalized_chars = 20000  # 1..=200000
 | `enabled` | `true` | Global switch. `false` forces `off`, including when a request specifies `normalization=auto`. |
 | `mode` | `"auto"` | `auto` applies conservative, high-confidence rewrites for the features each language supports and leaves everything else untouched. `off` speaks the text exactly as sent. Requests may override it per call with `normalization=auto\|off`. |
 | `default_locale` | `"auto"` | `auto` uses the documented default locale of the speech language (`es-ES`, `en-US`, `pt-BR`, `fr-FR`, `de-DE`, `it-IT`, `ru-RU`, `zh-CN`, `ja-JP`, `ko-KR`); it is never inferred from the server location. A concrete tag (`es-ES`, `es-MX`, `es-PE`, `en-US`, `en-GB`, `pt-BR`, `pt-PT`, `fr-FR`, `de-DE`, `it-IT`, `ru-RU`, `zh-CN`, `zh-TW`, `ja-JP`, `ko-KR`) is treated as an explicit choice, which allows ambiguous slash dates to be converted. Requests may override it with `locale=<tag>`. |
+| `reading_style` | `"precise"` | How numbers and times are read: `precise` (compatibility), `natural` (conversational times/durations/fractions) or `digits` (digit by digit). Requests may override it with `reading_style=<style>`. See [normalization.md](normalization.md#reading-styles). |
 | `report_ambiguities` | `true` | Report expressions that could be read two ways (for example `01/02/2026`) as warnings. They are preserved, not guessed. |
 | `max_expansion_ratio` | `8.0` | Upper bound on spoken length relative to the original text. Requests that would exceed it are rejected. |
 | `max_normalized_chars` | `20000` | Upper bound on the spoken text length in characters, independent of `tts.max_text_length`, which still bounds the original text. |

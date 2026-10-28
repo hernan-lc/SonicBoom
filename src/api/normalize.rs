@@ -18,7 +18,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sonicboom::tts::normalization::{
     self, ChangeKind, Confidence, CoverageLevel, NormalizationMode, NormalizedText,
-    RULESET_VERSION, WarningCode,
+    RULESET_VERSION, ReadingStyle, WarningCode,
 };
 
 use crate::{AppState, auth::AuthenticatedToken, error::AppError};
@@ -38,6 +38,10 @@ pub struct NormalizeRequest {
     /// `auto` or `off`; absent uses the server's configured default.
     #[serde(default)]
     pub mode: Option<String>,
+    /// Reading style: `precise`, `natural` or `digits`; absent uses the
+    /// server's configured default.
+    #[serde(default)]
+    pub reading_style: Option<String>,
     /// Optional model ID; when present, `language` must be valid for it.
     #[serde(default)]
     pub model: Option<String>,
@@ -71,6 +75,7 @@ pub struct NormalizeResponse {
     pub language: String,
     pub locale: String,
     pub mode: NormalizationMode,
+    pub reading_style: ReadingStyle,
     pub normalizer_version: &'static str,
     pub changes: Vec<ChangeView>,
     pub warnings: Vec<WarningView>,
@@ -78,7 +83,7 @@ pub struct NormalizeResponse {
 }
 
 impl NormalizeResponse {
-    fn new(original: &str, normalized: NormalizedText) -> Self {
+    fn new(original: &str, normalized: NormalizedText, reading_style: ReadingStyle) -> Self {
         let slice = |start: usize, end: usize| original.get(start..end).unwrap_or_default();
         Self {
             original: original.to_string(),
@@ -108,6 +113,7 @@ impl NormalizeResponse {
             language: normalized.language,
             locale: normalized.locale,
             mode: normalized.mode,
+            reading_style,
             normalizer_version: RULESET_VERSION,
             coverage: normalized.coverage,
         }
@@ -151,11 +157,13 @@ async fn normalize_inner(
         &config,
         request.mode.as_deref(),
         request.locale.as_deref(),
+        request.reading_style.as_deref(),
         language,
     )?;
+    let reading_style = options.reading_style;
     let normalized =
         normalization::normalize(text, &options).map_err(super::speech_prep::normalize_error)?;
-    Ok(NormalizeResponse::new(text, normalized))
+    Ok(NormalizeResponse::new(text, normalized, reading_style))
 }
 
 /// Body errors never echo values from the request.
@@ -163,7 +171,7 @@ fn json_error(error: serde_json::Error) -> AppError {
     use serde_json::error::Category;
     AppError::BadRequest(match error.classify() {
         Category::Data => "request must be {\"text\", \"language\"} with optional \"locale\", \
-                           \"mode\" and \"model\" string fields"
+                           \"mode\", \"reading_style\" and \"model\" string fields"
             .to_string(),
         _ => format!(
             "invalid JSON request body (line {}, column {})",
@@ -294,6 +302,7 @@ mod tests {
         assert_eq!(body["language"], "es");
         assert_eq!(body["locale"], "es-PE");
         assert_eq!(body["mode"], "auto");
+        assert_eq!(body["reading_style"], "precise");
         assert_eq!(body["normalizer_version"], RULESET_VERSION);
         let change = &body["changes"][0];
         assert_eq!(change["kind"], "date");
@@ -313,7 +322,27 @@ mod tests {
         assert_eq!(body["coverage"].as_object().unwrap().len(), 11);
         assert!(body["warnings"].as_array().unwrap().is_empty());
         let keys: Vec<_> = body.as_object().unwrap().keys().cloned().collect();
-        assert_eq!(keys.len(), 9, "exactly the contract fields: {keys:?}");
+        assert_eq!(keys.len(), 10, "exactly the contract fields: {keys:?}");
+
+        // Reading style is applied by the same pipeline as synthesis.
+        let (status, _, body) = post(
+            &app,
+            Some(&token),
+            r#"{"text":"12:30","language":"es","reading_style":"natural"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["spoken"], "doce y media");
+        assert_eq!(body["reading_style"], "natural");
+        let (status, _, body) = post(
+            &app,
+            Some(&token),
+            r#"{"text":"2026","language":"es","reading_style":"digits"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["spoken"], "dos cero dos seis");
+        assert_eq!(body["changes"][0]["kind"], "number");
 
         // Ambiguous input is preserved and reported with its span.
         let (status, _, body) = post(
@@ -381,6 +410,8 @@ mod tests {
             r#"{"text":"secreto 5","language":"es","locale":"en-US"}"#,
             r#"{"text":"secreto 5","language":"es","locale":"es_ES"}"#,
             r#"{"text":"secreto 5","language":"es","mode":"strict"}"#,
+            r#"{"text":"secreto 5","language":"es","reading_style":"loud"}"#,
+            r#"{"text":"secreto 5","language":"es","reading_style":5}"#,
             r#"{"text":"secreto 5","language":"e$"}"#,
             r#"{"text":"secreto 5","language":"ja","model":"pocket-tts-es"}"#,
             r#"{"text":"secreto 5","language":"es","model":"no-such-model"}"#,

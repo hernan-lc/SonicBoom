@@ -29,6 +29,7 @@ export function usePronunciationPreview(studio: Studio, delayMs = PREVIEW_DEBOUN
       language: studio.language.value,
       mode: pronunciation?.normalization,
       locale: pronunciation?.locale,
+      reading_style: pronunciation?.reading_style,
       model: studio.selectedModel.value.id,
     };
   }

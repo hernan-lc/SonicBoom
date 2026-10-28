@@ -16,7 +16,8 @@ use super::rules::{
     OrdinalMarker, UNIT_FORMS, Unit, unit_from_str, valid_date,
 };
 use super::{
-    ChangeKind, Confidence, NormalizationWarning, NormalizeOptions, TextChange, WarningCode,
+    ChangeKind, Confidence, NormalizationWarning, NormalizeOptions, ReadingStyle, TextChange,
+    WarningCode,
 };
 use chrono::{Datelike, Timelike};
 
@@ -130,6 +131,17 @@ pub(crate) fn parse_number(raw: &str, conv: &Conventions, currency_ctx: bool) ->
             if sep == conv.decimal && (int_part == "0" || !int_part.starts_with('0')) {
                 return decimal(negative, int_part, rest);
             }
+            // The separator is not the locale decimal. With no valid
+            // three-digit grouping it cannot be a group separator, so two
+            // shapes are unambiguous even in a comma/dot locale:
+            // a leading-zero decimal (`0.05`, `-0.0001`) and a high-precision
+            // decimal (`3.1415926535`, four or more fractional digits).
+            // `3.14`, `12.5` and `1.234` stay ambiguous on purpose.
+            let leading_zero = int_part == "0";
+            let high_precision = rest.len() >= 4;
+            if (leading_zero || high_precision) && (int_part == "0" || !int_part.starts_with('0')) {
+                return decimal(negative, int_part, rest);
+            }
             NumParse::Ambiguous
         }
         count => {
@@ -166,6 +178,98 @@ pub(crate) fn parse_number(raw: &str, conv: &Conventions, currency_ctx: bool) ->
             NumParse::NotNumber
         }
     }
+}
+
+/// Parse `mantissa e exponent` / `mantissa E exponent` (scientific notation).
+///
+/// Scientific mantissas are unambiguous, so a single dot or comma is a
+/// decimal separator even when it is not the locale convention. Returns
+/// `None` for malformed shapes or an exponent with more than two digits
+/// (preserved as written).
+fn parse_scientific(raw: &str) -> Option<(Amount, i32)> {
+    let (mantissa_raw, exponent_raw) = raw.split_once(['e', 'E'])?;
+    let (negative, body) = strip_sign(mantissa_raw);
+    let (exp_negative, exp_digits) = strip_sign(exponent_raw);
+    if !all_digits(exp_digits) || exp_digits.len() > 2 {
+        return None;
+    }
+    let exponent: i32 = exp_digits.parse().ok()?;
+    let exponent = if exp_negative { -exponent } else { exponent };
+    let groups: Vec<&str> = body.split(['.', ',']).collect();
+    let separators = body.chars().filter(|c| matches!(c, '.' | ',')).count();
+    let amount = match (groups.as_slice(), separators) {
+        ([digits], 0) => match integer(negative, digits) {
+            NumParse::Value(value) => value,
+            _ => return None,
+        },
+        ([int_part, frac], 1) => {
+            if !all_digits(int_part)
+                || !all_digits(frac)
+                || (int_part.len() > 1 && int_part.starts_with('0'))
+            {
+                return None;
+            }
+            match decimal(negative, int_part, frac) {
+                NumParse::Value(value) => value,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    Some((amount, exponent))
+}
+
+/// Parse attached durations: `1h`, `1h30`, `1h30min`, `1h30min15s`, `30min`,
+/// `45s`. The bare number after `h` is minutes. Returns
+/// `(hours, minutes, seconds)`; at least one component is present.
+fn parse_duration(raw: &str) -> Option<(u64, u64, u64)> {
+    // `1h`, `1h30`, `1h30min`, `1h30min15s`, `1h30s`.
+    if let Some((hours, rest)) = raw.split_once('h') {
+        if !all_digits(hours) {
+            return None;
+        }
+        let hours = hours.parse::<u64>().ok()?;
+        if rest.is_empty() {
+            return Some((hours, 0, 0));
+        }
+        let (minutes, rest) = leading_digits(rest)?;
+        let minutes = minutes.parse::<u64>().ok()?;
+        if rest.is_empty() {
+            return Some((hours, minutes, 0));
+        }
+        // `1h30s` reads the bare seconds after `h`.
+        if matches!(rest, "s" | "sec") {
+            return Some((hours, 0, minutes));
+        }
+        // An explicit `min` (followed by optional seconds) or a bare `s`.
+        let rest = rest.strip_prefix("min").unwrap_or(rest);
+        if rest.is_empty() {
+            return Some((hours, minutes, 0));
+        }
+        let seconds = rest
+            .strip_suffix("sec")
+            .or_else(|| rest.strip_suffix('s'))
+            .filter(|n| all_digits(n))?;
+        return Some((hours, minutes, seconds.parse().ok()?));
+    }
+    if let Some(number) = raw.strip_suffix("min").filter(|n| all_digits(n)) {
+        return Some((0, number.parse().ok()?, 0));
+    }
+    if let Some(number) = raw
+        .strip_suffix("sec")
+        .or_else(|| raw.strip_suffix('s'))
+        .filter(|n| all_digits(n))
+    {
+        return Some((0, 0, number.parse().ok()?));
+    }
+    None
+}
+
+/// Split a leading run of ASCII digits: `("30", "min15s")`. `None` when the
+/// string does not start with a digit.
+fn leading_digits(raw: &str) -> Option<(&str, &str)> {
+    let end = raw.find(|c: char| !c.is_ascii_digit()).unwrap_or(raw.len());
+    (end > 0).then(|| raw.split_at(end))
 }
 
 fn all_digits(raw: &str) -> bool {
@@ -247,6 +351,7 @@ struct Classifier<'a> {
     conv: Conventions,
     locale: &'a str,
     locale_explicit: bool,
+    style: ReadingStyle,
     fields: Vec<Field>,
     changes: Vec<TextChange>,
     warnings: Vec<NormalizationWarning>,
@@ -267,6 +372,7 @@ pub(crate) fn classify(
         conv,
         locale: &opts.locale,
         locale_explicit: opts.locale_explicit,
+        style: opts.reading_style,
         fields: scan_fields(text),
         changes: Vec::new(),
         warnings: Vec::new(),
@@ -577,6 +683,24 @@ impl<'a> Classifier<'a> {
             return done;
         }
 
+        // Scientific notation is unambiguous and is read in every style.
+        if let Some((mantissa, exponent)) = parse_scientific(core) {
+            if let Some(spoken) = self.rules.scientific(&mantissa, exponent, self.locale) {
+                self.change(ChangeKind::Decimal, start, end, spoken);
+            }
+            return done;
+        }
+
+        // Attached durations are opt-in natural speech. `precise` keeps the
+        // original byte-for-byte so existing callers do not change.
+        if self.style == ReadingStyle::Natural
+            && let Some((hours, minutes, seconds)) = parse_duration(core)
+            && let Some(spoken) = self.rules.duration(hours, minutes, seconds, self.locale)
+        {
+            self.change(ChangeKind::Unit, start, end, spoken);
+            return done;
+        }
+
         // Attached currency prefix / suffix.
         for prefix in ATTACHED_PREFIXES {
             if let Some(rest) = core.strip_prefix(prefix)
@@ -683,7 +807,18 @@ impl<'a> Classifier<'a> {
             return;
         }
         match parts.as_slice() {
-            [_, _] => self.warn(WarningCode::AmbiguousFraction, start, end),
+            [numerator, denominator] => {
+                if self.style == ReadingStyle::Natural
+                    && let (Ok(numerator), Ok(denominator)) =
+                        (numerator.parse::<u64>(), denominator.parse::<u64>())
+                    && denominator > 0
+                    && let Some(spoken) = self.rules.fraction(numerator, denominator, self.locale)
+                {
+                    self.change(ChangeKind::Fraction, start, end, spoken);
+                } else {
+                    self.warn(WarningCode::AmbiguousFraction, start, end);
+                }
+            }
             [a, b, year] if a.len() <= 2 && b.len() <= 2 => match year.len() {
                 4 => self.slash_date(a, b, year, start, end),
                 2 => self.warn(WarningCode::AmbiguousDate, start, end),
@@ -800,7 +935,10 @@ impl<'a> Classifier<'a> {
                 let (Ok(h), Ok(m)) = (hour.parse::<u32>(), minute.parse::<u32>()) else {
                     return consumed;
                 };
-                match self.rules.time(h, m, meridiem, self.locale) {
+                match self
+                    .rules
+                    .time_styled(h, m, meridiem, self.style, self.locale)
+                {
                     Some(spoken) => self.change(ChangeKind::Time, start, end, spoken),
                     None => self.warn(WarningCode::AmbiguousTime, start, end),
                 }
@@ -889,6 +1027,13 @@ impl<'a> Classifier<'a> {
             && self.rules.number_gender_ambiguous(amount.int, word)
         {
             self.warn(WarningCode::AmbiguousNumber, start, end);
+            return index + 1;
+        }
+        if self.style == ReadingStyle::Digits
+            && amount.frac.is_none()
+            && let Some(spoken) = self.rules.digits(&amount.int.to_string(), self.locale)
+        {
+            self.change(ChangeKind::Number, start, end, spoken);
             return index + 1;
         }
         let kind = if amount.frac.is_some() {

@@ -319,7 +319,7 @@ fn spec_preview_example() {
         "S/ 150,50"
     );
     assert!(result.warnings.is_empty());
-    assert_eq!(result.ruleset_version, "tn-v1");
+    assert_eq!(result.ruleset_version, "tn-v2");
 }
 
 #[test]
@@ -628,12 +628,12 @@ fn speech_text_identity() {
     let o = opts("es", Some("es-PE"));
     let prepared = SpeechText::prepare("Son 5.", &o).unwrap();
     assert_eq!(prepared.as_str(), "Son cinco.");
-    assert_eq!(prepared.identity(), "tn-v1|auto|es|es-PE");
+    assert_eq!(prepared.identity(), "tn-v2|auto|es|es-PE|precise");
     assert!(prepared.changed());
     let mut off = o.clone();
     off.mode = NormalizationMode::Off;
     let raw = SpeechText::prepare("Son 5.", &off).unwrap();
-    assert_eq!(raw.identity(), "tn-v1|off|es|es-PE");
+    assert_eq!(raw.identity(), "tn-v2|off|es|es-PE|precise");
     assert!(!raw.changed());
     assert_eq!(raw.into_string(), "Son 5.");
 }
@@ -882,4 +882,231 @@ fn malformed_dates_never_become_dates() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// tn-v2: numeric shapes and reading styles
+// ---------------------------------------------------------------------------
+
+fn styled_opts(
+    language: &str,
+    locale: Option<&str>,
+    reading_style: ReadingStyle,
+) -> NormalizeOptions {
+    NormalizeOptions::resolve_with_style(
+        NormalizationMode::Auto,
+        language,
+        locale,
+        NormalizeLimits::default(),
+        true,
+        reading_style,
+    )
+    .expect("valid options")
+}
+
+fn styled(text: &str, language: &str, locale: Option<&str>, style: ReadingStyle) -> String {
+    normalize(text, &styled_opts(language, locale, style))
+        .unwrap()
+        .spoken
+}
+
+#[test]
+fn unambiguous_decimals_keep_every_digit() {
+    let es = |text| styled(text, "es", Some("es-PE"), ReadingStyle::Precise);
+    assert_eq!(es("0.05"), "cero coma cero cinco");
+    assert_eq!(es("-0.25"), "menos cero coma veinticinco");
+    assert_eq!(es("0.0001"), "cero coma cero cero cero uno");
+    assert_eq!(
+        es("3.1415926535"),
+        "tres coma uno cuatro uno cinco nueve dos seis cinco tres cinco"
+    );
+    assert_eq!(
+        es("1.234,56"),
+        "mil doscientos treinta y cuatro coma cincuenta y seis"
+    );
+    // A negative sign is never dropped, including on zero.
+    assert_eq!(es("-0"), "menos cero");
+    assert_eq!(es("-0.0"), "menos cero coma cero");
+    assert_eq!(es("0.05%"), "cero coma cero cinco por ciento");
+    assert_eq!(es("-0.05%"), "menos cero coma cero cinco por ciento");
+    // The locale's own grouped decimal keeps working in English.
+    assert_eq!(
+        styled("1,234.56", "en", Some("en-US"), ReadingStyle::Precise),
+        "one thousand two hundred thirty-four point five six"
+    );
+    // A dot-decimal in a comma locale that is not leading-zero or
+    // high-precision stays ambiguous and byte-identical.
+    for text in ["3.14", "1.234", "12.5"] {
+        let result = normalize(text, &opts("es", Some("es-PE"))).unwrap();
+        assert_eq!(result.spoken, text);
+        assert_eq!(
+            result.warnings.iter().map(|w| w.code).collect::<Vec<_>>(),
+            vec![WarningCode::AmbiguousNumber]
+        );
+    }
+    // And the inverse grouped form stays ambiguous in English.
+    let result = normalize("1.234,56", &opts("en", Some("en-US"))).unwrap();
+    assert_eq!(result.spoken, "1.234,56");
+    assert_eq!(result.warnings[0].code, WarningCode::AmbiguousNumber);
+}
+
+#[test]
+fn natural_spanish_examples() {
+    let es = |text| styled(text, "es", Some("es-PE"), ReadingStyle::Natural);
+    assert_eq!(es("00:00"), "medianoche");
+    assert_eq!(es("03:05"), "tres y cinco");
+    assert_eq!(es("12:30"), "doce y media");
+    assert_eq!(es("15:30"), "quince y media");
+    assert_eq!(es("0.05"), "cero coma cero cinco");
+    assert_eq!(es("-0.25"), "menos cero coma veinticinco");
+    assert_eq!(es("3.1415"), "tres coma uno cuatro uno cinco");
+    assert_eq!(es("12:00"), "mediodía");
+    assert_eq!(es("07:15"), "siete y cuarto");
+}
+
+#[test]
+fn natural_english_times() {
+    let en = |text| styled(text, "en", Some("en-US"), ReadingStyle::Natural);
+    assert_eq!(en("00:00"), "midnight");
+    assert_eq!(en("12:00"), "noon");
+    assert_eq!(en("12:30"), "half past twelve");
+    assert_eq!(en("15:30"), "half past three");
+    assert_eq!(en("03:05"), "three oh five");
+}
+
+#[test]
+fn precise_style_remains_the_compatibility_default() {
+    let o = opts("es", Some("es-PE"));
+    assert_eq!(o.reading_style, ReadingStyle::Precise);
+    assert_eq!(spoken("15:30", "es", Some("es-PE")), "quince treinta");
+    // Identical output through the old and new resolution entry points.
+    let explicit = styled("15:30", "es", Some("es-PE"), ReadingStyle::Precise);
+    assert_eq!(spoken("15:30", "es", Some("es-PE")), explicit);
+}
+
+#[test]
+fn digit_style_reads_integers_digit_by_digit_in_every_language() {
+    for (language, locale, expected) in [
+        ("es", "es-ES", "dos cero dos seis"),
+        ("en", "en-US", "two zero two six"),
+        ("pt", "pt-BR", "dois zero dois seis"),
+        ("fr", "fr-FR", "deux zéro deux six"),
+        ("de", "de-DE", "zwei null zwei sechs"),
+        ("it", "it-IT", "due zero due sei"),
+        ("ru", "ru-RU", "два ноль два шесть"),
+        ("zh", "zh-CN", "二零二六"),
+        ("ja", "ja-JP", "二零二六"),
+        ("ko", "ko-KR", "이 영 이 육"),
+    ] {
+        assert_eq!(
+            styled("2026", language, Some(locale), ReadingStyle::Digits),
+            expected,
+            "{language}"
+        );
+    }
+    // Clock digits stay two digits per field.
+    assert_eq!(
+        styled("03:05", "es", Some("es-ES"), ReadingStyle::Digits),
+        "cero tres cero cinco"
+    );
+}
+
+#[test]
+fn scientific_notation_and_attached_durations() {
+    let es = |text| styled(text, "es", Some("es-PE"), ReadingStyle::Natural);
+    let en = |text| styled(text, "en", Some("en-US"), ReadingStyle::Natural);
+    for style in [ReadingStyle::Precise, ReadingStyle::Natural] {
+        assert_eq!(
+            styled("1e6", "es", Some("es-PE"), style),
+            "uno por diez elevado a seis"
+        );
+        assert_eq!(
+            styled("2.5e-3", "es", Some("es-PE"), style),
+            "dos coma cinco por diez elevado a menos tres"
+        );
+        assert_eq!(
+            styled("1E6", "en", Some("en-US"), style),
+            "one times ten to the power of six"
+        );
+    }
+    // Durations are opt-in natural speech; `precise` preserves the input.
+    assert_eq!(es("1h30"), "una hora y treinta minutos");
+    assert_eq!(
+        es("1h30min15s"),
+        "una hora, treinta minutos y quince segundos"
+    );
+    assert_eq!(es("30min"), "treinta minutos");
+    assert_eq!(es("45s"), "cuarenta y cinco segundos");
+    assert_eq!(en("1h30"), "one hour and thirty minutes");
+    assert_eq!(
+        en("1h30min15s"),
+        "one hour, thirty minutes and fifteen seconds"
+    );
+    for text in ["1h30", "1h30min15s", "30min", "45s"] {
+        assert_eq!(
+            styled(text, "es", Some("es-PE"), ReadingStyle::Precise),
+            text
+        );
+    }
+}
+
+#[test]
+fn natural_fractions_are_named_not_guessed() {
+    let es = |text| styled(text, "es", Some("es-PE"), ReadingStyle::Natural);
+    let en = |text| styled(text, "en", Some("en-US"), ReadingStyle::Natural);
+    assert_eq!(es("1/2"), "un medio");
+    assert_eq!(es("3/4"), "tres cuartos");
+    assert_eq!(en("1/2"), "one half");
+    assert_eq!(en("3/4"), "three quarters");
+    // Unsupported denominators stay byte-identical with a warning.
+    let result = normalize(
+        "3/11",
+        &styled_opts("es", Some("es-PE"), ReadingStyle::Natural),
+    )
+    .unwrap();
+    assert_eq!(result.spoken, "3/11");
+    assert_eq!(result.warnings[0].code, WarningCode::AmbiguousFraction);
+    // `precise` keeps the old ambiguous-fraction policy.
+    assert_eq!(spoken("3/4", "es", Some("es-PE")), "3/4");
+}
+
+#[test]
+fn styles_never_touch_protected_or_ambiguous_tokens() {
+    for style in [
+        ReadingStyle::Precise,
+        ReadingStyle::Natural,
+        ReadingStyle::Digits,
+    ] {
+        for text in [
+            "Minecraft 1.21.11",
+            "10.0.0.1:8080",
+            "https://example.org/a?b=3.14",
+            "v1.2.3-beta.2",
+            "user@example.org",
+        ] {
+            let result = normalize(text, &styled_opts("en", Some("en-US"), style)).unwrap();
+            assert_eq!(result.spoken, text, "{style:?} {text}");
+        }
+    }
+}
+
+#[test]
+fn identity_includes_the_reading_style() {
+    for (style, name) in [
+        (ReadingStyle::Precise, "precise"),
+        (ReadingStyle::Natural, "natural"),
+        (ReadingStyle::Digits, "digits"),
+    ] {
+        let o = styled_opts("es", Some("es-PE"), style);
+        let prepared = SpeechText::prepare("Son 5.", &o).unwrap();
+        assert_eq!(prepared.identity(), format!("tn-v2|auto|es|es-PE|{name}"));
+    }
+    assert_eq!(RULESET_VERSION, "tn-v2");
+    assert_eq!(ReadingStyle::parse("literal"), Some(ReadingStyle::Precise));
+    assert_eq!(ReadingStyle::parse("digit"), Some(ReadingStyle::Digits));
+    assert_eq!(
+        ReadingStyle::parse(" NATURAL "),
+        Some(ReadingStyle::Natural)
+    );
+    assert_eq!(ReadingStyle::parse("loud"), None);
 }

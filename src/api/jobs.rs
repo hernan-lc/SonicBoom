@@ -367,6 +367,10 @@ pub struct JobQuery {
     /// Pronunciation locale (absent or `auto` = language default).
     #[serde(default)]
     pub locale: Option<String>,
+    /// Reading style: `precise`, `natural` or `digits` (absent = server
+    /// default). Frozen at enqueue with the effective locale and ruleset.
+    #[serde(default)]
+    pub reading_style: Option<String>,
 }
 
 impl JobQuery {
@@ -375,6 +379,7 @@ impl JobQuery {
         SpeechOptions {
             normalization: self.normalization.clone(),
             locale: self.locale.clone(),
+            reading_style: self.reading_style.clone(),
         }
     }
 
@@ -681,6 +686,7 @@ async fn execute_request(
             predictor_repetition_penalty: query.predictor_repetition_penalty,
             normalization: query.normalization.clone(),
             locale: query.locale.clone(),
+            reading_style: query.reading_style.clone(),
         };
         super::voices::post_preview_prepared(token, state, profile, preview, body, speech).await
     } else {
@@ -708,6 +714,7 @@ async fn execute_request(
                 play_now: None,
                 normalization: query.normalization,
                 locale: query.locale,
+                reading_style: query.reading_style,
             },
             body,
             speech,
@@ -2181,12 +2188,21 @@ mod normalization_tests {
         let (app, state, token, recorder) = recording_app().await;
         let config = state.config.get().await;
         for (query, expected_text, expected_identity) in [
-            ("lang=es", SPOKEN, "tn-v1|auto|es|es-ES"),
-            ("lang=es&locale=es-PE", SPOKEN, "tn-v1|auto|es|es-PE"),
+            ("lang=es", SPOKEN, "tn-v2|auto|es|es-ES|precise"),
+            (
+                "lang=es&locale=es-PE",
+                SPOKEN,
+                "tn-v2|auto|es|es-PE|precise",
+            ),
+            (
+                "lang=es&reading_style=natural",
+                SPOKEN,
+                "tn-v2|auto|es|es-ES|natural",
+            ),
             (
                 "lang=es&normalization=off",
                 TEXT.trim(),
-                "tn-v1|off|es|es-ES",
+                "tn-v2|off|es|es-ES|precise",
             ),
         ] {
             let (status, body) =
@@ -2222,6 +2238,7 @@ mod normalization_tests {
         let before = state.inference_gate.jobs.entries.lock().unwrap().len();
         for query in [
             "lang=es&normalization=strict",
+            "lang=es&reading_style=loud",
             "lang=es&locale=es-AR",
             "lang=es&locale=en-US",
             "locale=es-PE",
@@ -2369,7 +2386,7 @@ mod normalization_tests {
         assert_eq!(seen.len(), 4);
         for entry in &seen {
             assert_eq!(entry.0, SPOKEN);
-            assert_eq!(entry.1.as_deref(), Some("tn-v1|auto|es|es-PE"));
+            assert_eq!(entry.1.as_deref(), Some("tn-v2|auto|es|es-PE|precise"));
             assert_eq!(entry.2.as_deref(), Some(TRANSCRIPT));
         }
         // Raw text never reaches inference through the bounded boundary.

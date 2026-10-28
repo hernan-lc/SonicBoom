@@ -316,6 +316,19 @@ impl LanguageRules for Russian {
         Some(out)
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| UNITS[usize::from(digit - b'0')])
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+
     /// Before a word, the number is read only when the word is a verified
     /// noun in the form the number requires.
     fn number_gender_ambiguous(&self, int: u64, next_word: &str) -> bool {

@@ -343,6 +343,24 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         allowed_values_source: None,
     });
     add(SettingSchema {
+        path: "tts.normalization.reading_style".to_string(),
+        description:
+            "How numbers and clock times are read: precise (compatibility), natural (conversational) or digits (digit by digit)"
+                .to_string(),
+        type_name: "string",
+        apply: ApplyStrategy::Hot,
+        min: None,
+        max: None,
+        allowed_values: Some(vec![
+            "precise".to_string(),
+            "natural".to_string(),
+            "digits".to_string(),
+        ]),
+        nullable: false,
+        secret: false,
+        allowed_values_source: None,
+    });
+    add(SettingSchema {
         path: "tts.normalization.report_ambiguities".to_string(),
         description:
             "Report ambiguous expressions (for example 01/02/2026) as warnings instead of guessing"

@@ -1122,6 +1122,10 @@ pub struct PreviewQuery {
     /// Absent or `auto` selects the language default.
     #[serde(default)]
     pub locale: Option<String>,
+    /// Reading style: `precise`, `natural` or `digits` (absent = server
+    /// default).
+    #[serde(default)]
+    pub reading_style: Option<String>,
 }
 
 impl PreviewQuery {
@@ -1130,6 +1134,7 @@ impl PreviewQuery {
         super::speech_prep::SpeechOptions {
             normalization: self.normalization.clone(),
             locale: self.locale.clone(),
+            reading_style: self.reading_style.clone(),
         }
     }
 

@@ -282,7 +282,7 @@ pub struct ProviderRequest {
     pub quality: Option<crate::tts::quality::DetectionMode>,
     /// Identity of the text preparation that produced `text`
     /// ([`crate::tts::normalization::SpeechText::identity`], e.g.
-    /// `"tn-v1|auto|es|es-PE"`). Contains no user text. `None` means the
+    /// `"tn-v2|auto|es|es-PE|precise"`). Contains no user text. `None` means the
     /// request was built from raw text. Providers ignore it; the server's
     /// bounded synthesis boundary refuses requests without it.
     pub speech_identity: Option<String>,

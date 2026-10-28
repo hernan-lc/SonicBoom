@@ -92,6 +92,10 @@ pub struct TtsQuery {
     /// speech language's documented default.
     #[serde(default)]
     pub locale: Option<String>,
+    /// Reading style for written numbers and times: `precise`, `natural` or
+    /// `digits`. Absent uses the server's configured default.
+    #[serde(default)]
+    pub reading_style: Option<String>,
 }
 
 impl TtsQuery {
@@ -100,6 +104,7 @@ impl TtsQuery {
         SpeechOptions {
             normalization: self.normalization.clone(),
             locale: self.locale.clone(),
+            reading_style: self.reading_style.clone(),
         }
     }
 }

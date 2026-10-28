@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sonicboom::tts::normalization::{
-    NormalizationMode, NormalizeLimits, NormalizeOptions, WarningCode, normalize,
+    NormalizationMode, NormalizeLimits, NormalizeOptions, ReadingStyle, WarningCode, normalize,
 };
 
 const FEATURE_KEYS: [&str; 11] = [
@@ -89,12 +89,19 @@ fn run_case(case: &Value) -> Case {
         .map(|v| v.as_str().unwrap_or_default().to_string())
         .collect();
 
-    let opts = NormalizeOptions::resolve(
+    let opts = NormalizeOptions::resolve_with_style(
         mode,
         &language,
         Some(&locale),
         NormalizeLimits::default(),
         true,
+        case.get("reading_style")
+            .and_then(Value::as_str)
+            .map(|raw| {
+                ReadingStyle::parse(raw)
+                    .unwrap_or_else(|| panic!("case {id}: bad reading_style {raw}"))
+            })
+            .unwrap_or_default(),
     )
     .unwrap_or_else(|e| panic!("case {id}: options rejected: {e}"));
     let result = normalize(input, &opts).unwrap_or_else(|e| panic!("case {id}: {e}"));

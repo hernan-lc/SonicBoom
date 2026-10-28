@@ -440,6 +440,19 @@ impl LanguageRules for Portuguese {
         Some(amount_words(amount, Gender::Masculine, locale))
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| SMALL[usize::from(digit - b'0')])
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+
     fn number_gender_ambiguous(&self, int: u64, next_word: &str) -> bool {
         // `15 h` / `15 h 30` is a clock time the classifier does not
         // recognize; the hour is preserved.

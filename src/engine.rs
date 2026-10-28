@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use crate::tts::{
     audio, download, inference,
     model::ModelHandle,
-    normalization::{NormalizeError, NormalizeLimits, NormalizeOptions},
+    normalization::{NormalizeError, NormalizeLimits, NormalizeOptions, ReadingStyle},
 };
 
 pub use crate::tts::normalization::{NormalizationMode, SpeechText};
@@ -33,6 +33,9 @@ pub struct EngineConfig {
     /// documented default of the speech language (server default). A
     /// concrete tag applies only to requests in its own language.
     pub locale: Option<String>,
+    /// How written numbers and times are read. Defaults to
+    /// [`ReadingStyle::Precise`], the compatibility style.
+    pub reading_style: ReadingStyle,
 }
 
 impl EngineConfig {
@@ -45,6 +48,7 @@ impl EngineConfig {
             model_hashes_path: None,
             normalization: NormalizationMode::Auto,
             locale: None,
+            reading_style: ReadingStyle::default(),
         }
     }
 }
@@ -86,12 +90,33 @@ pub fn resolve_speech_options(
     limits: NormalizeLimits,
     report_ambiguities: bool,
 ) -> std::result::Result<NormalizeOptions, NormalizeError> {
-    match NormalizeOptions::resolve(
+    resolve_speech_options_with_style(
         mode,
         speech_language,
         requested_locale,
         limits,
         report_ambiguities,
+        ReadingStyle::default(),
+    )
+}
+
+/// [`resolve_speech_options`] with an explicit reading style.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_speech_options_with_style(
+    mode: NormalizationMode,
+    speech_language: &str,
+    requested_locale: Option<&str>,
+    limits: NormalizeLimits,
+    report_ambiguities: bool,
+    reading_style: ReadingStyle,
+) -> std::result::Result<NormalizeOptions, NormalizeError> {
+    match NormalizeOptions::resolve_with_style(
+        mode,
+        speech_language,
+        requested_locale,
+        limits,
+        report_ambiguities,
+        reading_style,
     ) {
         Err(NormalizeError::InvalidLanguage)
             if locale_is_default(requested_locale)
@@ -108,6 +133,7 @@ pub fn resolve_speech_options(
                 locale_explicit: false,
                 limits,
                 report_ambiguities,
+                reading_style,
             })
         }
         other => other,
@@ -125,7 +151,33 @@ pub fn prepare_speech_text(
     requested_locale: Option<&str>,
     limits: NormalizeLimits,
 ) -> std::result::Result<SpeechText, NormalizeError> {
-    let options = resolve_speech_options(mode, speech_language, requested_locale, limits, false)?;
+    prepare_speech_text_with_style(
+        text,
+        speech_language,
+        mode,
+        requested_locale,
+        limits,
+        ReadingStyle::default(),
+    )
+}
+
+/// [`prepare_speech_text`] with an explicit reading style.
+pub fn prepare_speech_text_with_style(
+    text: &str,
+    speech_language: &str,
+    mode: NormalizationMode,
+    requested_locale: Option<&str>,
+    limits: NormalizeLimits,
+    reading_style: ReadingStyle,
+) -> std::result::Result<SpeechText, NormalizeError> {
+    let options = resolve_speech_options_with_style(
+        mode,
+        speech_language,
+        requested_locale,
+        limits,
+        false,
+        reading_style,
+    )?;
     SpeechText::prepare(text, &options)
 }
 
@@ -235,17 +287,28 @@ impl SynthesisRequest {
         mode: NormalizationMode,
         locale: Option<&str>,
     ) -> Result<SpeechText> {
+        self.prepare_speech_with_style(mode, locale, ReadingStyle::default())
+    }
+
+    /// [`Self::prepare_speech`] with an explicit reading style.
+    pub fn prepare_speech_with_style(
+        &self,
+        mode: NormalizationMode,
+        locale: Option<&str>,
+        reading_style: ReadingStyle,
+    ) -> Result<SpeechText> {
         let limits = NormalizeLimits {
             max_input_chars: MAX_TEXT_CHARS,
             max_output_chars: MAX_SPOKEN_CHARS,
             max_expansion_ratio: MAX_EXPANSION_RATIO,
         };
-        prepare_speech_text(
+        prepare_speech_text_with_style(
             self.text.trim(),
             &self.language,
             mode,
             requested_locale(&self.language, None, locale),
             limits,
+            reading_style,
         )
         .map_err(|error| anyhow!("text normalization failed: {error}"))
     }
@@ -280,6 +343,7 @@ pub struct SonicBoomEngine {
     inference_lock: std::sync::Mutex<()>,
     normalization: NormalizationMode,
     locale: Option<String>,
+    reading_style: ReadingStyle,
 }
 
 impl SonicBoomEngine {
@@ -301,6 +365,7 @@ impl SonicBoomEngine {
             download::resolve_trust(&revision, custom_manifest.as_deref())?;
         let normalization = config.normalization;
         let locale = config.locale.clone();
+        let reading_style = config.reading_style;
         let paths = download::download_models_with_options(
             &config.model_dir,
             config.hf_token.as_deref(),
@@ -318,6 +383,7 @@ impl SonicBoomEngine {
             inference_lock: std::sync::Mutex::new(()),
             normalization,
             locale,
+            reading_style,
         }))
     }
 
@@ -339,7 +405,11 @@ impl SonicBoomEngine {
             return Err(anyhow!("voice '{}' is not available", request.voice));
         }
         // Same preparation as the HTTP server, once, before chunking.
-        let speech = request.prepare_speech(self.normalization, self.locale.as_deref())?;
+        let speech = request.prepare_speech_with_style(
+            self.normalization,
+            self.locale.as_deref(),
+            self.reading_style,
+        )?;
         // The lock guards the ONNX sessions, which are touched only by
         // `inference::synthesize`. WAV encoding touches no session state, so
         // the lock is released first: encoding must never block the next
@@ -409,6 +479,7 @@ mod tests {
         let config = EngineConfig::new("models");
         assert_eq!(config.normalization, NormalizationMode::Auto);
         assert_eq!(config.locale, None);
+        assert_eq!(config.reading_style, ReadingStyle::Precise);
     }
 
     #[test]
@@ -423,7 +494,7 @@ mod tests {
             auto.as_str(),
             "Pago el veintiséis de octubre de dos mil veintiséis"
         );
-        assert_eq!(auto.identity(), "tn-v1|auto|es|es-ES");
+        assert_eq!(auto.identity(), "tn-v2|auto|es|es-ES|precise");
         let shared = prepare_speech_text(
             "Pago el 26/10/2026",
             "es",
@@ -439,16 +510,16 @@ mod tests {
             .prepare_speech(NormalizationMode::Off, None)
             .unwrap();
         assert_eq!(off.as_str(), "Pago el 26/10/2026");
-        assert_eq!(off.identity(), "tn-v1|off|es|es-ES");
+        assert_eq!(off.identity(), "tn-v2|off|es|es-ES|precise");
         // A configured locale of another language falls back to the default.
         let other = request
             .prepare_speech(NormalizationMode::Auto, Some("en-GB"))
             .unwrap();
-        assert_eq!(other.identity(), "tn-v1|auto|es|es-ES");
+        assert_eq!(other.identity(), "tn-v2|auto|es|es-ES|precise");
         let peru = request
             .prepare_speech(NormalizationMode::Auto, Some("es-PE"))
             .unwrap();
-        assert_eq!(peru.identity(), "tn-v1|auto|es|es-PE");
+        assert_eq!(peru.identity(), "tn-v2|auto|es|es-PE|precise");
     }
 
     #[test]
@@ -483,7 +554,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tagged.as_str(), "I have 3 cats");
-        assert_eq!(tagged.identity(), "tn-v1|auto|en-us|en-us");
+        assert_eq!(tagged.identity(), "tn-v2|auto|en-us|en-us|precise");
         // A concrete locale with a non-base language is still an error.
         assert_eq!(
             prepare_speech_text("x", "en-US", NormalizationMode::Auto, Some("en-US"), limits)

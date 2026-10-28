@@ -19,6 +19,7 @@ export function pronunciationQuery(pronunciation?: SpeechPronunciation): Record<
   if (!pronunciation) return query;
   if (pronunciation.normalization) query.normalization = pronunciation.normalization;
   if (hasLocale(pronunciation.locale)) query.locale = pronunciation.locale.trim();
+  if (pronunciation.reading_style) query.reading_style = pronunciation.reading_style;
   return query;
 }
 
@@ -53,6 +54,7 @@ export function previewRequestBody(request: NormalizeRequest): NormalizeRequest 
     language: request.language,
     ...(hasLocale(request.locale) ? { locale: request.locale.trim() } : {}),
     ...(request.mode ? { mode: request.mode } : {}),
+    ...(request.reading_style ? { reading_style: request.reading_style } : {}),
     ...(request.model ? { model: request.model } : {}),
   };
 }
@@ -64,6 +66,7 @@ export function previewKey(request: NormalizeRequest): string {
     request.language,
     request.locale ?? '',
     request.mode ?? '',
+    request.reading_style ?? '',
     request.model ?? '',
   ]);
 }
@@ -117,6 +120,7 @@ export const CHANGE_KIND_LABELS: Readonly<Record<string, string>> = {
   unit: 'Unit',
   abbreviation: 'Abbreviation',
   range: 'Range',
+  fraction: 'Fraction',
 };
 
 /** Short plain-language title and explanation for each warning code. */

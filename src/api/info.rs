@@ -37,6 +37,8 @@ pub struct NormalizationInfo {
     pub default_mode: sonicboom::tts::normalization::NormalizationMode,
     /// Configured server locale, or `auto` for language defaults.
     pub default_locale: String,
+    /// Configured default reading style (`precise`, `natural` or `digits`).
+    pub default_reading_style: String,
     pub enabled: bool,
     pub languages: Vec<sonicboom::tts::normalization::LanguageCoverage>,
 }
@@ -117,6 +119,12 @@ pub async fn get_info(State(state): State<AppState>) -> Json<InfoResponse> {
             ruleset_version: sonicboom::tts::normalization::RULESET_VERSION,
             default_mode: config.tts.normalization.effective_mode(),
             default_locale: config.tts.normalization.default_locale.clone(),
+            default_reading_style: config
+                .tts
+                .normalization
+                .effective_reading_style()
+                .as_str()
+                .to_string(),
             enabled: config.tts.normalization.enabled,
             languages: sonicboom::tts::normalization::language_coverage(),
         },
@@ -138,8 +146,9 @@ mod tests {
         );
         let body = serde_json::to_value(get_info(State(state)).await.0).unwrap();
         let block = &body["normalization"];
-        assert_eq!(block["ruleset_version"], "tn-v1");
+        assert_eq!(block["ruleset_version"], "tn-v2");
         assert_eq!(block["default_mode"], "auto");
+        assert_eq!(block["default_reading_style"], "precise");
         let spanish = block["languages"]
             .as_array()
             .unwrap()

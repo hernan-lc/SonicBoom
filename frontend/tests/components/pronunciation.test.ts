@@ -10,14 +10,14 @@ import type { NormalizationLanguage, NormalizationMode } from '../../src/service
 import type { Studio } from '../../src/composables/useStudio';
 
 const infoBlock = {
-  ruleset_version: 'tn-v1', default_mode: 'auto',
+  ruleset_version: 'tn-v2', default_mode: 'auto', default_reading_style: 'precise',
   languages: [
     { language: 'es', locales: ['es-ES', 'es-MX', 'es-PE'], default_locale: 'es-ES', rules: 'full', features: { cardinal_numbers: 'full', currency: 'partial', fractions: 'none' } },
     { language: 'fr', locales: ['fr-FR'], default_locale: 'fr-FR', rules: 'partial', features: {} },
   ],
 };
 const previewBody = {
-  original: '26/10/2026', spoken: 'veintiséis de octubre de dos mil veintiséis', language: 'es', locale: 'es-PE', mode: 'auto', normalizer_version: 'tn-v1',
+  original: '26/10/2026', spoken: 'veintiséis de octubre de dos mil veintiséis', language: 'es', locale: 'es-PE', mode: 'auto', reading_style: 'precise', normalizer_version: 'tn-v2',
   changes: [{ kind: 'date', before: '26/10/2026', after: 'veintiséis de octubre de dos mil veintiséis', start: 0, end: 10, confidence: 'high' }],
   warnings: [{ code: 'ambiguous_date', before: '01/02/2026', start: 0, end: 10 }],
   coverage: { dates: 'full', currency: 'full' },
@@ -44,6 +44,7 @@ it('accepts the documented normalize and capability examples', () => {
 it('rejects malformed normalize responses and capability blocks', () => {
   expect(normalizePreviewSchema.safeParse({ ...previewBody, spoken: undefined }).success).toBe(false);
   expect(normalizePreviewSchema.safeParse({ ...previewBody, mode: 'strict' }).success).toBe(false);
+  expect(normalizePreviewSchema.safeParse({ ...previewBody, reading_style: 'loud' }).success).toBe(false);
   expect(normalizePreviewSchema.safeParse({ ...previewBody, changes: [{ ...previewBody.changes[0], start: 5, end: 2 }] }).success).toBe(false);
   expect(normalizePreviewSchema.safeParse({ ...previewBody, changes: [{ ...previewBody.changes[0], start: -1 }] }).success).toBe(false);
   expect(normalizePreviewSchema.safeParse({ ...previewBody, warnings: [{ before: 'x', start: 0, end: 1 }] }).success).toBe(false);
@@ -77,12 +78,15 @@ it('adds no normalization parameters unless fields are present', async () => {
 it('adds normalization and a concrete locale when present', async () => {
   const paths: string[] = [];
   const api = createApi({ json: async (path: string) => { paths.push(path); return { id: 'job' }; } } as never);
-  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'auto', locale: 'es-PE' });
+  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
+  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'auto', reading_style: 'digits' });
   await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'off' });
   const first = new URL(paths[0], 'http://localhost').searchParams;
-  expect([first.get('normalization'), first.get('locale'), first.get('profile'), first.get('lang')]).toEqual(['auto', 'es-PE', 'A', 'es']);
+  expect([first.get('normalization'), first.get('locale'), first.get('reading_style'), first.get('profile'), first.get('lang')]).toEqual(['auto', 'es-PE', 'natural', 'A', 'es']);
   const second = new URL(paths[1], 'http://localhost').searchParams;
-  expect([second.get('normalization'), second.has('locale')]).toEqual(['off', false]);
+  expect([second.get('normalization'), second.get('reading_style'), second.has('locale')]).toEqual(['auto', 'digits', false]);
+  const third = new URL(paths[2], 'http://localhost').searchParams;
+  expect([third.get('normalization'), third.has('locale')]).toEqual(['off', false]);
 });
 
 it('previewNormalization posts JSON, omits unset members, validates the response and honors the signal', async () => {
@@ -96,6 +100,7 @@ it('previewNormalization posts JSON, omits unset members, validates the response
   expect(calls[0].options.signal).toBe(controller.signal);
   expect(JSON.parse(String(calls[0].options.body))).toEqual({ text: '26/10/2026', language: 'es', locale: 'auto', mode: 'auto' });
   expect(previewRequestBody({ text: 'x', language: 'es', locale: 'es-PE', model: 'm' })).toEqual({ text: 'x', language: 'es', locale: 'es-PE', model: 'm' });
+  expect(previewRequestBody({ text: 'x', language: 'es', reading_style: 'digits' })).toEqual({ text: 'x', language: 'es', reading_style: 'digits' });
   const broken = createApi({ json: async () => ({ ...previewBody, spoken: 5 }) } as never);
   await expect(broken.previewNormalization({ text: 'x', language: 'es' })).rejects.toMatchObject({ kind: 'invalid_response' });
 });
@@ -116,7 +121,7 @@ it('offers only server-listed locales and only where there is a choice', () => {
 function synthesisFixture() {
   const calls: unknown[][] = [];
   let failAudio = true;
-  const form = { text: ref('Pago 26/10/2026 '), language: ref('es'), voice: ref('A'), pronunciation: ref<{ normalization: NormalizationMode; locale?: string } | undefined>({ normalization: 'auto', locale: 'es-PE' }) };
+  const form = { text: ref('Pago 26/10/2026 '), language: ref('es'), voice: ref('A'), pronunciation: ref<{ normalization: NormalizationMode; locale?: string; reading_style?: 'precise' | 'natural' | 'digits' } | undefined>({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' }) };
   const studio = {
     scopeEpoch: ref(0), token: ref(''), info: ref(null), sampling: ref({ preset: 'balanced' }), samplingParams: ref({}),
     text: form.text, language: form.language, voice: form.voice, pronunciation: form.pronunciation,
@@ -136,10 +141,10 @@ it('freezes text, mode and locale at submission and reuses them for resume and r
   try {
     await f.synthesis.generate();
     expect(f.calls[0].slice(0, 4)).toEqual(['Pago 26/10/2026', 'es', 'A', false]);
-    expect(f.calls[0][6]).toEqual({ normalization: 'auto', locale: 'es-PE' });
+    expect(f.calls[0][6]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
     expect(Object.isFrozen(f.synthesis.active.value?.input)).toBe(true);
     f.form.text.value = 'Otro texto'; f.form.language.value = 'en'; f.form.pronunciation.value = { normalization: 'off' };
-    expect(f.synthesis.active.value?.input).toMatchObject({ text: 'Pago 26/10/2026', language: 'es', normalization: 'auto', locale: 'es-PE' });
+    expect(f.synthesis.active.value?.input).toMatchObject({ text: 'Pago 26/10/2026', language: 'es', normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
     f.audio(true);
     await f.synthesis.resume();
     expect(f.calls).toHaveLength(1);
@@ -147,10 +152,10 @@ it('freezes text, mode and locale at submission and reuses them for resume and r
     await f.synthesis.regenerate();
     expect(f.calls).toHaveLength(2);
     expect(f.calls[1].slice(0, 4)).toEqual(['Pago 26/10/2026', 'es', 'A', false]);
-    expect(f.calls[1][6]).toEqual({ normalization: 'auto', locale: 'es-PE' });
+    expect(f.calls[1][6]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
     await f.synthesis.generate();
     expect(f.calls[2].slice(0, 4)).toEqual(['Otro texto', 'en', 'A', false]);
-    expect(f.calls[2][6]).toEqual({ normalization: 'off', locale: undefined });
+    expect(f.calls[2][6]).toEqual({ normalization: 'off', locale: undefined, reading_style: undefined });
   } finally { f.synthesis.dispose(); }
 });
 
@@ -159,7 +164,7 @@ it('sends no pronunciation fields when the server has no normalization support',
   try {
     f.form.pronunciation.value = undefined; f.audio(true);
     await f.synthesis.generate();
-    expect(f.calls[0][6]).toEqual({ normalization: undefined, locale: undefined });
+    expect(f.calls[0][6]).toEqual({ normalization: undefined, locale: undefined, reading_style: undefined });
     expect(pronunciationQuery(f.calls[0][6] as never)).toEqual({});
   } finally { f.synthesis.dispose(); }
 });
@@ -198,7 +203,7 @@ function previewFixture(deferred = false) {
   const studio = {
     scopeEpoch: ref(0), token: ref('t'), info: ref({ auth: { required: true } }), normalizationAvailable: ref(true),
     text: ref('  26/10/2026 '), language: ref('es'), selectedModel: shallowRef({ id: 'm1' }),
-    pronunciation: ref({ normalization: 'auto', locale: 'es-PE' }), api: { previewNormalization },
+    pronunciation: ref({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' }), api: { previewNormalization },
   } as unknown as Studio;
   return { studio, previewNormalization, resolvers, signals, preview: usePronunciationPreview(studio, 500) };
 }
@@ -211,7 +216,7 @@ it('previews once per user action, then marks the result stale when the form cha
   expect(f.previewNormalization).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(500);
   expect(f.previewNormalization).toHaveBeenCalledTimes(1);
-  expect(f.previewNormalization.mock.calls[0][0]).toEqual({ text: '26/10/2026', language: 'es', mode: 'auto', locale: 'es-PE', model: 'm1' });
+  expect(f.previewNormalization.mock.calls[0][0]).toEqual({ text: '26/10/2026', language: 'es', mode: 'auto', locale: 'es-PE', reading_style: 'natural', model: 'm1' });
   expect(f.preview.status.value).toBe('ready');
   expect(f.preview.stale.value).toBe(false);
   f.studio.text.value = 'otro';

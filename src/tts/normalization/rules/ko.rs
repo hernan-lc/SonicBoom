@@ -192,6 +192,19 @@ impl LanguageRules for Korean {
         Some(amount_words(amount))
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| DIGITS[usize::from(digit - b'0')])
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+
     /// Before a Hangul or Han word the numeral system depends on the word;
     /// only verified Sino-Korean nouns are read.
     fn number_gender_ambiguous(&self, _int: u64, next_word: &str) -> bool {

@@ -285,6 +285,19 @@ impl LanguageRules for German {
         Some(amount_words(amount, One::Eins))
     }
 
+    fn digits(&self, digits: &str, _locale: &str) -> Option<String> {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some(
+            digits
+                .bytes()
+                .map(|digit| SMALL[usize::from(digit - b'0')])
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    }
+
     fn number_gender_ambiguous(&self, _int: u64, next_word: &str) -> bool {
         // Integers are never converted; this only adds a warning to the
         // first group of a space-grouped number (`1 234,50`).
