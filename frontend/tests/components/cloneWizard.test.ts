@@ -20,7 +20,7 @@ function wav(duration = 1) {
 let wrapper: ReturnType<typeof mount>;
 beforeEach(() => {
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:reference'), revokeObjectURL: vi.fn() }));
-  mock.studio = { capabilities: ref([{ provider_id: 'pocket-tts', requires_reference_audio: true, requires_reference_transcript: false, models: ['pocket-tts-en'], languages: ['en'], clone_modes: ['audio_prompt'] }]), providers: ref([]),
+  mock.studio = { capabilities: ref([{ provider_id: 'pocket-tts', requires_reference_audio: true, requires_reference_transcript: false, models: ['pocket-tts-en'], languages: ['en'], clone_modes: ['audio_prompt'] }]), providers: ref([{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en' }]),
     api: { voiceConstraints: vi.fn(async () => constraints), createVoice: vi.fn(async () => ({ id: 'saved', name: 'My voice', model: 'pocket-tts-en', provider: 'pocket-tts', language: 'en', clone_mode: 'audio_prompt', warnings: ['reference_nearly_silent'], defects: [], guidance: [], reference_health: { peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1 } })) },
     refreshVoices: vi.fn(async () => {}), selectProfile: vi.fn() };
   wrapper = mount(CloneWizard, { attachTo: document.body });
@@ -41,6 +41,13 @@ async function choose(id: string, label: string) {
   if (!option) throw new Error(`Option not found: ${label}`);
   option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await flushPromises();
+}
+function clickButton(label: string) {
+  const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
+    item.textContent?.includes(label),
+  );
+  if (!button) throw new Error(`Button not found: ${label}`);
+  button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 describe('cloning wizard', () => {
   it('catches short WAV before upload, associates error and focuses field', async () => {
@@ -114,6 +121,7 @@ it('checks Unicode names and consent without uploading invalid drafts', async ()
 
 it('revalidates provider switching and ICL Unicode transcript boundaries', async () => {
   mock.studio.capabilities.value.push({ provider_id: 'qwen3-gguf', requires_reference_audio: true, requires_reference_transcript: true, models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'] });
+  mock.studio.providers.value.push({ provider_id: 'qwen3-gguf', state: 'ready', enabled: true, active_model: 'qwen-base' });
   mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, providers: { ...constraints.providers, 'qwen3-gguf': { duration_seconds: [1, 30], models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'], transcript_required_for: ['icl'] } } });
   await reference(wav());
   // Return to engine selection after choosing a Pocket recording.
@@ -130,6 +138,50 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   await wrapper.get('form').trigger('submit'); await flushPromises();
   expect(wrapper.get('#cloneName').isVisible()).toBe(true);
   expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
+});
+
+it('shows only ready engines and models until unavailable choices are revealed', async () => {
+  mock.studio.capabilities.value[0].models = ['pocket-tts-en', 'pocket-tts-es'];
+  mock.studio.capabilities.value[0].languages = ['en', 'es'];
+  mock.studio.capabilities.value.push({ provider_id: 'qwen3-gguf', requires_reference_audio: true, requires_reference_transcript: true, models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'] });
+  mock.studio.providers.value = [{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en' }];
+  await flushPromises();
+  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('pocket-tts');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('pocket-tts-en');
+
+  await wrapper.get('#cloneModel').trigger('click');
+  await flushPromises();
+  let options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
+  expect(options.some((text) => text.includes('pocket-tts-en'))).toBe(true);
+  expect(options.some((text) => text.includes('pocket-tts-es'))).toBe(false);
+  clickButton('Show unavailable models');
+  await flushPromises();
+  options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
+  const unavailableModel = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+    item.textContent?.includes('pocket-tts-es'),
+  );
+  expect(options.some((text) => text.includes('pocket-tts-es'))).toBe(true);
+  unavailableModel!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await flushPromises();
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('pocket-tts-es');
+  expect(wrapper.text()).toContain('Switch to an active model');
+
+  await wrapper.get('#cloneProvider').trigger('click');
+  await flushPromises();
+  options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
+  expect(options.some((text) => text.includes('pocket-tts'))).toBe(true);
+  expect(options.some((text) => text.includes('qwen3-gguf'))).toBe(false);
+  clickButton('Show unavailable engines');
+  await flushPromises();
+  const unavailableEngine = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+    item.textContent?.includes('qwen3-gguf'),
+  );
+  expect(unavailableEngine).toBeTruthy();
+  unavailableEngine!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await flushPromises();
+  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('qwen3-gguf');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('qwen-base');
+  expect(wrapper.text()).toContain('Enable its engine');
 });
 
 it('maps server field issues and correlation IDs without clearing the draft', async () => {

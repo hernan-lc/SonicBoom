@@ -1,6 +1,7 @@
 import { computed, watch, type Ref } from 'vue';
 import type { BuiltinVoice, Capabilities, ProviderStatus, ServerInfo, Voice } from '../services/contracts';
 import { modelLanguages } from '../services/providerLanguages';
+import { isModelReady } from '../services/providerReadiness';
 
 type ModelCatalogInput = {
   model: Ref<string>;
@@ -37,12 +38,7 @@ export function useModelCatalog(input: ModelCatalogInput) {
           provider: cap.provider_id,
           cloned: true,
           languages: modelLanguages(cap, id),
-          ready: providers.value.some(
-            (provider) =>
-              provider.provider_id === cap.provider_id &&
-              provider.state === 'ready' &&
-              (cap.provider_id !== 'pocket-tts' || provider.active_model === id),
-          ),
+          ready: isModelReady(providers.value, cap.provider_id, id),
         })),
       ),
   ]);

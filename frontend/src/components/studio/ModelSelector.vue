@@ -55,29 +55,29 @@ const itemSearchText = (model: ModelOption) => `${model.id} ${model.provider}`;
       <small>{{ option.provider }} · {{ stateLabel(option) }}</small>
     </template>
     <template #footer>
-      <div v-if="unavailableTotal" class="model-unavailable-section">
+      <div v-if="unavailableTotal" class="choice-unavailable-section">
         <button
           v-if="!revealUnavailable"
           type="button"
-          class="model-unavailable-toggle"
+          class="choice-unavailable-toggle"
           @click.stop="showUnavailable = true"
         >
           {{ t('Show unavailable models ({count})', { count: unavailableTotal }) }}
         </button>
         <template v-else>
-          <p class="muted model-unavailable-title">{{ t('Unavailable models') }}</p>
+          <p class="muted choice-unavailable-title">{{ t('Unavailable models') }}</p>
           <button
             v-for="model in unavailable"
             :key="model.id"
             type="button"
-            class="model-unavailable"
+            class="choice-unavailable"
             @click.stop="emit('enable', model.provider)"
           >
             <span>
               <strong>{{ model.id }}</strong>
               <small>{{ model.provider }} · {{ t('Not ready') }}</small>
             </span>
-            <span class="model-enable">{{ t('Enable') }} →</span>
+            <span class="choice-action">{{ t('Enable') }} →</span>
           </button>
         </template>
       </div>

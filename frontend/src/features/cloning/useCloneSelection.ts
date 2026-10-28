@@ -1,5 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue';
 import { modelLanguages } from '../../services/providerLanguages';
+import { isModelReady, isProviderReady } from '../../services/providerReadiness';
 import type { Capabilities, ProviderStatus, VoiceConstraints } from '../../services/contracts';
 
 /**
@@ -18,6 +19,9 @@ export function useCloneSelection(
   const mode = ref('icl');
 
   const choices = computed(() => capabilities.value.filter((cap) => cap.requires_reference_audio));
+  const readyChoices = computed(() =>
+    choices.value.filter((choice) => isProviderReady(providers.value, choice.provider_id)),
+  );
   const cap = computed(() => choices.value.find((item) => item.provider_id === provider.value));
   const languages = computed(() => modelLanguages(cap.value, model.value));
 
@@ -32,14 +36,15 @@ export function useCloneSelection(
       : mode.value === 'icl' || !!cap.value?.requires_reference_transcript;
   });
 
-  const engineReady = computed(() =>
-    providers.value.some((item) => item.provider_id === provider.value && item.state === 'ready'),
-  );
+  const engineReady = computed(() => isProviderReady(providers.value, provider.value));
 
   watch(
     choices,
     (value) => {
-      if (!value.some((item) => item.provider_id === provider.value)) provider.value = value[0]?.provider_id || '';
+      if (!value.some((item) => item.provider_id === provider.value)) {
+        const fallback = readyChoices.value[0] ?? value[0];
+        provider.value = fallback?.provider_id || '';
+      }
     },
     { immediate: true },
   );
@@ -47,7 +52,10 @@ export function useCloneSelection(
   watch(
     cap,
     (value) => {
-      if (!value?.models.includes(model.value)) model.value = value?.models[0] || '';
+      if (!value?.models.includes(model.value)) {
+        const readyModel = value?.models.find((id) => isModelReady(providers.value, value.provider_id, id));
+        model.value = readyModel ?? value?.models[0] ?? '';
+      }
       if (!value?.languages.includes(language.value)) language.value = value?.languages[0] || 'en';
       if (!value?.clone_modes.includes(mode.value)) mode.value = value?.clone_modes[0] || 'icl';
     },
