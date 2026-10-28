@@ -8,6 +8,12 @@
   },
   "scripts": {
     "dev": "vite --host localhost",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "lint": "biome lint src",
+    "lint:fix": "biome lint --write src",
+    "check": "biome check src",
+    "check:fix": "biome check --write src",
     "typecheck": "node scripts/check-i18n.mjs && vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "test": "node --experimental-strip-types --import ./tests/register-resolver.mjs --import ./tests/setup-dom.mjs --test tests/cloneValidation.test.ts tests/pocketActivation.test.ts tests/studioRefresh.test.ts tests/synthesisIsolation.test.ts && node --test tests/engineCard.test.mjs",
@@ -23,6 +29,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
+    "@biomejs/biome": "^2.6.3",
     "@playwright/test": "^1.64.1",
     "@types/node": "26.6.5",
     "@vitejs/plugin-vue": "6.0.10",

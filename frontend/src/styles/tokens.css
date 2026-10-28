@@ -1,7 +1,7 @@
 /* Semantic tokens shared by the studio, setup and administration. */
 :root {
   color-scheme: light dark;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   --page: #f4f6f8;
   --surface: #ffffff;
@@ -37,7 +37,7 @@
   --radius-sm: 6px;
 }
 /* Manual theme override wins over the OS preference. */
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   color-scheme: light;
   --page: #f4f6f8;
   --surface: #ffffff;
@@ -60,7 +60,7 @@
   --focus: #076c77;
   --shadow: 0 3px 18px rgb(24 42 55 / 6%);
 }
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   color-scheme: dark;
   --page: #10191f;
   --surface: #17242d;

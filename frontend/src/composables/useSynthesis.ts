@@ -9,7 +9,15 @@ import type { Studio } from './useStudio';
  * are absent for servers without pronunciation support; retry, regenerate and resume
  * reuse this snapshot, never the live form.
  */
-export type GenerationInput = Readonly<{ text: string; model: string; voice: string; language: string; cloned: boolean; normalization?: NormalizationMode; locale?: string }>;
+export type GenerationInput = Readonly<{
+  text: string;
+  model: string;
+  voice: string;
+  language: string;
+  cloned: boolean;
+  normalization?: NormalizationMode;
+  locale?: string;
+}>;
 type ActiveGeneration = Readonly<{ jobId: string; input: GenerationInput; requestEpoch: number; preset: string }>;
 /** One completed generation, retained for side-by-side comparison. */
 export interface GenerationResult {
@@ -47,8 +55,13 @@ export function useSynthesis(studio: Studio) {
   let epoch = 0;
   const canGenerate = computed(() => studio.selectedModel.value.ready && !!studio.voice.value);
   /** Sampling overrides apply only to the Qwen3-TTS provider. */
-  const samplingFor = (model: string) => studio.selectedModel.value.provider === 'qwen3-gguf' && studio.selectedModel.value.id === model ? studio.samplingParams.value : undefined;
-  function release(result: GenerationResult) { URL.revokeObjectURL(result.url); }
+  const samplingFor = (model: string) =>
+    studio.selectedModel.value.provider === 'qwen3-gguf' && studio.selectedModel.value.id === model
+      ? studio.samplingParams.value
+      : undefined;
+  function release(result: GenerationResult) {
+    URL.revokeObjectURL(result.url);
+  }
   function clearAudio() {
     for (const result of results.value) release(result);
     results.value = [];
@@ -65,7 +78,7 @@ export function useSynthesis(studio: Studio) {
   }
   function publish(result: GenerationResult) {
     const next = [result, ...results.value].slice(0, MAX_RESULTS);
-    const evicted = results.value.filter(previous => !next.includes(previous));
+    const evicted = results.value.filter((previous) => !next.includes(previous));
     results.value = next;
     audioUrl.value = result.url;
     audioFilename.value = result.filename;
@@ -86,13 +99,21 @@ export function useSynthesis(studio: Studio) {
   async function monitor(generation: ActiveGeneration, signal: AbortSignal) {
     const current = () => !disposed && generation.requestEpoch === epoch;
     try {
-      const result = await monitorJob(studio.api, generation.jobId, job => {
-        if (current()) snapshot.value = job;
-      }, signal);
+      const result = await monitorJob(
+        studio.api,
+        generation.jobId,
+        (job) => {
+          if (current()) snapshot.value = job;
+        },
+        signal,
+      );
       if (!current()) return;
       if (result.stage !== 'completed') {
         active.value = null;
-        throw uiError(result.error || (result.stage === 'failed' ? 'Inference failed.' : 'Generation cancelled or its deadline expired.'));
+        throw uiError(
+          result.error ||
+            (result.stage === 'failed' ? 'Inference failed.' : 'Generation cancelled or its deadline expired.'),
+        );
       }
       const audio = await studio.api.jobAudio(generation.jobId, signal);
       if (!current()) return;
@@ -102,7 +123,8 @@ export function useSynthesis(studio: Studio) {
         url: URL.createObjectURL(audio),
         filename: `sonicboom-${generation.jobId}.wav`,
         durationSecs: result.audio_secs ?? 0,
-        text: generation.input.text, language: generation.input.language,
+        text: generation.input.text,
+        language: generation.input.language,
         preset: generation.preset,
         seed: result.context?.seed,
         quality: result.quality,
@@ -116,20 +138,43 @@ export function useSynthesis(studio: Studio) {
       if (failure instanceof ApiError && failure.status === 404) active.value = null;
       error.value = errorMessage(failure);
     } finally {
-      if (current()) { pending.value = false; cancelling.value = false; }
+      if (current()) {
+        pending.value = false;
+        cancelling.value = false;
+      }
     }
   }
   async function run(input: GenerationInput) {
     const limits = studio.info.value?.synthesis;
-    if (limits && ([...input.text].length > limits.max_text_chars || new TextEncoder().encode(input.text).length > limits.max_body_bytes)) {
-      error.value = msg('Text exceeds the server limit of {chars} characters or {bytes} bytes.', { chars: limits.max_text_chars, bytes: limits.max_body_bytes }); return;
+    if (
+      limits &&
+      ([...input.text].length > limits.max_text_chars ||
+        new TextEncoder().encode(input.text).length > limits.max_body_bytes)
+    ) {
+      error.value = msg('Text exceeds the server limit of {chars} characters or {bytes} bytes.', {
+        chars: limits.max_text_chars,
+        bytes: limits.max_body_bytes,
+      });
+      return;
     }
     if (disposed || pending.value) return;
     // An unresolved job is resumed only by the explicit resume action.
-    if (active.value) { error.value = msg('Use Resume monitoring or Cancel generation.'); return; }
-    if (!input.text) { error.value = msg('Please enter some text.'); return; }
-    if (studio.info.value?.auth.required && !studio.token.value.trim()) { error.value = msg('Please enter your API token.'); return; }
-    if (!canGenerate.value) { error.value = msg('Create a voice profile for this model first.'); return; }
+    if (active.value) {
+      error.value = msg('Use Resume monitoring or Cancel generation.');
+      return;
+    }
+    if (!input.text) {
+      error.value = msg('Please enter some text.');
+      return;
+    }
+    if (studio.info.value?.auth.required && !studio.token.value.trim()) {
+      error.value = msg('Please enter your API token.');
+      return;
+    }
+    if (!canGenerate.value) {
+      error.value = msg('Create a voice profile for this model first.');
+      return;
+    }
     const requestEpoch = ++epoch;
     error.value = null;
     snapshot.value = null;
@@ -140,21 +185,35 @@ export function useSynthesis(studio: Studio) {
     const signal = control.signal;
     try {
       const preset = studio.sampling.value.preset;
-      const job = await studio.api.createJob(input.text, input.language, input.voice, input.cloned, samplingFor(input.model), signal, { normalization: input.normalization, locale: input.locale });
+      const job = await studio.api.createJob(
+        input.text,
+        input.language,
+        input.voice,
+        input.cloned,
+        samplingFor(input.model),
+        signal,
+        { normalization: input.normalization, locale: input.locale },
+      );
       if (disposed || requestEpoch !== epoch) return;
       const generation = Object.freeze({ jobId: job.id, input, requestEpoch, preset });
       active.value = generation;
       await monitor(generation, signal);
     } catch (failure) {
-      if (!disposed && requestEpoch === epoch) { error.value = errorMessage(failure); pending.value = false; }
+      if (!disposed && requestEpoch === epoch) {
+        error.value = errorMessage(failure);
+        pending.value = false;
+      }
     }
   }
   async function generate(preview = false) {
     const input: GenerationInput = Object.freeze({
       text: preview ? t('Hi there. This is a voice preview.') : studio.text.value.trim(),
-      model: studio.selectedModel.value.id, voice: studio.voice.value,
-      language: studio.language.value, cloned: studio.selectedModel.value.cloned,
-      normalization: studio.pronunciation?.value?.normalization, locale: studio.pronunciation?.value?.locale,
+      model: studio.selectedModel.value.id,
+      voice: studio.voice.value,
+      language: studio.language.value,
+      cloned: studio.selectedModel.value.cloned,
+      normalization: studio.pronunciation?.value?.normalization,
+      locale: studio.pronunciation?.value?.locale,
     });
     lastInput = input;
     await run(input);
@@ -181,14 +240,54 @@ export function useSynthesis(studio: Studio) {
       // The acknowledgement is not terminal. Reconcile server state if disconnected.
       if (!pending.value) await resume();
     } catch (failure) {
-      if (!disposed && generation.requestEpoch === epoch) { error.value = errorMessage(failure); cancelling.value = false; }
+      if (!disposed && generation.requestEpoch === epoch) {
+        error.value = errorMessage(failure);
+        cancelling.value = false;
+      }
     }
   }
-  const stopTokenWatch = watch([() => studio.scopeEpoch?.value, studio.token], () => {
-    ++epoch; control?.abort(); active.value = null; pending.value = false; cancelling.value = false;
-    snapshot.value = null; complete.value = false; lastInput = null; clearAudio(); error.value = null;
-  }, { flush: 'sync' });
-  function dispose() { stopTokenWatch(); disposed = true; ++epoch; control?.abort(); clearAudio(); }
+  const stopTokenWatch = watch(
+    [() => studio.scopeEpoch?.value, studio.token],
+    () => {
+      ++epoch;
+      control?.abort();
+      active.value = null;
+      pending.value = false;
+      cancelling.value = false;
+      snapshot.value = null;
+      complete.value = false;
+      lastInput = null;
+      clearAudio();
+      error.value = null;
+    },
+    { flush: 'sync' },
+  );
+  function dispose() {
+    stopTokenWatch();
+    disposed = true;
+    ++epoch;
+    control?.abort();
+    clearAudio();
+  }
   if (getCurrentScope()) onScopeDispose(dispose);
-  return { pending, cancelling, jobId, active, snapshot, results, audioUrl, audioFilename, audioBlob, error, complete, canGenerate, generate, regenerate, removeResult, resume, cancel, dispose };
+  return {
+    pending,
+    cancelling,
+    jobId,
+    active,
+    snapshot,
+    results,
+    audioUrl,
+    audioFilename,
+    audioBlob,
+    error,
+    complete,
+    canGenerate,
+    generate,
+    regenerate,
+    removeResult,
+    resume,
+    cancel,
+    dispose,
+  };
 }

@@ -1,4 +1,9 @@
-import type { NormalizationLanguage, NormalizationMode, NormalizeRequest, SpeechPronunciation } from '../../services/contracts';
+import type {
+  NormalizationLanguage,
+  NormalizationMode,
+  NormalizeRequest,
+  SpeechPronunciation,
+} from '../../services/contracts';
 
 /** Delay between a user action and the preview request it triggers. */
 export const PREVIEW_DEBOUNCE_MS = 500;
@@ -32,7 +37,11 @@ export function showLocaleChoice(entry: NormalizationLanguage | undefined, mode:
  * qualifies, along with "auto" for the language default. An empty choice
  * yields undefined so the server applies its configured default.
  */
-export function effectiveLocale(entry: NormalizationLanguage | undefined, requested: string, mode: NormalizationMode): string | undefined {
+export function effectiveLocale(
+  entry: NormalizationLanguage | undefined,
+  requested: string,
+  mode: NormalizationMode,
+): string | undefined {
   if (!showLocaleChoice(entry, mode)) return undefined;
   return requested === 'auto' || localeChoices(entry).includes(requested) ? requested : undefined;
 }
@@ -40,7 +49,8 @@ export function effectiveLocale(entry: NormalizationLanguage | undefined, reques
 /** Body of POST /api/tts/normalize. Optional members are left out when unset. */
 export function previewRequestBody(request: NormalizeRequest): NormalizeRequest {
   return {
-    text: request.text, language: request.language,
+    text: request.text,
+    language: request.language,
     ...(hasLocale(request.locale) ? { locale: request.locale.trim() } : {}),
     ...(request.mode ? { mode: request.mode } : {}),
     ...(request.model ? { model: request.model } : {}),
@@ -49,7 +59,13 @@ export function previewRequestBody(request: NormalizeRequest): NormalizeRequest 
 
 /** Identity of a preview: two requests with equal keys describe the same spoken result. */
 export function previewKey(request: NormalizeRequest): string {
-  return JSON.stringify([request.text, request.language, request.locale ?? '', request.mode ?? '', request.model ?? '']);
+  return JSON.stringify([
+    request.text,
+    request.language,
+    request.locale ?? '',
+    request.mode ?? '',
+    request.model ?? '',
+  ]);
 }
 
 /** True when a finished preview no longer matches the current form. */
@@ -91,18 +107,49 @@ export function createLatestRunner(delayMs = PREVIEW_DEBOUNCE_MS) {
 
 /** English catalog keys for change kinds the server may report. Unknown kinds fall back to the raw value. */
 export const CHANGE_KIND_LABELS: Readonly<Record<string, string>> = {
-  number: 'Number', decimal: 'Decimal', ordinal: 'Ordinal', percentage: 'Percentage', currency: 'Currency',
-  date: 'Date', time: 'Time', unit: 'Unit', abbreviation: 'Abbreviation', range: 'Range',
+  number: 'Number',
+  decimal: 'Decimal',
+  ordinal: 'Ordinal',
+  percentage: 'Percentage',
+  currency: 'Currency',
+  date: 'Date',
+  time: 'Time',
+  unit: 'Unit',
+  abbreviation: 'Abbreviation',
+  range: 'Range',
 };
 
 /** Short plain-language title and explanation for each warning code. */
 export const WARNING_LABELS: Readonly<Record<string, { title: string; explanation: string }>> = {
-  ambiguous_number: { title: 'Ambiguous number', explanation: 'This number can be read in more than one way, so it was left as written.' },
-  ambiguous_date: { title: 'Ambiguous date', explanation: 'The day and month can be read in either order, so the date was left as written. Choose a regional pronunciation to resolve it.' },
+  ambiguous_number: {
+    title: 'Ambiguous number',
+    explanation: 'This number can be read in more than one way, so it was left as written.',
+  },
+  ambiguous_date: {
+    title: 'Ambiguous date',
+    explanation:
+      'The day and month can be read in either order, so the date was left as written. Choose a regional pronunciation to resolve it.',
+  },
   invalid_date: { title: 'Invalid date', explanation: 'This is not a real calendar date, so it was left as written.' },
-  ambiguous_currency: { title: 'Ambiguous currency', explanation: 'The currency is unclear, so the amount was left as written.' },
-  ambiguous_time: { title: 'Ambiguous time', explanation: 'This time or timestamp could not be read reliably, so it was left as written.' },
-  ambiguous_fraction: { title: 'Ambiguous fraction', explanation: 'This could be a fraction, a date or a ratio, so it was left as written.' },
-  number_too_large: { title: 'Number too large', explanation: 'This number is too large to read out reliably, so it was left as written.' },
-  structured_data: { title: 'Structured data preserved', explanation: 'This JSON document was left unchanged to protect its keys and values. Extract the text you want spoken for normalization.' },
+  ambiguous_currency: {
+    title: 'Ambiguous currency',
+    explanation: 'The currency is unclear, so the amount was left as written.',
+  },
+  ambiguous_time: {
+    title: 'Ambiguous time',
+    explanation: 'This time or timestamp could not be read reliably, so it was left as written.',
+  },
+  ambiguous_fraction: {
+    title: 'Ambiguous fraction',
+    explanation: 'This could be a fraction, a date or a ratio, so it was left as written.',
+  },
+  number_too_large: {
+    title: 'Number too large',
+    explanation: 'This number is too large to read out reliably, so it was left as written.',
+  },
+  structured_data: {
+    title: 'Structured data preserved',
+    explanation:
+      'This JSON document was left unchanged to protect its keys and values. Extract the text you want spoken for normalization.',
+  },
 };
