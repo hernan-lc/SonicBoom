@@ -78,27 +78,24 @@
   flex-direction: column;
   gap: 2px;
 }
-.voice-details {
+.voice-details.disclosure {
   border: 0;
   margin: 0;
   padding: 0;
+  background: transparent;
 }
-.voice-details summary {
+.voice-details .disclosure-trigger {
+  min-height: 28px;
   font-size: 12px;
-  padding-block: 4px;
 }
 .voice-search {
   margin: 12px 0 8px;
 }
-.voice-filters {
+.voice-filters.disclosure {
   border: 0;
   margin: 0;
   padding: 0;
-}
-.voice-filters > summary {
-  font-size: 13px;
-  font-weight: 600;
-  padding-block: 6px;
+  background: transparent;
 }
 .voice-filters-grid {
   display: grid;

@@ -184,14 +184,11 @@
 .callout.warn .callout-icon {
   background: var(--warning);
 }
-.health-notes {
+.health-notes.disclosure {
   border: 0;
   margin: 8px 0 0;
   padding: 0;
-}
-.health-notes > summary {
-  font-size: 12px;
-  padding-block: 4px;
+  background: transparent;
 }
 .button-spinner {
   display: inline-block;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { t, renderMessage, type Message } from '../../i18n';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import type { Job, QualityReport } from '../../services/contracts';
 defineProps<{
   pending: boolean;
@@ -21,8 +22,7 @@ defineProps<{
     <p v-else-if="pending" class="gen-line">{{ t('Generating…') }}</p>
     <p v-if="complete" class="gen-done">{{ t('Completed. Audio is ready to play or download.') }}</p>
   </div>
-  <details v-if="snapshot?.context" id="generationDiagnostics" class="gen-diagnostics">
-    <summary>{{ t('Generation diagnostics') }}</summary>
+  <DisclosurePanel v-if="snapshot?.context" id="generationDiagnostics" class="gen-diagnostics" :label="t('Generation diagnostics')">
     <dl class="gen-facts">
       <div><dt>{{ t('Model') }}</dt><dd>{{ snapshot.context.provider }} · {{ snapshot.context.model }} · {{ snapshot.context.effective_device }}</dd></div>
       <div><dt>{{ t('Voice') }}</dt><dd>{{ snapshot.context.voice }}</dd></div>
@@ -35,7 +35,7 @@ defineProps<{
         {{ t('{kind}: {detail}', { kind: issue.kind, detail: issue.detail }) }}
       </li>
     </ul>
-  </details>
+  </DisclosurePanel>
   <p v-if="error" role="alert" class="feedback error">
     {{ renderMessage(error) }}
     <span v-if="jobId">{{ t('Use Resume monitoring or Cancel generation.') }}</span>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, useId, watch } from 'vue';
 import { t, renderMessage, errorMessage, type Message } from '../../i18n';
+import AppIcon from '../ui/AppIcon.vue';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import { inspectWave, analyzeWave, cropWave, type WaveFile, type WaveAnalysis } from '../../features/audio/wav';
 
 const props = withDefaults(
@@ -374,13 +376,7 @@ onBeforeUnmount(() => {
           :disabled="disabled || !!rangeError"
           @click="togglePlayback"
         >
-          <svg v-if="playing" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <rect x="7" y="5" width="3.5" height="14" rx="1" />
-            <rect x="13.5" y="5" width="3.5" height="14" rx="1" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M8 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 8 5.5Z" />
-          </svg>
+          <AppIcon :name="playing ? 'pause' : 'play'" filled />
         </button>
         <p class="reference-time" aria-hidden="true">
           <strong>{{ format(position) }}</strong> / {{ format(duration) }}
@@ -394,10 +390,7 @@ onBeforeUnmount(() => {
           :disabled="disabled"
           @click="playFullRecording"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 5v14" />
-            <path d="m20 5-11 7 11 7V5Z" />
-          </svg>
+          <AppIcon name="skip-forward" />
         </button>
         <span v-if="!busy && status" class="status-pill" :class="status.kind" role="status">
           {{ status.text }}
@@ -501,8 +494,7 @@ onBeforeUnmount(() => {
         <div><dt>{{ t('Near silence') }}</dt><dd>{{ (health.silence * 100).toFixed(2) }}%</dd></div>
       </dl>
 
-      <details class="health-notes">
-        <summary>{{ t('Recording health notes') }}</summary>
+      <DisclosurePanel class="health-notes disclosure-plain" :label="t('Recording health notes')">
         <p class="help-note">
           {{ t('Select original sample frames without resampling or changing encoding. Your original file is kept until you apply a trim. Export omits ancillary WAV metadata.') }}
         </p>
@@ -517,7 +509,7 @@ onBeforeUnmount(() => {
           {{ t('The reference recording is unusually quiet. Increase the recording level.') }}
         </p>
         <p class="help-note">{{ t('Quality advice does not impose an additional upload restriction.') }}</p>
-      </details>
+      </DisclosurePanel>
 
       <div class="reference-actions">
         <button
@@ -527,9 +519,7 @@ onBeforeUnmount(() => {
           :disabled="disabled || !!rangeError"
           @click="apply"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m5 12 4 4L19 6" />
-          </svg>
+          <AppIcon name="check" />
           {{ t('Use trimmed recording') }}
         </button>
         <button
@@ -539,11 +529,7 @@ onBeforeUnmount(() => {
           :disabled="disabled || !!rangeError"
           @click="exportSelection"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 4v11" />
-            <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
-            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-          </svg>
+          <AppIcon name="download" />
           {{ t('Export selected WAV') }}
         </button>
         <button
@@ -555,10 +541,7 @@ onBeforeUnmount(() => {
           :disabled="disabled"
           @click="emit('restore')"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 9V5h4" />
-            <path d="M4.6 13a8 8 0 1 0 2-7.5L4 9" />
-          </svg>
+          <AppIcon name="restore" />
         </button>
       </div>
     </template>

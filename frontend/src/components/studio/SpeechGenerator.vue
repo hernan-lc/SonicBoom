@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { t } from "../../i18n";
 import { useStudio } from "../../composables/useStudio";
 import { useSynthesis } from "../../composables/useSynthesis";
+import DisclosurePanel from "../ui/DisclosurePanel.vue";
 import EmptyState from "../ui/EmptyState.vue";
 import SectionCard from "../ui/SectionCard.vue";
 import WaveformPlayer from "../audio/WaveformPlayer.vue";
@@ -224,8 +225,7 @@ onBeforeUnmount(() => {
                     {{ t("This model is not ready. Check its status in Engines.") }}
                 </p>
             </SectionCard>
-            <details class="advanced-options">
-                <summary>{{ t("Pronunciation") }}</summary>
+            <DisclosurePanel :label="t('Pronunciation')">
                 <PronunciationSettings :disabled="pending" />
                 <AdvancedSampling
                     v-if="advancedAvailable"
@@ -235,18 +235,16 @@ onBeforeUnmount(() => {
                     :pending="pending"
                     @reset="resetSampling"
                 />
-            </details>
-            <details v-if="active" class="prev-run">
-                <summary class="prev-run-summary">
-                    <span class="prev-run-text">{{
-                        t("Previous generation: {text}", {
-                            text: active.input.text,
-                        })
-                    }}</span>
-                    <span class="prev-run-meta"> · {{ active.input.model }} · {{ active.input.voice }} ·
-                    {{ active.input.language }}</span>
-                </summary>
-            </details>
+            </DisclosurePanel>
+            <p v-if="active" class="prev-run-line" :title="active.input.text">
+                {{
+                    t("Previous generation: {text}", {
+                        text: active.input.text,
+                    })
+                }}
+                · {{ active.input.model }} · {{ active.input.voice }} ·
+                {{ active.input.language }}
+            </p>
             <div class="toolbar">
                 <button
                     id="btn"

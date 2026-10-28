@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { t } from '../../i18n';
+import AppIcon from '../ui/AppIcon.vue';
 import SearchableSelect from '../ui/SearchableSelect.vue';
 
 export interface ModelOption {
@@ -77,7 +78,7 @@ const itemSearchText = (model: ModelOption) => `${model.id} ${model.provider}`;
               <strong>{{ model.id }}</strong>
               <small>{{ model.provider }} · {{ t('Not ready') }}</small>
             </span>
-            <span class="choice-action">{{ t('Enable') }} →</span>
+            <span class="choice-action">{{ t('Enable') }} <AppIcon name="arrow-right" /></span>
           </button>
         </template>
       </div>

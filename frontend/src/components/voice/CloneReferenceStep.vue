@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue';
 import { t } from '../../i18n';
+import AppIcon from '../ui/AppIcon.vue';
 import BaseTextarea from '../ui/BaseTextarea.vue';
 import FileDropzone from '../ui/FileDropzone.vue';
 import type { VoiceConstraints } from '../../services/contracts';
@@ -43,12 +44,12 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
 
   <FileDropzone id="cloneFile" ref="picker" :label="t('Reference recording (WAV, 3–10 s recommended)')" :help="uploadHelp" :error="errors.cloneFile" :disabled="disabled" :filled="!!file" @select="select">
     <div v-if="!file" class="dropzone-empty">
-      <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+      <AppIcon name="upload" class="dropzone-icon" />
       <p class="dropzone-title">{{ t('Drop a WAV file here') }}</p>
       <p class="dropzone-hint">{{ t('or choose a file from your computer') }}</p>
     </div>
     <div v-else class="dropzone-filled">
-      <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+      <AppIcon name="mic" class="file-icon" />
       <div class="file-details">
         <p class="file-name muted" :title="file.name">{{ file.name }}</p>
         <p class="file-meta" role="status">{{ metaText }}</p>

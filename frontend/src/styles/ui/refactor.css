@@ -110,38 +110,121 @@
   margin: 0 0 12px;
 }
 
-/* Collapsible advanced blocks share one quiet style. */
-.advanced-options,
-.spoken-preview,
-.prev-run,
-.gen-diagnostics,
-.engine-models-details {
+/* App icons scale with context and never shift layout. */
+.app-icon {
+  flex: none;
+  vertical-align: -3px;
+}
+
+/* Disclosure: button-controlled collapsible with animated height.
+   Unlike native details/summary, expanding never jumps the page. */
+.disclosure {
   border: 1px solid var(--border-subtle);
-  border-top: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface);
   margin: 12px 0 0;
-  padding: 4px 12px;
+  padding: 2px 8px;
 }
-.advanced-options > summary,
-.spoken-preview > summary,
-.engine-models-details > summary,
-.gen-diagnostics > summary {
+.disclosure-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 4px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
   font-size: 13px;
   font-weight: 650;
   color: var(--text-secondary);
-  padding-block: 8px;
+  text-align: left;
 }
-.prev-run-summary {
+.disclosure-trigger:hover {
+  color: var(--text);
+}
+.disclosure-chevron {
+  transition: transform 0.18s ease;
+  color: var(--text-muted);
+}
+.disclosure-open .disclosure-chevron {
+  transform: rotate(180deg);
+}
+.disclosure-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disclosure-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.disclosure-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.22s ease,
+    visibility 0.22s;
+}
+.disclosure-open .disclosure-panel {
+  grid-template-rows: 1fr;
+  visibility: visible;
+}
+.disclosure-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+  padding-bottom: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-panel,
+  .disclosure-chevron {
+    transition: none;
+  }
+}
+/* Borderless variant for disclosures nested inside cards. */
+.disclosure-plain {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.spoken-arrow {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+.help-tip .app-icon {
+  width: 14px;
+  height: 14px;
+}
+.choice-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.choice-action .app-icon {
+  width: 14px;
+  height: 14px;
+}
+.brand-mark .app-icon {
+  width: 24px;
+  height: 24px;
+}
+.prev-run-line {
   display: -webkit-box;
   font-size: 12px;
   color: var(--text-secondary);
   overflow: hidden;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  padding-block: 8px;
-}
-.prev-run-text {
+  margin: 12px 0 0;
   overflow-wrap: anywhere;
 }
 

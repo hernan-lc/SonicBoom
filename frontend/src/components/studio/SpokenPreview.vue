@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import { t, renderMessage } from '../../i18n';
 import { useStudio } from '../../composables/useStudio';
 import { usePronunciationPreview } from '../../composables/usePronunciationPreview';
+import AppIcon from '../ui/AppIcon.vue';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import { CHANGE_KIND_LABELS, WARNING_LABELS } from '../../features/speech/pronunciation';
 const studio = useStudio();
 const { normalizationAvailable } = studio;
@@ -21,13 +23,12 @@ const announcement = computed(() => {
   if (status.value === 'ready' && result.value) return t('{changes} changes, {warnings} warnings.', { changes: result.value.changes.length, warnings: result.value.warnings.length });
   return '';
 });
-function toggled(event: Event) {
-  if ((event.target as HTMLDetailsElement).open && status.value === 'idle') request();
+function opened() {
+  if (status.value === 'idle') request();
 }
 </script>
 <template>
-  <details v-if="normalizationAvailable" id="spokenPreview" class="spoken-preview" @toggle="toggled">
-    <summary>{{ t('What will be spoken?') }}</summary>
+  <DisclosurePanel v-if="normalizationAvailable" id="spokenPreview" class="spoken-preview" :label="t('What will be spoken?')" @opened="opened">
     <div class="toolbar">
       <button id="refreshSpokenPreview" type="button" :disabled="status === 'loading'" @click="request">{{ t(status === 'idle' ? 'Show preview' : 'Refresh preview') }}</button>
     </div>
@@ -47,7 +48,7 @@ function toggled(event: Event) {
       <section v-if="result.changes.length" class="spoken-section" aria-labelledby="spokenChangesTitle">
         <h4 id="spokenChangesTitle">{{ t('Changes ({count})', { count: result.changes.length }) }}</h4>
         <ul class="spoken-list" tabindex="0" :aria-label="t('Changes ({count})', { count: result.changes.length })">
-          <li v-for="(change, index) in result.changes" :key="index"><span class="spoken-kind">{{ kindLabel(change.kind) }}</span> <bdi class="spoken-before">{{ change.before }}</bdi> <span aria-hidden="true">→</span><span class="sr-only">{{ t('becomes') }}</span> <bdi class="spoken-after">{{ change.after }}</bdi></li>
+          <li v-for="(change, index) in result.changes" :key="index"><span class="spoken-kind">{{ kindLabel(change.kind) }}</span> <bdi class="spoken-before">{{ change.before }}</bdi> <AppIcon name="arrow-right" class="spoken-arrow" /><span class="sr-only">{{ t('becomes') }}</span> <bdi class="spoken-after">{{ change.after }}</bdi></li>
         </ul>
       </section>
       <section v-if="result.warnings.length" class="spoken-section" aria-labelledby="spokenWarningsTitle">
@@ -58,5 +59,5 @@ function toggled(event: Event) {
       </section>
     </template>
     <p v-else-if="status === 'loading'" class="muted"><progress class="generate-progress" :aria-label="t('Checking what will be spoken…')"/></p>
-  </details>
+  </DisclosurePanel>
 </template>

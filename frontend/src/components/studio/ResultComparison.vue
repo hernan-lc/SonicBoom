@@ -2,6 +2,7 @@
 import { t } from '../../i18n';
 import type { GenerationResult } from '../../composables/useSynthesis';
 import type { PlayerHandle } from '../audio/playerTypes';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import WaveformPlayer from '../audio/WaveformPlayer.vue';
 defineProps<{
   results: GenerationResult[];
@@ -10,8 +11,7 @@ defineProps<{
 const emit = defineEmits<{ play: [id: string]; remove: [index: number] }>();
 </script>
 <template>
-  <details v-if="results.length > 1" id="resultComparison">
-    <summary>{{ t('Compare generated versions') }}</summary>
+  <DisclosurePanel v-if="results.length > 1" id="resultComparison" :label="t('Compare generated versions')">
     <ul class="result-list">
       <li v-for="(result, index) in results" :key="result.jobId">
         <WaveformPlayer
@@ -32,5 +32,5 @@ const emit = defineEmits<{ play: [id: string]; remove: [index: number] }>();
         <button type="button" class="btn-inline" @click="emit('remove', index)">{{ t('Remove') }}</button>
       </li>
     </ul>
-  </details>
+  </DisclosurePanel>
 </template>

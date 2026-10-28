@@ -2,6 +2,7 @@
 import { t } from '../../i18n';
 import type { SamplingState } from '../../composables/useStudio';
 import type { SynthesisConstraints } from '../../services/contracts';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import NumberField from '../ui/NumberField.vue';
 defineProps<{
   sampling: SamplingState;
@@ -12,8 +13,7 @@ defineProps<{
 const emit = defineEmits<{ reset: [] }>();
 </script>
 <template>
-  <details id="advancedGeneration">
-    <summary>{{ t('Advanced generation settings') }}</summary>
+  <DisclosurePanel id="advancedGeneration" :label="t('Advanced generation settings')">
     <p class="help-note">
       {{ t('Sampling presets, a fixed seed and quality detection. Defaults reproduce the stock behavior; changes are experimental.') }}
     </p>
@@ -89,8 +89,7 @@ const emit = defineEmits<{ reset: [] }>();
       </div>
     </fieldset>
     <p v-if="issues.seed" id="seed-error" class="field-error" role="alert">{{ t(issues.seed) }}</p>
-    <details id="predictorSampling">
-      <summary>{{ t('Predictor sampling (advanced)') }}</summary>
+    <DisclosurePanel id="predictorSampling" class="disclosure-plain" :label="t('Predictor sampling (advanced)')">
       <div class="row">
         <NumberField
           id="predictorTemperature"
@@ -125,9 +124,9 @@ const emit = defineEmits<{ reset: [] }>();
           :disabled="pending"
         />
       </div>
-    </details>
+    </DisclosurePanel>
     <div class="toolbar">
       <button id="resetSampling" type="button" :disabled="pending" @click="emit('reset')">{{ t('Reset to defaults') }}</button>
     </div>
-  </details>
+  </DisclosurePanel>
 </template>

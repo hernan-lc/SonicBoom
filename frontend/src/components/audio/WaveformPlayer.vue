@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import WaveSurfer from 'wavesurfer.js';
 import { t } from '../../i18n';
+import AppIcon from '../ui/AppIcon.vue';
 import { cspNonce } from '../../app/csp';
 
 const props = withDefaults(defineProps<{ blob: Blob | null; label: string; compact?: boolean; autoplay?: boolean }>(), { compact: false, autoplay: false });
@@ -115,8 +116,7 @@ defineExpose({ play: () => instance.value?.play(), pause: () => instance.value?.
     <div ref="host" class="waveform-canvas" role="slider" tabindex="0" :aria-label="label" :aria-valuemin="0" :aria-valuemax="Math.round(total)" :aria-valuenow="Math.round(position)" :aria-valuetext="sliderLabel" @keydown="onKeydown"/>
     <div class="player-bar">
       <button type="button" class="player-toggle" :aria-label="playing ? t('Pause') : t('Play')" :aria-pressed="playing" @click="toggle">
-        <svg v-if="playing" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>
+        <AppIcon :name="playing ? 'pause' : 'play'" filled />
       </button>
       <p class="player-time">{{ sliderLabel }}</p>
     </div>
