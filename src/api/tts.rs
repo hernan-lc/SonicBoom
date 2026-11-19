@@ -40,7 +40,13 @@ pub(super) async fn synthesize_bounded(
         config.inference.generation_deadline_secs,
         state.inference_gate.run_bounded(move || {
             if let Some(c) = sonicboom::tts::control::current() {
-                let device = if cfg!(any(feature = "cuda", feature = "rocm", feature = "coreml")) {
+                let forced_cpu = std::env::var("SONICBOOM_EP")
+                    .is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
+                let device = if forced_cpu {
+                    "cpu"
+                } else if cfg!(all(feature = "webgpu", target_os = "linux")) {
+                    "vulkan"
+                } else if cfg!(any(feature = "cuda", feature = "rocm", feature = "coreml")) {
                     "onnxruntime_placement_unknown"
                 } else {
                     "cpu"

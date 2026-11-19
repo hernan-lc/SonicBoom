@@ -142,6 +142,7 @@ fn main() -> anyhow::Result<()> {
             (cfg!(feature = "android-ort"), "android-ort"),
             (cfg!(feature = "playback"), "playback"),
             (cfg!(feature = "pocket-tts"), "pocket-tts"),
+            (cfg!(feature = "webgpu"), "webgpu"),
         ] {
             if enabled {
                 features.push(name);
