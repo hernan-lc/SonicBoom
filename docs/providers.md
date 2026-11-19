@@ -58,14 +58,18 @@ and is shared by all providers (initialized once). Python was used
 
 ## Build features
 
+Performance work planned after this Vulkan rollout is tracked in
+[future-optimizations.md](future-optimizations.md).
+
 | Feature | Effect |
 |---|---|
-| (default) | Supertonic 3 + Pocket TTS compiled; optional providers disabled, no weights fetched |
+| (default) | Supertonic 3 + Pocket TTS compiled with Vulkan-first ONNX inference (`webgpu`); no weights fetched |
+| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic, Pocket TTS and Qwen ONNX codecs; CPU is the automatic fallback. Set `SONICBOOM_EP=cpu` to force CPU only. Ships in `default` |
 | `qwen-gguf` | Qwen3-TTS 1.7B GGUF/ONNX provider, CPU (`device=cpu\|auto`) |
 | `qwen-gguf-vulkan` | Allow GGUF `device=vulkan` on Vulkan-capable GPUs (implies `qwen-gguf`; ships in `default`) |
 | `qwen-gguf-cuda` | Additionally allow GGUF `device=cuda` (NVIDIA only; implies `qwen-gguf`) |
-| `pocket-tts` | Pocket TTS ONNX provider, CPU execution provider only |
-| `cuda` / `rocm` / `coreml` | Existing ORT flags for Supertonic; they do **not** accelerate Pocket TTS |
+| `pocket-tts` | Pocket TTS ONNX provider, uses the same Vulkan-first / CPU-fallback policy as Supertonic |
+| `cuda` / `rocm` / `coreml` | Alternative ORT EPs for Supertonic. `cuda`/`rocm` require `--no-default-features` (no combined prebuilt with WebGPU); `coreml` is chosen automatically on macOS |
 
 AMD BC-250 (`gfx1013`) is CPU-only for the acceptance criteria. Do not
 imply CUDA runs on AMD, and do not claim ROCm/MIGraphX support without

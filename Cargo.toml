@@ -23,7 +23,12 @@ path = "src/lib.rs"
 # a hard build requirement for default builds; build CPU-only with
 # `--no-default-features --features qwen-gguf` instead. CUDA stays an
 # explicit opt-in (`qwen-gguf-cuda`).
-default = ["web-ui", "server", "playback", "qwen-gguf", "qwen-gguf-vulkan", "pocket-tts", "gui"]
+# ONNX inference (Supertonic, Pocket TTS, Qwen codecs) uses ORT's WebGPU EP by
+# default — Vulkan on Linux — with automatic CPU fallback when the GPU or
+# Dawn library is unavailable. Force CPU with `SONICBOOM_EP=cpu`. Vendor EPs
+# (`cuda`/`rocm`) need `--no-default-features` since no prebuilt ORT combines
+# them with WebGPU on Linux.
+default = ["web-ui", "server", "playback", "qwen-gguf", "qwen-gguf-vulkan", "pocket-tts", "gui", "webgpu"]
 web-ui = ["server"]
 # Android uses a separately installed, verified Bionic runtime (no binary download).
 android-ort = ["ort/load-dynamic"]
@@ -52,16 +57,22 @@ tiktools-plugin = ["dep:tiktools-plugin-sdk"]
 # Apple Silicon CoreML acceleration for ONNX inference (macOS only).
 coreml = ["ort/coreml"]
 # NVIDIA CUDA acceleration for ONNX inference (Linux/Windows).
+# Requires `--no-default-features` because no ORT prebuilt combines CUDA+WebGPU.
 cuda = ["ort/cuda"]
-# AMD ROCm acceleration for ONNX inference (Linux).
+# AMD ROCm acceleration for ONNX inference (Linux). Same caveat as `cuda`.
 rocm = ["ort/rocm"]
-# NOTE: `coreml`, `cuda`, and `rocm` are mutually exclusive per platform.
-# Enable at most one of them when building, e.g. `cargo build --release --features cuda`.
+# Vulkan acceleration via ONNX Runtime's WebGPU EP (default on desktop). On
+# Linux the EP is backed by Vulkan through Dawn; on macOS it uses Metal.
+# CPU is the automatic fallback, or force it with SONICBOOM_EP=cpu.
+webgpu = ["ort/webgpu"]
+# NOTE: `coreml`, `cuda`, and `rocm` are mutually exclusive per platform, and
+# `webgpu` conflicts with `cuda`/`rocm` on Linux (no combined ORT binary).
+# Vendor EPs need `--no-default-features --features cuda` (or `rocm`).
 # Optional native voice-cloning providers. Pocket TTS compiles into default
 # builds but stays disabled by default; Supertonic 3 is the default provider.
 # Both run in-process with no Python/PyTorch.
-# `pocket-tts` enables the Pocket TTS ONNX provider (CPU execution provider
-# only; pure-Rust unigram tokenizer, no new native dependencies). It ships
+# `pocket-tts` enables the Pocket TTS ONNX provider (Vulkan-first / CPU-fallback
+# like Supertonic; pure-Rust unigram tokenizer, no new native dependencies). It ships
 # in default builds but stays disabled by default; weights download only
 # after `[providers.pocket_tts] enabled=true`.
 pocket-tts = []

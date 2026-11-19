@@ -1,4 +1,5 @@
-//! CPU ONNX components. llama.cpp device selection never changes these sessions.
+//! ONNX codec components. They follow the shared Vulkan-first / CPU-fallback
+//! policy; llama.cpp's GGUF device selection is independent of these sessions.
 use super::models::{CODEBOOK_SIZE, CODEBOOKS};
 use anyhow::{Context, Result, bail, ensure};
 use ort::{
@@ -15,13 +16,15 @@ pub struct Codec {
 
 fn session(dir: &Path, file: &str) -> Result<Session> {
     crate::onnx_runtime::initialize()?;
-    Session::builder()?
+    let path = dir.join(file);
+    let builder = Session::builder()?
         .with_intra_threads(2)
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .with_inter_threads(1)
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .commit_from_file(dir.join(file))
-        .with_context(|| format!("loading {file} with CPU ONNX Runtime"))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    crate::onnx_runtime::with_gpu(builder, &path)
+        .commit_from_file(&path)
+        .with_context(|| format!("loading {file} with ONNX Runtime"))
 }
 
 pub fn check_cancelled() -> Result<()> {

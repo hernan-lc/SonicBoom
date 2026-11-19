@@ -35,11 +35,12 @@ requirement if the produced executable has no ONNX dynamic import. If future
 ORT builds use shared libraries they must appear beside the built executable
 (via `ort/copy-dylibs`), be packaged with their notices, and pass the probe.
 
-Qwen Vulkan is included in these packages, with CPU fallback when Vulkan is
-unavailable. CUDA/ROCm/CoreML builds require separate SDKs, provider libraries,
-driver compatibility and hardware validation. Qwen CUDA is an independent opt-in feature; Pocket TTS uses CPU
-ORT even if other provider acceleration is selected. CI does not certify
-model inference quality, GPU execution, tray interaction or audio playback.
+Vulkan acceleration is included in these packages: Supertonic, Pocket TTS and
+the Qwen ONNX codecs use ORT's WebGPU EP (Vulkan on Linux) with automatic CPU
+fallback, and Qwen GGUF uses llama.cpp Vulkan with CPU fallback. CUDA/ROCm/CoreML
+builds require separate SDKs, provider libraries, driver compatibility and
+hardware validation. Qwen CUDA is an independent opt-in feature. CI does not
+certify model inference quality, GPU execution, tray interaction or audio playback.
 
 ## Create a release
 

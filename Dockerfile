@@ -1,7 +1,7 @@
 # SonicBoom Docker images.
 #
 # Targets:
-#   runtime          - headless network TTS server (CPU, no local playback) [default]
+#   runtime          - headless TTS server (Vulkan-first, CPU fallback; no playback) [default]
 #   runtime-playback - server with local ALSA speaker playback enabled
 #   runtime-cuda     - headless network TTS server with CUDA acceleration
 #
@@ -72,7 +72,7 @@ COPY models.sha256.json ./models.sha256.json
 
 # Cloning backends ride along so every engine works out of the box.
 # Providers stay disabled by default: only Supertonic weights download.
-RUN cargo build --release --locked --no-default-features --features server,qwen-gguf,pocket-tts,web-ui
+RUN cargo build --release --locked --no-default-features --features server,qwen-gguf,pocket-tts,web-ui,webgpu
 
 # Stage the ONNX Runtime shared library (if dynamically linked) at a known
 # path for the runtime image. Fail the build if it is needed but missing.
@@ -87,6 +87,16 @@ RUN set -eu; \
     else \
       echo "Binary does not dynamically link libonnxruntime; nothing to stage"; \
     fi
+
+# The WebGPU EP (Vulkan on Linux) loads Dawn at runtime. ort/copy-dylibs puts
+# a symlink next to the executable; dereference it into the staged library dir.
+RUN set -eu; \
+    dawn="$(find /build/target/release /root/.cargo /usr/local/cargo \( -type f -o -type l \) 2>/dev/null \
+      | grep '/libwebgpu_dawn\.so$' | head -n 1 || true)"; \
+    if [ -z "$dawn" ]; then echo "ERROR: libwebgpu_dawn.so not found in builder output" >&2; exit 1; fi; \
+    echo "Staging $dawn"; \
+    cp -L "$dawn" /build/ort-dist/; \
+    ls -l /build/ort-dist/
 
 # ============================================================================
 # Builder: server with local ALSA playback
@@ -243,6 +253,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus0 \
     libasound2t64 \
     libssl3 \
+    libvulkan1 \
+    mesa-vulkan-drivers \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -291,6 +303,8 @@ FROM ubuntu:24.04@sha256:69cecf4bbf72d2d44a9eef1b71fb98c7fb973d78af11399deccef19
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus0 \
     libssl3 \
+    libvulkan1 \
+    mesa-vulkan-drivers \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*

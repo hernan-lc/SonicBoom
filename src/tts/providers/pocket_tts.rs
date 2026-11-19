@@ -795,10 +795,12 @@ fn ort_session(path: PathBuf, cpu_threads: usize) -> Result<Session, ProviderErr
     crate::onnx_runtime::initialize()
         .map_err(|e| ProviderError::inference_failed(format!("{e:#}")))?;
     let threads = cpu_threads.clamp(1, 32);
-    Session::builder()
+    let builder = Session::builder()
         .map_err(|e| ProviderError::inference_failed(format!("pocket-tts session setup: {e}")))?
         .with_intra_threads(threads)
-        .map_err(|e| ProviderError::inference_failed(format!("pocket-tts thread setup: {e}")))?
+        .map_err(|e| ProviderError::inference_failed(format!("pocket-tts thread setup: {e}")))?;
+    // Same Vulkan-first / CPU-fallback policy as Supertonic.
+    crate::onnx_runtime::with_gpu(builder, &path)
         .commit_from_file(&path)
         .map_err(|e| {
             ProviderError::inference_failed(format!(

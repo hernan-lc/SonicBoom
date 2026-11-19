@@ -1,6 +1,4 @@
-use anyhow::Result;
-#[cfg(any(target_os = "macos", feature = "cuda", feature = "rocm"))]
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
 use ort::session::Session;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -104,54 +102,35 @@ impl ModelHandle {
 
 fn build_session(path: &std::path::Path) -> Result<Session> {
     crate::onnx_runtime::initialize()?;
-    let builder = Session::builder()?;
+    let mut builder = Session::builder()?;
+
     #[cfg(target_os = "android")]
-    let builder = builder
-        .with_intra_threads(
-            std::env::var("SONICBOOM_CPU_THREADS")
-                .ok()
-                .map(|s| s.parse::<usize>())
-                .transpose()?
-                .unwrap_or(2)
-                .clamp(1, 32),
-        )
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    {
+        builder = builder
+            .with_intra_threads(
+                std::env::var("SONICBOOM_CPU_THREADS")
+                    .ok()
+                    .map(|s| s.parse::<usize>())
+                    .transpose()?
+                    .unwrap_or(2)
+                    .clamp(1, 32),
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+    }
 
-    // NOTE: `with_execution_providers` returns a builder-carrying error that
-    // is not `Send + Sync`, so it cannot convert into `anyhow::Error` with
-    // `?` directly; render the provider message instead.
-    #[cfg(target_os = "macos")]
-    let builder = {
-        use ort::ep::CoreML;
-        // Place .mlmodelc cache next to model file to prevent recompilation
-        let cache_dir = path.with_extension("mlmodelc");
-        let cache_dir_str = cache_dir.to_string_lossy().into_owned();
-        builder
-            .with_execution_providers([CoreML::default()
-                .with_model_cache_dir(cache_dir_str)
-                .build()])
-            .map_err(|e| anyhow!("CoreML provider failed: {e}"))?
-    };
+    // Vulkan (WebGPU EP) is tried first on desktop; ORT falls back to CPU for
+    // unsupported nodes and when no usable GPU/driver is present.
+    builder = crate::onnx_runtime::with_gpu(builder, path);
 
-    // NVIDIA CUDA acceleration (opt-in via `--features cuda`)
-    #[cfg(feature = "cuda")]
-    let builder = {
-        use ort::ep::CUDA;
-        builder
-            .with_execution_providers([CUDA::default().build()])
-            .map_err(|e| anyhow!("CUDA provider failed: {e}"))?
-    };
+    // Optional per-session ORT profile (used by the Vulkan compatibility probe).
+    if let Ok(profile_dir) = std::env::var("SONICBOOM_PROFILE") {
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
+        let profile_path = std::path::Path::new(&profile_dir).join(format!("{name}.json"));
+        builder = builder
+            .with_profiling(profile_path)
+            .map_err(|e| anyhow!("profiling setup failed: {e}"))?;
+    }
 
-    // AMD ROCm acceleration (opt-in via `--features rocm`)
-    #[cfg(feature = "rocm")]
-    let builder = {
-        use ort::ep::ROCm;
-        builder
-            .with_execution_providers([ROCm::default().build()])
-            .map_err(|e| anyhow!("ROCm provider failed: {e}"))?
-    };
-
-    let mut builder = builder;
     Ok(builder.commit_from_file(path)?)
 }
 

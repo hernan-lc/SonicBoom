@@ -19,3 +19,9 @@ compile_error!("features `coreml` and `cuda` are mutually exclusive; enable at m
 compile_error!("features `coreml` and `rocm` are mutually exclusive; enable at most one");
 #[cfg(all(feature = "cuda", feature = "rocm"))]
 compile_error!("features `cuda` and `rocm` are mutually exclusive; enable at most one");
+// No Linux prebuilt ORT combines WebGPU with CUDA or ROCm. macOS does ship a
+// CoreML+WebGPU binary, so that pair is intentionally allowed.
+#[cfg(all(feature = "webgpu", feature = "cuda"))]
+compile_error!("features `webgpu` and `cuda` are mutually exclusive; enable at most one");
+#[cfg(all(feature = "webgpu", feature = "rocm"))]
+compile_error!("features `webgpu` and `rocm` are mutually exclusive; enable at most one");

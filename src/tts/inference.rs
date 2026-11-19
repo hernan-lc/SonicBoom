@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use ndarray::{Array, Array2, Array3};
 use ort::value::Tensor;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 
 use crate::tts::model::{ModelHandle, VoiceStyle};
 
@@ -313,8 +313,15 @@ fn synthesize_chunk(
         text_emb_vec,
     )?;
 
-    // 3. Initialize noise (with mask applied)
-    let mut rng = rand::rng();
+    // 3. Initialize noise (with mask applied). A fixed seed makes A/B EP
+    // comparisons reproducible; unset keeps the production random behavior.
+    let seed = std::env::var("SONICBOOM_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    let mut rng: Box<dyn rand::RngCore> = match seed {
+        Some(seed) => Box::new(rand::rngs::StdRng::seed_from_u64(seed)),
+        None => Box::new(rand::rng()),
+    };
     let noise: Vec<f32> = (0..latent_dim_eff * latent_len)
         .map(|_| {
             let u1: f32 = rng.random_range(f32::EPSILON..1.0);
