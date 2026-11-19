@@ -6,6 +6,21 @@ use std::{
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+
+    // ORT's WebGPU EP loads its Dawn helper library at runtime. ort/copy-dylibs
+    // places `libwebgpu_dawn.so` next to the executable, but Linux does not
+    // search the executable's directory by default. `$ORIGIN` (or
+    // `@loader_path` on macOS) makes the binary runnable directly, without
+    // requiring LD_LIBRARY_PATH. Windows already searches the binary's dir.
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if env::var_os("CARGO_FEATURE_WEBGPU").is_some() {
+        match target_os.as_str() {
+            "linux" => println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN"),
+            "macos" => println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path"),
+            _ => {}
+        }
+    }
+
     if env::var_os("CARGO_FEATURE_WEB_UI").is_none() {
         return;
     }
