@@ -3,10 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use ort::{
-    ep::ExecutionProviderDispatch,
-    session::builder::SessionBuilder,
-};
+use ort::{ep::ExecutionProviderDispatch, session::builder::SessionBuilder};
 
 /// Load explicitly before any session API (whose implicit loader may panic).
 pub fn initialize() -> Result<()> {
@@ -82,9 +79,24 @@ pub fn execution_providers(model_path: &Path) -> Vec<ExecutionProviderDispatch> 
     #[cfg(all(feature = "webgpu", not(target_os = "android")))]
     if !force_cpu {
         use ort::ep::{WebGPU, webgpu::BufferCacheMode};
+        // Buffer-cache modes are configurable because the default bucket
+        // cache returned corrupt dynamic-shape decoder output on some RADV
+        // drivers. `SONICBOOM_WEBGPU_BUFFER_CACHE=disabled|lazy|simple|bucket`.
+        let cache = match std::env::var("SONICBOOM_WEBGPU_BUFFER_CACHE")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "disabled" | "off" => BufferCacheMode::Disabled,
+            "lazy" | "lazyrelease" => BufferCacheMode::LazyRelease,
+            "simple" => BufferCacheMode::Simple,
+            _ => BufferCacheMode::Bucket,
+        };
         let ep = WebGPU::default()
-            .with_storage_buffer_cache_mode(BufferCacheMode::Bucket)
-            .with_default_buffer_cache_mode(BufferCacheMode::Bucket);
+            .with_storage_buffer_cache_mode(cache)
+            .with_uniform_buffer_cache_mode(cache)
+            .with_query_resolve_buffer_cache_mode(cache)
+            .with_default_buffer_cache_mode(cache);
         // Linux uses Vulkan; Windows uses D3D12; macOS leaves Dawn's default
         // (Metal) alone. All three are the WebGPU EP's native GPU backend.
         #[cfg(target_os = "linux")]
@@ -111,10 +123,12 @@ pub fn with_gpu(builder: SessionBuilder, model_path: &Path) -> SessionBuilder {
     if providers.is_empty() {
         return builder;
     }
-    builder.with_execution_providers(providers).unwrap_or_else(|err| {
-        tracing::warn!("GPU execution provider setup failed ({err}); falling back to CPU");
-        err.recover()
-    })
+    builder
+        .with_execution_providers(providers)
+        .unwrap_or_else(|err| {
+            tracing::warn!("GPU execution provider setup failed ({err}); falling back to CPU");
+            err.recover()
+        })
 }
 
 /// Session creation, execution, output validation and destruction, twice.

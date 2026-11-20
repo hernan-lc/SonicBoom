@@ -71,8 +71,9 @@ webgpu = ["ort/webgpu"]
 # Optional native voice-cloning providers. Pocket TTS compiles into default
 # builds but stays disabled by default; Supertonic 3 is the default provider.
 # Both run in-process with no Python/PyTorch.
-# `pocket-tts` enables the Pocket TTS ONNX provider (Vulkan-first / CPU-fallback
-# like Supertonic; pure-Rust unigram tokenizer, no new native dependencies). It ships
+# `pocket-tts` enables the Pocket TTS ONNX provider (Vulkan-first with CPU
+# fallback by default; SONICBOOM_POCKET_EP=cpu for CPU only; pure-Rust unigram tokenizer,
+# no new native dependencies). It ships
 # in default builds but stays disabled by default; weights download only
 # after `[providers.pocket_tts] enabled=true`.
 pocket-tts = []

@@ -65,6 +65,26 @@ pub fn pocket_model_language(model: &str) -> Option<&'static str> {
 }
 /// Native sample rate of every validated bundle.
 pub const POCKET_TTS_SAMPLE_RATE: u32 = 24_000;
+
+/// Upstream Kyutai `TTSModel._MIN_FRAMES_BEFORE_EOS`: EOS is ignored for the
+/// first frames because the EOS logit can cross the threshold before speech
+/// starts, which ends a short text before the word is spoken. The pinned
+/// ONNX exporter (and therefore this driver) omitted that guard; short
+/// requests collapsed to 5-6 frames (0.4 s) of unintelligible audio.
+pub const POCKET_MIN_FRAMES_BEFORE_EOS: usize = 6;
+pub const POCKET_EOS_LOGIT_THRESHOLD: f32 = -4.0;
+
+/// True when the AR loop may latch this frame as end-of-sequence.
+#[cfg(feature = "pocket-tts")]
+fn is_eos_frame(step: usize, eos_logit: f32, min_frames_before_eos: usize) -> bool {
+    step >= min_frames_before_eos && eos_logit > POCKET_EOS_LOGIT_THRESHOLD
+}
+
+/// Upstream `_estimate_max_gen_len`: round only after scaling by frame rate.
+#[cfg(feature = "pocket-tts")]
+fn max_gen_frames(token_count: usize, frame_rate: f32) -> usize {
+    ((token_count as f32 / 3.0 + 2.0) * frame_rate).ceil() as usize
+}
 /// Reference window (mirrors the upstream Python runtime's soft 1–30 s).
 pub const POCKET_REF_MIN_SECS: f64 = crate::tts::voices::REFERENCE_MIN_SECS;
 pub const POCKET_REF_MAX_SECS: f64 = crate::tts::voices::REFERENCE_MAX_SECS;
@@ -788,10 +808,82 @@ pub struct PocketNative {
     decoder: Session,
     eos_boundary_ids: Vec<i64>,
     fallback_ids: Vec<i64>,
+    /// Whether the flow LM sessions currently run on the GPU EP. A request
+    /// that hits the frame limit without EOS on GPU rebuilds on CPU once.
+    flow_on_gpu: bool,
+    /// Bundle directory, needed to rebuild sessions on CPU after a GPU
+    /// quality failure without consulting config state.
+    bundle_dir: PathBuf,
+}
+
+/// Which execution provider a single Pocket graph should use.
+#[cfg(feature = "pocket-tts")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PocketEp {
+    Cpu,
+    Gpu,
+}
+
+/// Minimum RMS of the decoder self-test below which a GPU decoder is
+/// considered broken and rebuilt on CPU. A healthy int8 decoder produces
+/// ~0.04-0.07 RMS for the deterministic probe latent; AMD RADV/WebGPU
+/// produced ~0.004 (near-silent) while other graphs stayed correct.
+#[cfg(feature = "pocket-tts")]
+pub const POCKET_DECODER_PROBE_MIN_RMS: f32 = 0.015;
+
+/// Per-graph EP selection. `SONICBOOM_POCKET_EP` accepts:
+/// * `auto` (default) - Vulkan first for the four conditioning/flow graphs,
+///   CPU for the decoder. A load-time probe checks output RMS and real-time
+///   factor; a request-time retry covers reference-dependent EOS failures.
+///   GPU session creation is serialized because Dawn is not thread-safe on
+///   some drivers. On AMD RADV the probe downgrades everything to CPU;
+/// * `hybrid` - same as `auto`, explicit;
+/// * `cpu` - every graph on CPU (skips the GPU probe entirely);
+/// * `gpu` - every graph on the Vulkan/WebGPU EP (reproduction/debug);
+/// * `custom` - use the comma-separated graph list in
+///   `SONICBOOM_POCKET_GPU_GRAPHS`.
+#[cfg(feature = "pocket-tts")]
+pub fn graph_ep(graph: &str) -> PocketEp {
+    graph_ep_from(
+        &std::env::var("SONICBOOM_POCKET_EP").unwrap_or_default(),
+        &std::env::var("SONICBOOM_POCKET_GPU_GRAPHS").unwrap_or_default(),
+        graph,
+    )
 }
 
 #[cfg(feature = "pocket-tts")]
-fn ort_session(path: PathBuf, cpu_threads: usize) -> Result<Session, ProviderError> {
+fn graph_ep_from(mode: &str, list: &str, graph: &str) -> PocketEp {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "gpu" | "vulkan" => PocketEp::Gpu,
+        "" | "auto" | "hybrid" => {
+            if graph == "mimi_decoder_int8" {
+                PocketEp::Cpu
+            } else {
+                PocketEp::Gpu
+            }
+        }
+        "custom" => {
+            if list
+                .split(',')
+                .any(|item| item.trim().eq_ignore_ascii_case(graph))
+            {
+                PocketEp::Gpu
+            } else {
+                PocketEp::Cpu
+            }
+        }
+        // Empty (default), `auto` already matched above; `cpu` and unknown
+        // values stay on CPU.
+        _ => PocketEp::Cpu,
+    }
+}
+
+#[cfg(feature = "pocket-tts")]
+fn ort_session_on(
+    path: PathBuf,
+    cpu_threads: usize,
+    use_gpu: bool,
+) -> Result<Session, ProviderError> {
     crate::onnx_runtime::initialize()
         .map_err(|e| ProviderError::inference_failed(format!("{e:#}")))?;
     let threads = cpu_threads.clamp(1, 32);
@@ -799,24 +891,84 @@ fn ort_session(path: PathBuf, cpu_threads: usize) -> Result<Session, ProviderErr
         .map_err(|e| ProviderError::inference_failed(format!("pocket-tts session setup: {e}")))?
         .with_intra_threads(threads)
         .map_err(|e| ProviderError::inference_failed(format!("pocket-tts thread setup: {e}")))?;
-    // CPU by default. On the WebGPU EP (AMD BC-250 / RADV) the int8
-    // `mimi_decoder_int8.onnx` returns near-silent audio (RMS 0.0055 against
-    // 0.045 on CPU; the ASR transcribes nothing) while the other four graphs
-    // are correct. The GPU is not faster either: all-CPU 3.3 s, `flow_lm_main`
-    // on GPU 5.5 s for the same 2.2 s clip. `SONICBOOM_POCKET_EP=gpu` keeps
-    // the old Vulkan-first behaviour only to reproduce that.
-    let mut builder =
-        if std::env::var("SONICBOOM_POCKET_EP").is_ok_and(|v| v.eq_ignore_ascii_case("gpu")) {
-            crate::onnx_runtime::with_gpu(builder, &path)
-        } else {
-            builder
-        };
+    // GPU registration already falls back to CPU when the EP is missing or
+    // unusable (see `onnx_runtime::with_gpu`). The load-time RMS probe below
+    // adds a second, quality-driven fallback for graphs that *run* on the GPU
+    // but return wrong values (the int8 decoder on AMD RADV).
+    let mut builder = if use_gpu {
+        crate::onnx_runtime::with_gpu(builder, &path)
+    } else {
+        builder
+    };
     builder.commit_from_file(&path).map_err(|e| {
         ProviderError::inference_failed(format!(
             "pocket-tts native load failed ({}): {e}",
             path.display()
         ))
     })
+}
+
+#[cfg(feature = "pocket-tts")]
+fn ort_session(path: PathBuf, cpu_threads: usize, graph: &str) -> Result<Session, ProviderError> {
+    ort_session_on(path, cpu_threads, graph_ep(graph) == PocketEp::Gpu)
+}
+
+/// Dawn/WebGPU is not thread-safe for concurrent session creation, execution
+/// and teardown on some drivers (two concurrent Pocket loads segfaulted on
+/// AMD RADV). Hold this for the whole bundle open when any graph uses GPU.
+#[cfg(feature = "pocket-tts")]
+pub fn gpu_session_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// RMS of a deterministic dummy decode, used to reject a GPU decoder that
+/// silently produces near-zero audio. I/O binding matches `decode_latents`.
+#[cfg(feature = "pocket-tts")]
+fn decoder_probe(
+    session: &mut Session,
+    meta: &BundleMeta,
+    nan_state: bool,
+) -> Result<f32, ProviderError> {
+    let latent_dim = meta.latent_dim;
+    let mut rng = StdRng::seed_from_u64(0);
+    let latent: Vec<f32> = (0..15 * latent_dim)
+        .map(|_| (rng.random::<f32>() * 2.0 - 1.0) * 0.8)
+        .collect();
+    let mut inputs: Vec<(String, Value)> = vec![(
+        "latent".to_string(),
+        Tensor::from_array(([1, 15, latent_dim], latent))
+            .map_err(|e| ProviderError::inference_failed(format!("probe latent: {e}")))?
+            .into(),
+    )];
+    let mut states = init_states(&meta.mimi_state_manifest);
+    if !nan_state {
+        // Diagnostic: NaN marks "no history" for the stateful decoder. If a
+        // GPU backend mishandles IsNaN/Where, zero-filled state reveals it.
+        for state in &mut states {
+            if let StateTensor::F32(values) = state {
+                for value in values.iter_mut() {
+                    if value.is_nan() {
+                        *value = 0.0;
+                    }
+                }
+            }
+        }
+    }
+    push_states(&mut inputs, &meta.mimi_state_manifest, &states)?;
+    let outputs = session
+        .run(inputs)
+        .map_err(|e| ProviderError::inference_failed(format!("decoder probe run: {e}")))?;
+    let audio = take_f32(&outputs, "audio_frame")?;
+    Ok(audio_rms(&audio))
+}
+
+#[cfg(feature = "pocket-tts")]
+fn audio_rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    (samples.iter().map(|v| v * v).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
 #[cfg(feature = "pocket-tts")]
@@ -972,6 +1124,18 @@ fn take_f32(outputs: &SessionOutputs<'_>, name: &str) -> Result<Vec<f32>, Provid
 #[cfg(feature = "pocket-tts")]
 impl PocketNative {
     fn open(model_dir: &Path, model_id: &str, cpu_threads: usize) -> Result<Self, ProviderError> {
+        let gpu_requested = [
+            "text_conditioner",
+            "mimi_encoder",
+            "flow_lm_main_int8",
+            "flow_lm_flow_int8",
+            "mimi_decoder_int8",
+        ]
+        .iter()
+        .any(|graph| graph_ep(graph) == PocketEp::Gpu);
+        // One critical section spans session creation, the GPU probes and any
+        // CPU rebuild: Dawn cannot handle two overlapping Pocket bundles.
+        let _gpu_guard = gpu_requested.then(gpu_session_lock);
         let subdir = bundle_subdir(model_id).ok_or_else(|| {
             ProviderError::unsupported_model(
                 POCKET_TTS_PROVIDER_ID,
@@ -1008,11 +1172,48 @@ impl PocketNative {
             _ => Vec::new(),
         };
         let file = |name: &str| bundle.join(name);
-        let mut conditioner = ort_session(file("text_conditioner.onnx"), cpu_threads)?;
-        let mut encoder = ort_session(file("mimi_encoder.onnx"), cpu_threads)?;
-        let mut lm_main = ort_session(file("flow_lm_main_int8.onnx"), cpu_threads)?;
-        let mut lm_flow = ort_session(file("flow_lm_flow_int8.onnx"), cpu_threads)?;
-        let mut decoder = ort_session(file("mimi_decoder_int8.onnx"), cpu_threads)?;
+        let mut conditioner = ort_session(
+            file("text_conditioner.onnx"),
+            cpu_threads,
+            "text_conditioner",
+        )?;
+        let mut encoder = ort_session(file("mimi_encoder.onnx"), cpu_threads, "mimi_encoder")?;
+        let mut lm_main = ort_session(
+            file("flow_lm_main_int8.onnx"),
+            cpu_threads,
+            "flow_lm_main_int8",
+        )?;
+        let mut lm_flow = ort_session(
+            file("flow_lm_flow_int8.onnx"),
+            cpu_threads,
+            "flow_lm_flow_int8",
+        )?;
+        let decoder_path = file("mimi_decoder_int8.onnx");
+        let mut decoder = ort_session_on(
+            decoder_path.clone(),
+            cpu_threads,
+            graph_ep("mimi_decoder_int8") == PocketEp::Gpu,
+        )?;
+        // Quality fallback: some WebGPU/RADV drivers run the decoder graph
+        // but return near-silent samples. Probe it once with a deterministic
+        // latent and rebuild on CPU when the output collapses.
+        if graph_ep("mimi_decoder_int8") == PocketEp::Gpu {
+            let rms = decoder_probe(&mut decoder, &meta, true).unwrap_or(0.0);
+            if std::env::var("POCKET_GPU_DIAG").is_ok() {
+                let zero = decoder_probe(&mut decoder, &meta, false).unwrap_or(0.0);
+                eprintln!("POCKET_GPU_DIAG decoder nan_state_rms={rms} zero_state_rms={zero}");
+            }
+            if rms < POCKET_DECODER_PROBE_MIN_RMS {
+                tracing::warn!(
+                    rms,
+                    min = POCKET_DECODER_PROBE_MIN_RMS,
+                    "pocket-tts GPU decoder produced near-silent output; falling back to CPU"
+                );
+                decoder = ort_session_on(decoder_path, cpu_threads, false)?;
+            } else {
+                tracing::info!(rms, "pocket-tts GPU decoder self-test passed");
+            }
+        }
         // Warm the session I/O bindings once so first-request latency is
         // steady; failures here are real load failures, not deferred.
         let _ = (
@@ -1024,7 +1225,7 @@ impl PocketNative {
         );
         let eos_boundary_ids: Vec<i64> = tokenizer.encode(".!...?").into_iter().skip(1).collect();
         let fallback_ids: Vec<i64> = tokenizer.encode(",;:").into_iter().skip(1).collect();
-        Ok(Self {
+        let mut native = Self {
             meta,
             tokenizer,
             bos,
@@ -1035,7 +1236,84 @@ impl PocketNative {
             decoder,
             eos_boundary_ids,
             fallback_ids,
-        })
+            flow_on_gpu: graph_ep("flow_lm_main_int8") == PocketEp::Gpu,
+            bundle_dir: bundle.clone(),
+        };
+        // When any graph is on the GPU, run one full offline probe with a
+        // synthetic reference. Two independent GPU failure modes are visible
+        // here: a near-silent decoder and a flow LM that never emits EOS
+        // (hitting the frame limit). Both downgrade the whole bundle to CPU.
+        if gpu_requested {
+            let (rms, rtf) = native.pipeline_probe().unwrap_or((0.0, f64::INFINITY));
+            if std::env::var("POCKET_GPU_DIAG").is_ok() {
+                eprintln!("POCKET_GPU_DIAG pipeline rms={rms} rtf={rtf:.2}");
+            }
+            if rms < POCKET_DECODER_PROBE_MIN_RMS || rtf > 1.0 {
+                tracing::warn!(
+                    rms,
+                    rtf,
+                    "pocket-tts GPU pipeline probe failed (silent audio, no EOS, or \
+                     slower than real time); falling back all graphs to CPU"
+                );
+                native.rebuild_all_cpu(cpu_threads)?;
+            } else {
+                tracing::info!(rms, rtf, "pocket-tts GPU pipeline self-test passed");
+            }
+        }
+        Ok(native)
+    }
+
+    /// One synthetic-reference generation used as a load-time quality gate.
+    /// Returns `(RMS, real-time-factor)`; RMS 0 means EOS was never reached.
+    fn pipeline_probe(&mut self) -> Result<(f32, f64), ProviderError> {
+        let pcm: Vec<f32> = (0..POCKET_REFERENCE_RATE * 2)
+            .map(|i| {
+                let t = i as f32 / POCKET_REFERENCE_RATE as f32;
+                (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.2
+            })
+            .collect();
+        let (frames, embeddings) = self.encode_voice(&pcm)?;
+        let base = self.prefill_voice(frames, &embeddings)?;
+        // A multi-clause probe: short texts can emit EOS on the GPU while
+        // longer ones never do, so a one-word probe misses the numerical
+        // drift that matters for real requests.
+        let ids = self
+            .tokenizer
+            .encode("Uno, dos, tres, cuatro, cinco, seis, siete, ocho, nueve, diez.");
+        if ids.is_empty() {
+            return Ok((0.0, f64::INFINITY));
+        }
+        let options = ChunkOptions {
+            frames_after_eos: 3,
+            min_frames_before_eos: POCKET_MIN_FRAMES_BEFORE_EOS,
+            temperature: 0.7,
+            lsd_steps: 1,
+            control: None,
+        };
+        let mut rng = StdRng::seed_from_u64(0);
+        let started = std::time::Instant::now();
+        let (latents, eos_reached) = self.run_chunk(&base, &ids, &options, &mut rng)?;
+        let elapsed = started.elapsed().as_secs_f64();
+        if !eos_reached {
+            return Ok((0.0, f64::INFINITY)); // upstream treats no-EOS as an error
+        }
+        let audio = self.decode_latents(&latents)?;
+        let frames = (latents.len() / self.meta.latent_dim) as f64;
+        let audio_secs = frames * self.meta.samples_per_frame as f64 / self.meta.sample_rate as f64;
+        Ok((audio_rms(&audio), elapsed / audio_secs.max(1.0)))
+    }
+
+    /// Recreate every session on CPU after a failed GPU probe.
+    fn rebuild_all_cpu(&mut self, cpu_threads: usize) -> Result<(), ProviderError> {
+        let bundle = self.bundle_dir.clone();
+        let file = |name: &str| bundle.join(name);
+        self.conditioner = ort_session_on(file("text_conditioner.onnx"), cpu_threads, false)?;
+        self.encoder = ort_session_on(file("mimi_encoder.onnx"), cpu_threads, false)?;
+        self.lm_main = ort_session_on(file("flow_lm_main_int8.onnx"), cpu_threads, false)?;
+        self.lm_flow = ort_session_on(file("flow_lm_flow_int8.onnx"), cpu_threads, false)?;
+        self.decoder = ort_session_on(file("mimi_decoder_int8.onnx"), cpu_threads, false)?;
+        self.flow_on_gpu = false;
+        Ok(())
     }
 
     /// Encode 24 kHz mono reference PCM to voice embeddings (frames x 1024).
@@ -1174,8 +1452,9 @@ impl PocketNative {
         token_ids: &[i64],
         options: &ChunkOptions<'_>,
         rng: &mut StdRng,
-    ) -> Result<Vec<f32>, ProviderError> {
+    ) -> Result<(Vec<f32>, bool), ProviderError> {
         let frames_after_eos = options.frames_after_eos;
+        let min_frames_before_eos = options.min_frames_before_eos;
         let temperature = options.temperature;
         let lsd_steps = options.lsd_steps;
         let control = options.control;
@@ -1222,8 +1501,7 @@ impl PocketNative {
         extract_states(&self.meta.flow_state_manifest, &mut states, &outputs)?;
         drop(outputs);
 
-        let frame_limit =
-            ((token_ids.len() as f32 / 3.0 + 2.0).ceil() * self.meta.frame_rate) as usize;
+        let frame_limit = max_gen_frames(token_ids.len(), self.meta.frame_rate);
         let dt = 1.0 / lsd_steps.max(1) as f32;
         let mut curr = vec![f32::NAN; latent_dim];
         // Reserve the full frame budget up front (capped at the output
@@ -1268,7 +1546,15 @@ impl PocketNative {
             let eos_logit = take_f32(&outputs, "eos_logit")?;
             extract_states(&self.meta.flow_state_manifest, &mut states, &outputs)?;
             drop(outputs);
-            if eos_logit.first().is_some_and(|&v| v > -4.0) && eos_step.is_none() {
+            // Guard the first frames exactly like upstream Kyutai's
+            // `_MIN_FRAMES_BEFORE_EOS = 6`. Without it the EOS logit of this
+            // voice crosses -4.0 at steps 2-3, so a 9-word request stopped
+            // after 5 frames (0.4 s) instead of speaking the sentence.
+            if eos_logit
+                .first()
+                .is_some_and(|&v| is_eos_frame(step, v, min_frames_before_eos))
+                && eos_step.is_none()
+            {
                 eos_step = Some(step);
             }
             if eos_step.is_some_and(|s| step >= s + frames_after_eos) {
@@ -1352,7 +1638,7 @@ impl PocketNative {
                 ));
             }
         }
-        Ok(latents)
+        Ok((latents, eos_step.is_some()))
     }
 
     /// Decode latent frames to PCM in 15-frame groups with state carry.
@@ -1393,6 +1679,10 @@ impl PocketNative {
 #[cfg(feature = "pocket-tts")]
 struct ChunkOptions<'a> {
     frames_after_eos: usize,
+    /// Frames generated before EOS may be latched. Production uses upstream's
+    /// 6-frame guard; the exporter-parity test uses 0 to mirror the pinned
+    /// Python wrapper, which omitted it.
+    min_frames_before_eos: usize,
     temperature: f32,
     lsd_steps: usize,
     control: Option<&'a crate::tts::control::InferenceControl>,
@@ -2324,7 +2614,7 @@ impl TtsProvider for PocketTtsProvider {
             *last = Some((request.voice.clone(), key));
             let control = crate::tts::control::current();
             // Voice-state prefill from this request's embeddings only.
-            let base_state = native.prefill_voice(frames, &embeddings)?;
+            let mut base_state = native.prefill_voice(frames, &embeddings)?;
             let chunks = native.split_sentences(&request.text)?;
             if chunks.is_empty() {
                 return Err(ProviderError::invalid_voice("text cannot be empty"));
@@ -2337,12 +2627,15 @@ impl TtsProvider for PocketTtsProvider {
                 control.set_seed(seed);
             }
             let mut rng = StdRng::seed_from_u64(seed);
-            for chunk in &chunks {
+            let mut cpu_rebuilt = false;
+            let mut index = 0usize;
+            while index < chunks.len() {
                 if control.as_ref().is_some_and(|c| c.stopped()) {
                     return Err(ProviderError::inference_failed(
                         "inference cancelled or deadline exceeded",
                     ));
                 }
+                let chunk = &chunks[index];
                 let (prepared, guess) = prepare_text_prompt(
                     chunk,
                     native.meta.remove_semicolons,
@@ -2350,6 +2643,7 @@ impl TtsProvider for PocketTtsProvider {
                 )?;
                 let token_ids = native.tokenizer.encode(&prepared);
                 if token_ids.is_empty() {
+                    index += 1;
                     continue;
                 }
                 let frames_after_eos = native
@@ -2358,12 +2652,29 @@ impl TtsProvider for PocketTtsProvider {
                     .unwrap_or(guess + 2);
                 let chunk_options = ChunkOptions {
                     frames_after_eos,
+                    min_frames_before_eos: POCKET_MIN_FRAMES_BEFORE_EOS,
                     temperature: config.temperature,
                     lsd_steps: config.lsd_steps.max(1),
                     control: control.as_deref(),
                 };
-                let latents =
+                let (latents, eos_reached) =
                     native.run_chunk(&base_state, &token_ids, &chunk_options, &mut rng)?;
+                // GPU numerical drift can keep the EOS logit below the
+                // threshold forever; upstream calls that an error. Rebuild
+                // every graph on CPU and regenerate this request once.
+                if !eos_reached && native.flow_on_gpu && !cpu_rebuilt {
+                    tracing::warn!(
+                        "pocket-tts GPU flow LM reached the frame limit without EOS; \
+                         rebuilding on CPU and retrying the request"
+                    );
+                    native.rebuild_all_cpu(config.cpu_threads)?;
+                    base_state = native.prefill_voice(frames, &embeddings)?;
+                    cpu_rebuilt = true;
+                    audio.clear();
+                    rng = StdRng::seed_from_u64(seed);
+                    index = 0;
+                    continue;
+                }
                 if control.as_ref().is_some_and(|c| c.stopped()) {
                     return Err(ProviderError::inference_failed(
                         "inference cancelled or deadline exceeded",
@@ -2376,6 +2687,7 @@ impl TtsProvider for PocketTtsProvider {
                         "pocket-tts output exceeds ten-minute bound",
                     ));
                 }
+                index += 1;
             }
             drop(last);
             drop(model);
@@ -2753,6 +3065,78 @@ mod tests {
         assert!(prepare_text_prompt("   ", false, false).is_err());
     }
 
+    /// The pinned exporter omits upstream's early-EOS guard. A real Spanish
+    /// request latched EOS at step 2 (logit -3.87) and stopped after 0.4 s;
+    /// ignoring the first 6 frames lets the sentence be spoken.
+    #[test]
+    #[cfg(feature = "pocket-tts")]
+    fn early_eos_crossings_before_speech_are_ignored() {
+        let early = -3.87f32; // observed at step 2 for a 9-word Spanish text
+        let guard = POCKET_MIN_FRAMES_BEFORE_EOS;
+        assert!(!is_eos_frame(0, early, guard));
+        assert!(!is_eos_frame(2, early, guard));
+        assert!(!is_eos_frame(5, early, guard));
+        assert!(is_eos_frame(guard, early, guard));
+        // A strongly negative logit is never EOS, even after the guard.
+        assert!(!is_eos_frame(12, -8.0, guard));
+        // The pinned exporter used no guard; keep that path testable.
+        assert!(is_eos_frame(2, early, 0));
+        // The threshold itself stays the upstream default.
+        assert_eq!(POCKET_EOS_LOGIT_THRESHOLD, -4.0);
+    }
+
+    #[test]
+    #[cfg(feature = "pocket-tts")]
+    fn graph_ep_policy_keeps_decoder_on_cpu() {
+        // Empty env means the default `auto` policy.
+        assert_eq!(graph_ep_from("", "", "flow_lm_main_int8"), PocketEp::Gpu);
+        assert_eq!(graph_ep_from("", "", "mimi_decoder_int8"), PocketEp::Cpu);
+        assert_eq!(graph_ep_from("cpu", "", "flow_lm_main_int8"), PocketEp::Cpu);
+        assert_eq!(graph_ep_from("gpu", "", "flow_lm_main_int8"), PocketEp::Gpu);
+        assert_eq!(
+            graph_ep_from("auto", "", "flow_lm_main_int8"),
+            PocketEp::Gpu
+        );
+        assert_eq!(
+            graph_ep_from("auto", "", "mimi_decoder_int8"),
+            PocketEp::Cpu
+        );
+        assert_eq!(
+            graph_ep_from(
+                "custom",
+                "mimi_encoder, flow_lm_flow_int8",
+                "flow_lm_flow_int8"
+            ),
+            PocketEp::Gpu
+        );
+        assert_eq!(
+            graph_ep_from("custom", "mimi_encoder", "flow_lm_flow_int8"),
+            PocketEp::Cpu
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "pocket-tts")]
+    fn decoder_probe_rms_rejects_near_silent_audio() {
+        let healthy: Vec<f32> = (0..28800)
+            .map(|i| ((i as f32 * 0.07).sin()) * 0.2)
+            .collect();
+        let silent: Vec<f32> = vec![0.0001; 28800];
+        assert!(audio_rms(&healthy) > POCKET_DECODER_PROBE_MIN_RMS);
+        assert!(audio_rms(&silent) < POCKET_DECODER_PROBE_MIN_RMS);
+        assert_eq!(audio_rms(&[]), 0.0);
+    }
+
+    #[test]
+    #[cfg(feature = "pocket-tts")]
+    fn max_generation_length_rounds_like_upstream() {
+        // 16 tokens at 12.5 fps: upstream = ceil(91.67) = 92 frames.
+        // The old driver rounded seconds first and produced 100 frames.
+        assert_eq!(max_gen_frames(16, 12.5), 92);
+        assert_eq!(max_gen_frames(10, 12.5), 67);
+        assert_eq!(max_gen_frames(4, 12.5), 42);
+    }
+
     #[test]
     #[cfg(feature = "pocket-tts")]
     fn embeddings_codec_round_trips() {
@@ -2937,11 +3321,14 @@ mod tests {
                     .meta
                     .model_recommended_frames_after_eos
                     .unwrap_or(guess + 2),
+                // The pinned exporter omitted upstream's early-EOS guard;
+                // this fixture intentionally mirrors that behavior.
+                min_frames_before_eos: 0,
                 temperature: 0.0,
                 lsd_steps: 1,
                 control: None,
             };
-            let latents = native
+            let (latents, _) = native
                 .run_chunk(&base, &ids, &options, &mut StdRng::seed_from_u64(42))
                 .unwrap();
             let expected = case["latents"].as_array().unwrap();
@@ -3017,13 +3404,14 @@ mod tests {
         let ids = native.tokenizer.encode("Hello world.");
         let options = ChunkOptions {
             frames_after_eos: 5,
+            min_frames_before_eos: POCKET_MIN_FRAMES_BEFORE_EOS,
             temperature: 0.7,
             lsd_steps: 1,
             control: None,
         };
         let mut rng = StdRng::seed_from_u64(42);
-        let first = native.run_chunk(&base, &ids, &options, &mut rng).unwrap();
-        let second_chunk = native.run_chunk(&base, &ids, &options, &mut rng).unwrap();
+        let (first, _) = native.run_chunk(&base, &ids, &options, &mut rng).unwrap();
+        let (second_chunk, _) = native.run_chunk(&base, &ids, &options, &mut rng).unwrap();
         assert_ne!(
             first, second_chunk,
             "identical chunks must continue the request RNG"
@@ -3054,7 +3442,7 @@ mod tests {
         );
         assert!(result.unwrap_err().to_string().contains("cancelled"));
         let mut fresh_rng = StdRng::seed_from_u64(42);
-        let recovered = native
+        let (recovered, _) = native
             .run_chunk(&base, &ids, &options, &mut fresh_rng)
             .unwrap();
         assert_eq!(

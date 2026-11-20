@@ -172,3 +172,91 @@ all-GPU 7.9 s). Pocket now runs on CPU by default; `SONICBOOM_POCKET_EP=gpu`
 restores the old policy to reproduce the failure. Same failure class as the Qwen
 int8 codec. Not caused by the startup or Qwen changes of this session
 (`pocket_tts.rs` and `onnx_runtime.rs` are identical to `ffac36e`).
+
+## Short Pocket requests ended before the words were spoken (2026-11-20)
+
+The remaining "bad audio" reports came from an **early-EOS defect in the pinned
+ONNX exporter**, not from the Rust driver. Evidence chain:
+
+- The same three Spanish texts through the unmodified Python
+  `pocket_tts_onnx.py` (revision `58a6d00`) produced 0.32 s / 9.44 s / 0.48 s;
+  the Rust driver produced 0.40 s / 6.08 s / 0.48 s. Both truncate short input,
+  so replacing int8 graphs with the exporter's FP32 graphs and changing
+  temperature/steps cannot be the fix (FP32 was tried: 0.32 s / 5.20 s / 0.48 s).
+- Logging `eos_logit` per frame for a 9-word text showed `-6.86, -4.24, -3.87,
+  -3.78, ...`: the logit crosses the `-4.0` threshold at step 2-3 during normal
+  speech and then falls back below it. The exporter latches EOS immediately,
+  so generation stops after `2 + frames_after_eos` = 5 frames (0.4 s).
+- Upstream Kyutai's pinned `tts_model.py` defines
+  `_MIN_FRAMES_BEFORE_EOS = 6` with the comment "EOS is ignored on the first
+  frames: before speech starts, the EOS logit of some voices can cross the
+  threshold, and a short text then ends before the word is spoken." The ONNX
+  export dropped that guard; `pocket_tts.rs` copied the exporter verbatim.
+
+`run_chunk` now ignores EOS for the first 6 frames
+(`POCKET_MIN_FRAMES_BEFORE_EOS`), matching upstream. The same three texts now
+produce 0.72 s / 6.08 s / 4.40 s in the real CPU runner; the unmodified Python
+exporter with the guard produces 4.88 s / 7.28 s / 3.76 s (different RNG, same
+qualitative fix). Offline Whisper Tiny on the guarded exporter output
+transcribes the long text as " Los días, como estás hoy y me llamo anay, voy a
+contarte un historia... sobre el mercado de la ciudad" and the number list as
+"1, 2, 3, 4, 5, 6, 7, 8 ...". The exporter-parity fixture intentionally uses
+`min_frames_before_eos = 0` so it still validates the original exporter byte
+for byte. A second fidelity fix rounds `_estimate_max_gen_len` only after
+scaling by `frame_rate` (16 tokens: 92 frames instead of 100).
+
+The 6-frame guard is a floor, not a duration guarantee: if the logit keeps
+crossing after step 6, a short sentence can still stop near 0.72 s. Tuning the
+`-4.0` threshold higher would lengthen those cases but is not upstream
+behavior and was not adopted. Reference echo and cross-build ORT numeric drift
+remain separate, previously documented issues.
+
+### Vulkan-first with CPU fallback (2026-11-20)
+
+Per-graph EP selection was added (`graph_ep`): `SONICBOOM_POCKET_EP=auto` (or
+`hybrid`) puts the four conditioning/flow graphs on Vulkan and keeps the
+decoder on CPU; `gpu` forces everything on Vulkan; `custom` reads the
+comma-separated graph list from `SONICBOOM_POCKET_GPU_GRAPHS`. Bisect with the
+same text/reference (output RMS):
+
+| Graph on GPU | RMS | Verdict |
+|---|---:|---|
+| CPU (control) | 0.0619 | reference |
+| `text_conditioner` | 0.0619 | correct |
+| `mimi_encoder` | 0.0649 | correct |
+| `flow_lm_main_int8` | 0.0690 | correct but 2.1x slower |
+| `flow_lm_flow_int8` | 0.0629 | correct |
+| `mimi_decoder_int8` | **0.0036** | **near-silent (sole culprit)** |
+| all GPU (int8 or FP32) | 0.0035-0.0065 | broken; FP32 does not fix it |
+
+Two automatic fallbacks when `auto`/`gpu` is used:
+
+1. **At load:** `pipeline_probe` synthesizes with a deterministic sine
+   reference; if RMS < 0.015 or EOS is never reached, every graph is rebuilt
+   on CPU.
+2. **At request time:** if the GPU flow LM hits the frame limit without EOS
+   (upstream treats this as an error), all graphs are rebuilt on CPU and the
+   request is regenerated once. Measured: 10.00 s / RMS 0.058 became 7.68 s /
+   RMS 0.034.
+
+**Making Vulkan-first the default required three more fixes:**
+
+1. **Dawn is not thread-safe.** Two concurrent Pocket loads segfaulted inside
+   Dawn on AMD RADV. A session-creation mutex was not enough; the whole bundle
+   open (all five sessions, both probes and any rebuild) now runs under one
+   global `gpu_session_lock()`. With that, two concurrent real-bundle tests
+   pass 3/3 runs (previously 0/3).
+2. **GPU can be slower than CPU.** The load-time probe now measures the real
+   synthesis time and downgrades to CPU when RTF > 1.0. On this machine the
+   probe reports RTF 2.88-4.26, so the load finishes on CPU and real requests
+   stay fast (1.31 s / 2.71 s for the two reference texts, RMS 0.062 / 0.032).
+3. **EOS drift is reference-dependent.** The synthetic sine probe cannot
+   reproduce every voice's failure, so the request-time retry remains as the
+   final safety net.
+
+Default is now `auto` (Vulkan-first with CPU fallback). `SONICBOOM_POCKET_EP=cpu`
+skips the GPU probe entirely. `POCKET_GPU_DIAG=1` prints probe RMS/RTF. The
+`SONICBOOM_WEBGPU_BUFFER_CACHE` option was tested (`bucket`/`simple`/`lazy`/
+`disabled`) and did not change the decoder result; it remains for tuning.
+Remaining cost: attempting Vulkan on AMD RADV adds its load/session time (~2 s)
+before falling back, even though no request uses it.
