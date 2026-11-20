@@ -14,21 +14,15 @@ path = "src/lib.rs"
 [features]
 # Standalone server build (default). The TikTools process plugin deliberately
 # enables neither the server nor playback feature.
-# Native voice-cloning backends ship in default builds so every engine works
-# without a rebuild; providers stay disabled by default, so only the
-# Supertonic weights download until an engine is enabled.
-# The Qwen3 Vulkan backend ships in default builds too: `device = "vulkan"`
-# works without a rebuild wherever a Vulkan GPU exists, falling back to CPU
-# otherwise. This makes the Vulkan SDK (glslc, loader/headers, SPIRV-Headers)
-# a hard build requirement for default builds; build CPU-only with
-# `--no-default-features --features qwen-gguf` instead. CUDA stays an
-# explicit opt-in (`qwen-gguf-cuda`).
-# ONNX inference (Supertonic, Pocket TTS, Qwen codecs) uses ORT's WebGPU EP by
+# The Reverb-TTS cloning backend ships in default builds so every engine works
+# without a rebuild; it stays disabled by default, so only the Supertonic
+# weights download until it is enabled.
+# ONNX inference (Supertonic, Pocket TTS) uses ORT's WebGPU EP by
 # default — Vulkan on Linux — with automatic CPU fallback when the GPU or
 # Dawn library is unavailable. Force CPU with `SONICBOOM_EP=cpu`. Vendor EPs
 # (`cuda`/`rocm`) need `--no-default-features` since no prebuilt ORT combines
 # them with WebGPU on Linux.
-default = ["web-ui", "server", "playback", "qwen-gguf", "qwen-gguf-vulkan", "pocket-tts", "reverb-tts", "gui", "webgpu"]
+default = ["web-ui", "server", "playback", "pocket-tts", "reverb-tts", "gui", "webgpu"]
 web-ui = ["server"]
 # Android uses a separately installed, verified Bionic runtime (no binary download).
 android-ort = ["ort/load-dynamic"]
@@ -81,10 +75,6 @@ pocket-tts = []
 # non-commercial). Disabled by default; weights download only after
 # `[providers.reverb_tts] enabled=true`. Uses the HF `tokenizers` crate.
 reverb-tts = ["dep:tokenizers"]
-# Native Qwen3-TTS 1.7B GGUF/ONNX backend (opt-in; ICL cloning only).
-qwen-gguf = ["dep:tokenizers", "dep:rustfft", "dep:half", "dep:sonicboom-qwen-llama"]
-qwen-gguf-vulkan = ["qwen-gguf", "sonicboom-qwen-llama/vulkan"]
-qwen-gguf-cuda = ["qwen-gguf", "sonicboom-qwen-llama/cuda"]
 
 [dependencies]
 # Async runtime (only the features actually used)
@@ -120,10 +110,7 @@ tower-sessions = { version = "0.14", features = ["memory-store"], optional = tru
 
 ndarray = "0.17"
 
-sonicboom-qwen-llama = { path = "native/qwen-llama", optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
-rustfft = { version = "6.2", optional = true }
-half = { version = "2", optional = true }
 
 # Audio encoding/decoding
 opus = "0.4"
@@ -229,14 +216,6 @@ esaxx-rs = { path = "vendor/esaxx-rs" }
 # Temporary compatibility patch until ksni adopts maintained zbus 6.
 ksni = { path = "vendor/ksni" }
 
-[[example]]
-name = "qwen_gguf_smoke"
-required-features = ["qwen-gguf"]
-
-[[example]]
-name = "cache_benchmark"
-required-features = ["qwen-gguf"]
-
 # Keep desktop ORT defaults, including its binary distribution strategy.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 ort = { version = "=2.0.0-rc.13", features = ["ndarray", "half"] }
@@ -251,7 +230,3 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "
 [[example]]
 name = "pocket_smoke"
 required-features = ["pocket-tts"]
-
-[[example]]
-name = "qwen_backend_probe"
-required-features = ["qwen-gguf"]

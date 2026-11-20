@@ -16,8 +16,6 @@ function fixture() {
     scopeEpoch: ref(0), text: ref('hola'), voice: ref('A'), language: ref('es'), token: ref(''),
     selectedModel: shallowRef({ id: 'pocket-es', ready: true, cloned: true }),
     info: ref(null),
-    sampling: ref({ preset: 'balanced' }),
-    samplingParams: ref({}),
     api: {
       createJob: async (...args: unknown[]) => { inputs.push(args.slice(0, 4)); return { id: `job-${inputs.length}` }; },
       job: async (id: string) => ({ id, stage }),
@@ -60,7 +58,7 @@ test('changed text, voice, model and preview cannot implicitly resume a failed d
     assert.ok(Object.isFrozen(f.synthesis.active.value?.input));
     f.studio.text.value = 'test';
     f.studio.voice.value = 'B';
-    f.studio.selectedModel.value = { ...f.studio.selectedModel.value, id: 'qwen' };
+    f.studio.selectedModel.value = { ...f.studio.selectedModel.value, id: 'other-model' };
     await f.synthesis.generate();
     await f.synthesis.generate(true);
     assert.equal(f.inputs.length, 1);

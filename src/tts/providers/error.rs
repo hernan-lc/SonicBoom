@@ -149,7 +149,7 @@ mod tests {
     fn error_codes_map_to_documented_http_status() {
         let cases = [
             (
-                ProviderError::unsupported_model("qwen3", "nope", "unknown"),
+                ProviderError::unsupported_model("other", "nope", "unknown"),
                 400u16,
                 "unsupported_model",
             ),

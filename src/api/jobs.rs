@@ -100,11 +100,6 @@ pub struct JobStatus {
     pub rtf: Option<f64>,
     pub error: Option<String>,
     pub stage_secs: std::collections::BTreeMap<String, f64>,
-    /// Deterministic quality report for the produced audio (Qwen3-TTS with
-    /// detection enabled). Absent when detection is off or another provider
-    /// synthesized, so the legacy contract is unchanged.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<sonicboom::tts::quality::QualityReport>,
     /// Playback disposition when the job requested `playback=enqueue`. Absent
     /// for synthesis-only jobs, so the legacy contract is unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -298,7 +293,6 @@ impl JobStore {
             status.rtf = p.audio_secs.map(|audio| p.elapsed_secs / audio);
             status.updated_at = p.updated_at;
             status.stage_secs = p.stage_secs;
-            status.quality = p.quality;
             status.fragments_total = p.fragments_total;
             status.fragments_done = p.fragments_done;
         }
@@ -336,30 +330,10 @@ pub struct JobQuery {
     /// Interrupt current audio and play as soon as the audio is queued. Only
     /// valid together with `playback=enqueue`.
     pub play_now: Option<bool>,
-    // Optional Qwen3-TTS sampling/quality overrides. All default to the
-    // existing behavior; unknown values are rejected, never defaulted.
-    #[serde(default)]
-    pub sampling_preset: Option<String>,
+    /// Optional fixed seed for providers that sample (decimal `u64`); unparsable
+    /// values are rejected, never defaulted.
     #[serde(default)]
     pub seed: Option<String>,
-    #[serde(default)]
-    pub quality: Option<String>,
-    #[serde(default)]
-    pub talker_temperature: Option<f32>,
-    #[serde(default)]
-    pub talker_top_k: Option<usize>,
-    #[serde(default)]
-    pub talker_top_p: Option<f32>,
-    #[serde(default)]
-    pub talker_repetition_penalty: Option<f32>,
-    #[serde(default)]
-    pub predictor_temperature: Option<f32>,
-    #[serde(default)]
-    pub predictor_top_k: Option<usize>,
-    #[serde(default)]
-    pub predictor_top_p: Option<f32>,
-    #[serde(default)]
-    pub predictor_repetition_penalty: Option<f32>,
     /// Text normalization mode: `auto` or `off` (absent = server default).
     /// Frozen at enqueue together with the effective locale and ruleset.
     #[serde(default)]
@@ -381,41 +355,6 @@ impl JobQuery {
             locale: self.locale.clone(),
             reading_style: self.reading_style.clone(),
         }
-    }
-
-    /// Collect the optional sampling/quality overrides (unparsed).
-    fn sampling_input(&self) -> super::sampling::SamplingInput {
-        super::sampling::SamplingInput {
-            preset: self.sampling_preset.clone(),
-            seed: self.seed.clone(),
-            quality: self.quality.clone(),
-            talker_temperature: self.talker_temperature,
-            talker_top_k: self.talker_top_k,
-            talker_top_p: self.talker_top_p,
-            talker_repetition_penalty: self.talker_repetition_penalty,
-            predictor_temperature: self.predictor_temperature,
-            predictor_top_k: self.predictor_top_k,
-            predictor_top_p: self.predictor_top_p,
-            predictor_repetition_penalty: self.predictor_repetition_penalty,
-        }
-    }
-
-    /// Stable de-duplication identity of the sampling fields (never content).
-    fn sampling_identity(&self) -> String {
-        format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-            self.sampling_preset,
-            self.seed,
-            self.quality,
-            self.talker_temperature,
-            self.talker_top_k,
-            self.talker_top_p,
-            self.talker_repetition_penalty,
-            self.predictor_temperature,
-            self.predictor_top_k,
-            self.predictor_top_p,
-            self.predictor_repetition_penalty,
-        )
     }
 }
 
@@ -493,7 +432,7 @@ fn request_fingerprint(
             "none"
         },
         playback.play_now,
-        query.sampling_identity(),
+        query.seed.as_deref().unwrap_or(""),
         speech_identity,
         hex::encode(hasher.finalize()),
     )
@@ -668,34 +607,21 @@ async fn execute_request(
         validate_profile_provider(query.provider.as_deref(), &profile.provider)?;
     }
     if let Some(profile) = query.profile.clone() {
-        // Sampling/quality overrides travel with the preview request; the
-        // preview handler validates them and rejects non-Qwen providers.
         let preview = super::voices::PreviewQuery {
             format: query.format.clone(),
             language: query.lang.clone(),
-            sampling_preset: query.sampling_preset.clone(),
             seed: query.seed.clone(),
-            quality: query.quality.clone(),
-            talker_temperature: query.talker_temperature,
-            talker_top_k: query.talker_top_k,
-            talker_top_p: query.talker_top_p,
-            talker_repetition_penalty: query.talker_repetition_penalty,
-            predictor_temperature: query.predictor_temperature,
-            predictor_top_k: query.predictor_top_k,
-            predictor_top_p: query.predictor_top_p,
-            predictor_repetition_penalty: query.predictor_repetition_penalty,
             normalization: query.normalization.clone(),
             locale: query.locale.clone(),
             reading_style: query.reading_style.clone(),
         };
         super::voices::post_preview_prepared(token, state, profile, preview, body, speech).await
     } else {
-        // Supertonic path: sampling/quality options are meaningless here and
-        // are rejected explicitly rather than silently ignored.
-        let (sampling, quality) = query.sampling_input().into_parts()?;
-        if sampling.is_some() || quality.is_some() {
+        // Supertonic path: a seed is meaningless here and is rejected
+        // explicitly rather than silently ignored.
+        if super::voices::parse_seed(query.seed.clone())?.is_some() {
             return Err(AppError::BadRequest(
-                "sampling and quality options require a cloned Qwen3-TTS voice profile".into(),
+                "seed requires a cloned voice profile".into(),
             ));
         }
         super::tts::post_tts_prepared(
@@ -747,9 +673,9 @@ where
     // Playback is validated before admission so an unsupported mode never
     // creates (and then abandons) a job.
     let playback = PlaybackRequest::parse(&query)?;
-    // Sampling/quality overrides are validated up front so a bad value is a
-    // synchronous 400 rather than a failed job.
-    query.sampling_input().into_parts()?;
+    // The seed is validated up front so a bad value is a synchronous 400
+    // rather than a failed job.
+    super::voices::parse_seed(query.seed.clone())?;
     let owner = token.rate_limit_key();
     // Freeze the effective normalization (mode, locale, ruleset) now: the
     // text is prepared exactly once, before the fingerprint, and the
@@ -805,7 +731,6 @@ where
         rtf: None,
         error: None,
         stage_secs: std::collections::BTreeMap::new(),
-        quality: None,
         playback: None,
         fragments_total: None,
         fragments_done: 0,
@@ -1465,7 +1390,6 @@ mod tests {
                     rtf: None,
                     error: Some("test failure".into()),
                     stage_secs: Default::default(),
-                    quality: None,
                     playback: None,
                     fragments_total: None,
                     fragments_done: 0,
@@ -1528,7 +1452,6 @@ mod tests {
                 rtf: None,
                 error: None,
                 stage_secs: Default::default(),
-                quality: None,
                 playback: None,
                 fragments_total: None,
                 fragments_done: 0,
@@ -1886,30 +1809,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_sampling_options_are_rejected_before_a_job_exists() {
+    async fn invalid_seed_is_rejected_before_a_job_exists() {
         let (app, state, token) = idempotency_app().await;
-        for query in [
-            "/jobs?sampling_preset=turbo",
-            "/jobs?quality=loud",
-            "/jobs?seed=not-a-number",
-            "/jobs?talker_top_p=5",
-            "/jobs?predictor_repetition_penalty=0.1",
-        ] {
+        for query in ["/jobs?seed=not-a-number", "/jobs?seed=-1"] {
             let response = send_job(&app, "POST", query, &token, None, "hola").await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
         }
         assert_eq!(job_count(&state), 0, "invalid options never create jobs");
-        // Well-formed sampling options are accepted (the mock executor ignores
-        // them; a real Qwen job would honor them).
-        let accepted = send_job(
-            &app,
-            "POST",
-            "/jobs?sampling_preset=stable&seed=42&talker_temperature=0.8",
-            &token,
-            None,
-            "hola",
-        )
-        .await;
+        // A well-formed seed is accepted (the mock executor ignores it).
+        let accepted = send_job(&app, "POST", "/jobs?seed=42", &token, None, "hola").await;
         assert_eq!(accepted.status(), StatusCode::ACCEPTED);
     }
 
@@ -2020,12 +1928,12 @@ mod normalization_tests {
     struct Recorder(Mutex<Vec<Seen>>);
     impl TtsProvider for Recorder {
         fn id(&self) -> &'static str {
-            "qwen3-gguf"
+            "reverb-tts"
         }
         fn capabilities(&self) -> ProviderCapabilities {
             ProviderCapabilities {
-                provider_id: "qwen3-gguf".into(),
-                models: vec!["qwen3-tts-1.7b-base".into()],
+                provider_id: "reverb-tts".into(),
+                models: vec!["reverb-tts".into()],
                 languages: vec!["en".into(), "es".into()],
                 clone_modes: vec!["icl".into()],
                 devices: vec!["cpu".into()],
@@ -2036,10 +1944,10 @@ mod normalization_tests {
         }
         fn status(&self) -> ProviderStatus {
             ProviderStatus {
-                provider_id: "qwen3-gguf".into(),
+                provider_id: "reverb-tts".into(),
                 enabled: true,
                 state: ProviderStatusState::Ready,
-                active_model: Some("qwen3-tts-1.7b-base".into()),
+                active_model: Some("reverb-tts".into()),
                 effective_device: Some("cpu".into()),
                 model_revision: None,
                 backend_diagnostics: None,
@@ -2096,7 +2004,7 @@ mod normalization_tests {
                     move |_token, state, query, _body, speech| async move {
                         let language = query.lang.clone().unwrap_or_default();
                         let mut request = super::super::speech_prep::provider_request(
-                            "qwen3-tts-1.7b-base",
+                            "reverb-tts",
                             "profile",
                             speech,
                             language,
@@ -2357,7 +2265,7 @@ mod normalization_tests {
         let openai = openai.speech(&config, "es").unwrap();
         for speech in [tts, preview, openai] {
             let mut request = super::super::speech_prep::provider_request(
-                "qwen3-tts-1.7b-base",
+                "reverb-tts",
                 "profile",
                 speech,
                 "es",
@@ -2390,7 +2298,7 @@ mod normalization_tests {
             assert_eq!(entry.2.as_deref(), Some(TRANSCRIPT));
         }
         // Raw text never reaches inference through the bounded boundary.
-        let raw = ProviderRequest::new("qwen3-tts-1.7b-base", "profile", TEXT, "es");
+        let raw = ProviderRequest::new("reverb-tts", "profile", TEXT, "es");
         assert!(
             super::super::tts::synthesize_provider_bounded(&state, recorder.clone(), raw)
                 .await
@@ -2404,9 +2312,9 @@ mod normalization_tests {
 mod profile_routing_regression {
     #[test]
     fn explicit_provider_cannot_route_to_another_profiles_engine() {
-        assert!(super::validate_profile_provider(Some("qwen3-gguf"), "pocket-tts").is_err());
-        assert!(super::validate_profile_provider(Some("supertonic"), "qwen3-gguf").is_err());
-        assert!(super::validate_profile_provider(Some("qwen3-gguf"), "qwen3-gguf").is_ok());
+        assert!(super::validate_profile_provider(Some("reverb-tts"), "pocket-tts").is_err());
+        assert!(super::validate_profile_provider(Some("supertonic"), "reverb-tts").is_err());
+        assert!(super::validate_profile_provider(Some("reverb-tts"), "reverb-tts").is_ok());
         assert!(super::validate_profile_provider(None, "pocket-tts").is_ok());
     }
 }

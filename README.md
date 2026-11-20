@@ -31,75 +31,33 @@ requires Node.js 22.12+ and npm; deployed binaries need neither.
 # Clone the repository
 git clone https://github.com/nglmercer/SonicBoom.git
 cd SonicBoom
-git submodule update --init --recursive
 
-# Default build: Supertonic 3 + Pocket TTS + Qwen3-TTS on CPU + Vulkan.
-# The default Vulkan backend needs the Vulkan SDK (glslc, loader/headers,
-# SPIRV-Headers); official releases add the tray with `--features gui`.
+# Default build: Supertonic 3 + Pocket TTS + Reverb-TTS (cloning providers are
+# disabled until enabled in the configuration). ONNX inference uses the
+# WebGPU execution provider (Vulkan on Linux) with automatic CPU fallback.
 cargo build --release
 
-# Desktop system-tray GUI (also needs the Vulkan SDK via the defaults):
+# Desktop system-tray GUI (included in the defaults; official releases add it
+# explicitly with `--features gui`):
 cargo build --release --features gui
 ```
 
 ### GPU acceleration
 
-Official Windows and Linux releases include Qwen's Vulkan backend
-(`--features gui` on top of the Vulkan-enabled defaults); end users need
-only a system Vulkan loader and a compatible GPU driver — no Vulkan SDK.
-The binary has no mandatory `vulkan-1.dll`/`libvulkan.so.1` dependency: the
-loader is opened at runtime, so the app starts and falls back to CPU
-without a GPU.
-For source builds, install the
-[Vulkan SDK](https://vulkan.lunarg.com/sdk/home) before building. On Windows,
-restart the terminal after installation, or set the SDK path in PowerShell:
+ONNX inference tries the WebGPU execution provider first (Vulkan on Linux,
+D3D12 on Windows, Metal on macOS) and falls back to the CPU automatically; end
+users need only a system Vulkan loader and a compatible GPU driver. Force the
+CPU with `SONICBOOM_EP=cpu`. No Vulkan SDK is needed to build.
 
-```powershell
-$env:VULKAN_SDK = 'C:\VulkanSDK\<version>'
-$env:Path = "$env:VULKAN_SDK\Bin;$env:Path"
-cargo build --release --features qwen-gguf-vulkan
-```
-
-To build the same application with Qwen on CPU:
+A vendor execution provider replaces WebGPU and needs `--no-default-features`
+because no prebuilt ONNX Runtime combines them. Enable at most ONE per
+platform:
 
 ```bash
-cargo build --release --no-default-features --features server,playback,qwen-gguf,pocket-tts,gui
+cargo build --release --no-default-features --features server,web-ui,pocket-tts,reverb-tts,cuda    # NVIDIA CUDA (Linux/Windows)
+cargo build --release --no-default-features --features server,web-ui,pocket-tts,reverb-tts,rocm    # AMD ROCm (Linux)
+cargo build --release --features coreml                                                            # Apple Silicon CoreML (macOS)
 ```
-
-Two independent acceleration stacks exist; enabling one never enables the
-other. A requested GPU backend whose SDK is missing fails the build **early**
-with an actionable message (it never silently builds CPU-only or silently
-selects a different backend).
-
-```bash
-# ONNX Runtime (Supertonic / Pocket TTS) — enable at most ONE per platform:
-cargo build --release --features cuda     # NVIDIA CUDA (Linux/Windows)
-cargo build --release --features rocm     # AMD ROCm (Linux)
-cargo build --release --features coreml   # Apple Silicon CoreML (macOS)
-
-# Qwen3-TTS native llama.cpp backend (GPU backends are opt-in):
-cargo build --release --features qwen-gguf-vulkan   # Vulkan SDK + SPIRV-Headers + glslc
-cargo build --release --features qwen-gguf-cuda     # CUDA Toolkit (nvcc)
-
-# Both llama.cpp backends, only when both SDKs are installed:
-cargo build --release --features qwen-gguf-cuda,qwen-gguf-vulkan
-```
-
-`cuda`/`rocm`/`coreml` are ONNX Runtime flags and never activate the native
-llama.cpp backend; `qwen-gguf-cuda`/`qwen-gguf-vulkan` are the only flags that
-do. The build script honours CMake's own discovery: set `CUDAToolkit_ROOT`,
-`CUDACXX`, `CUDA_PATH`/`CUDA_HOME`, `VULKAN_SDK`, or `CMAKE_PREFIX_PATH` to
-point at an SDK in a non-standard location. Diagnostics and the
-`SONICBOOM_SKIP_SDK_CHECK=1` escape hatch are documented in
-[docs/providers.md](docs/providers.md#build-time-sdk-validation).
-
-Native CUDA builds compile ggml-cuda with multi-GPU NCCL collectives **off by
-default**. SonicBoom runs a single service, and NCCL is not required for
-ordinary single-GPU inference; leaving it enabled made the static `ggml-cuda`
-archive reference NCCL symbols that Cargo never links, which broke the final
-link. Set `SONICBOOM_CUDA_NCCL=1` to opt in to NCCL (the discovered library is
-then linked) and `SONICBOOM_CUDA_ARCHITECTURES` (for example `90-virtual`) to
-override the compiled GPU architecture set. Unset keeps the full release set.
 
 ### Run
 
@@ -208,12 +166,11 @@ The server will:
 | `DELETE` | `/api/voices/{id}`            | Delete a profile and its reference audio |
 | `POST`   | `/api/voices/{id}/preview`    | Synthesize text with a profile           |
 
-See [docs/providers.md](docs/providers.md) for Pocket TTS, Reverb-TTS (7
-languages, ICL cloning, non-commercial CC BY-NC weights) and Qwen3-TTS
-setup (disabled by default; CPU works without GPU). Qwen means the native
-1.7B GGUF/ONNX backend (`qwen3-gguf`, opt-in `--features qwen-gguf`
-build, ICL cloning only, CPU-validated); the old Candle backend was
-removed.
+See [docs/providers.md](docs/providers.md) for Pocket TTS and Reverb-TTS (7
+languages, ICL cloning, non-commercial CC BY-NC weights) setup (both disabled
+by default; CPU works without GPU). Qwen3-TTS and GPT-SoVITS were removed;
+their stored voice profiles stay listed but cannot synthesize (recreate them
+as `reverb-tts` profiles).
 
 ### Admin Panel
 

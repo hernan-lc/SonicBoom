@@ -21,7 +21,7 @@
 //! Conditioning semantics are Pocket's own audio-prompt path: the
 //! reference WAV is encoded to voice embeddings (with the bundle's
 //! `bos_before_voice` prefix) and used to prefill the flow-LM state.
-//! This is neither GPT ICL nor Qwen x-vector, so it reports a distinct
+//! This is neither ICL nor x-vector conditioning, so it reports a distinct
 //! `audio_prompt` clone mode and never requires a transcript.
 //!
 //! Without the `pocket-tts` Cargo feature every load/synthesis path fails
@@ -3226,15 +3226,13 @@ mod tests {
     }
 
     #[test]
-    fn icl_and_xvector_modes_are_rejected_explicitly() {
+    fn icl_mode_is_rejected_explicitly() {
         let p = provider();
-        for mode in [CloneMode::Icl, CloneMode::XVector] {
-            let mut request = ProviderRequest::new(POCKET_TTS_MODELS[0], "profile", "hello", "en");
-            request.clone_mode = Some(mode);
-            let error = p.synthesize(&with_reference(request)).unwrap_err();
-            assert_eq!(error.code(), "invalid_voice", "{mode:?}");
-            assert!(error.message().contains("audio-prompt"));
-        }
+        let mut request = ProviderRequest::new(POCKET_TTS_MODELS[0], "profile", "hello", "en");
+        request.clone_mode = Some(CloneMode::Icl);
+        let error = p.synthesize(&with_reference(request)).unwrap_err();
+        assert_eq!(error.code(), "invalid_voice");
+        assert!(error.message().contains("audio-prompt"));
     }
 
     #[test]

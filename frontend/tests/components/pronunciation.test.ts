@@ -63,24 +63,22 @@ it('adds no normalization parameters unless fields are present', async () => {
   const paths: string[] = [];
   const api = createApi({ json: async (path: string) => { paths.push(path); return { id: 'job' }; } } as never);
   await api.createJob('hola', 'es', 'A', false);
-  await api.createJob('hola', 'es', 'A', false, { seed: '7' }, undefined, undefined);
-  await api.createJob('hola', 'es', 'A', false, undefined, undefined, {});
-  await api.createJob('hola', 'es', 'A', false, undefined, undefined, { normalization: undefined, locale: '' });
-  await api.createJob('hola', 'es', 'A', false, undefined, undefined, { locale: 'auto' });
+  await api.createJob('hola', 'es', 'A', false, undefined, {});
+  await api.createJob('hola', 'es', 'A', false, undefined, { normalization: undefined, locale: '' });
+  await api.createJob('hola', 'es', 'A', false, undefined, { locale: 'auto' });
   expect(paths[0]).toBe('/api/tts/jobs?lang=es&format=wav&voice=A');
-  expect(paths[1]).toBe('/api/tts/jobs?lang=es&format=wav&voice=A&seed=7');
+  expect(paths[1]).toBe(paths[0]);
   expect(paths[2]).toBe(paths[0]);
-  expect(paths[3]).toBe(paths[0]);
-  expect(new URL(paths[4], 'http://localhost').searchParams.get('locale')).toBe('auto');
+  expect(new URL(paths[3], 'http://localhost').searchParams.get('locale')).toBe('auto');
   expect(pronunciationQuery()).toEqual({});
 });
 
 it('adds normalization and a concrete locale when present', async () => {
   const paths: string[] = [];
   const api = createApi({ json: async (path: string) => { paths.push(path); return { id: 'job' }; } } as never);
-  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
-  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'auto', reading_style: 'digits' });
-  await api.createJob('hola', 'es', 'A', true, undefined, undefined, { normalization: 'off' });
+  await api.createJob('hola', 'es', 'A', true, undefined, { normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
+  await api.createJob('hola', 'es', 'A', true, undefined, { normalization: 'auto', reading_style: 'digits' });
+  await api.createJob('hola', 'es', 'A', true, undefined, { normalization: 'off' });
   const first = new URL(paths[0], 'http://localhost').searchParams;
   expect([first.get('normalization'), first.get('locale'), first.get('reading_style'), first.get('profile'), first.get('lang')]).toEqual(['auto', 'es-PE', 'natural', 'A', 'es']);
   const second = new URL(paths[1], 'http://localhost').searchParams;
@@ -123,7 +121,7 @@ function synthesisFixture() {
   let failAudio = true;
   const form = { text: ref('Pago 26/10/2026 '), language: ref('es'), voice: ref('A'), pronunciation: ref<{ normalization: NormalizationMode; locale?: string; reading_style?: 'precise' | 'natural' | 'digits' } | undefined>({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' }) };
   const studio = {
-    scopeEpoch: ref(0), token: ref(''), info: ref(null), sampling: ref({ preset: 'balanced' }), samplingParams: ref({}),
+    scopeEpoch: ref(0), token: ref(''), info: ref(null),
     text: form.text, language: form.language, voice: form.voice, pronunciation: form.pronunciation,
     selectedModel: shallowRef({ id: 'm1', ready: true, cloned: false, provider: 'supertonic' }),
     api: {
@@ -141,7 +139,7 @@ it('freezes text, mode and locale at submission and reuses them for resume and r
   try {
     await f.synthesis.generate();
     expect(f.calls[0].slice(0, 4)).toEqual(['Pago 26/10/2026', 'es', 'A', false]);
-    expect(f.calls[0][6]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
+    expect(f.calls[0][5]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
     expect(Object.isFrozen(f.synthesis.active.value?.input)).toBe(true);
     f.form.text.value = 'Otro texto'; f.form.language.value = 'en'; f.form.pronunciation.value = { normalization: 'off' };
     expect(f.synthesis.active.value?.input).toMatchObject({ text: 'Pago 26/10/2026', language: 'es', normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
@@ -152,10 +150,10 @@ it('freezes text, mode and locale at submission and reuses them for resume and r
     await f.synthesis.regenerate();
     expect(f.calls).toHaveLength(2);
     expect(f.calls[1].slice(0, 4)).toEqual(['Pago 26/10/2026', 'es', 'A', false]);
-    expect(f.calls[1][6]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
+    expect(f.calls[1][5]).toEqual({ normalization: 'auto', locale: 'es-PE', reading_style: 'natural' });
     await f.synthesis.generate();
     expect(f.calls[2].slice(0, 4)).toEqual(['Otro texto', 'en', 'A', false]);
-    expect(f.calls[2][6]).toEqual({ normalization: 'off', locale: undefined, reading_style: undefined });
+    expect(f.calls[2][5]).toEqual({ normalization: 'off', locale: undefined, reading_style: undefined });
   } finally { f.synthesis.dispose(); }
 });
 
@@ -164,8 +162,8 @@ it('sends no pronunciation fields when the server has no normalization support',
   try {
     f.form.pronunciation.value = undefined; f.audio(true);
     await f.synthesis.generate();
-    expect(f.calls[0][6]).toEqual({ normalization: undefined, locale: undefined, reading_style: undefined });
-    expect(pronunciationQuery(f.calls[0][6] as never)).toEqual({});
+    expect(f.calls[0][5]).toEqual({ normalization: undefined, locale: undefined, reading_style: undefined });
+    expect(pronunciationQuery(f.calls[0][5] as never)).toEqual({});
   } finally { f.synthesis.dispose(); }
 });
 

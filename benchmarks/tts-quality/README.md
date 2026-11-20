@@ -1,5 +1,8 @@
 # Request isolation remediation
 
+> Historical note: the Qwen3-TTS provider measured in the archived evidence below
+> was removed, along with its audit runner mode. The archived results are kept as-is.
+
 Baseline: fetched `origin/main` = `35416e8` on 2026-10-16; clean worktree.
 
 Confirmed client defect: `useSynthesis.generate` used any retained job ID without
@@ -29,7 +32,7 @@ cargo test --no-default-features --test tts_request_isolation
 cargo run --no-default-features --bin tts-quality-audit -- --help
 # Create the parent, but not NEW_OUTPUT_DIR; all destinations are create-new.
 cargo run --release --no-default-features --features pocket-tts --bin tts-quality-audit -- pocket pocket-tts-es es models/pocket-tts NEW_OUTPUT_DIR AUTHORIZED_REFERENCE.wav
-QWEN_REFERENCE_TRANSCRIPT='exact transcript' cargo run --release --no-default-features --features qwen-gguf --bin tts-quality-audit -- qwen qwen3-tts-1.7b-base es models/qwen3-tts-1.7b-gguf NEW_OUTPUT_DIR AUTHORIZED_REFERENCE.wav
+REVERB_REFERENCE_TRANSCRIPT='exact transcript' cargo run --release --no-default-features --features reverb-tts --bin tts-quality-audit -- reverb reverb-tts es models/reverb-tts NEW_OUTPUT_DIR AUTHORIZED_REFERENCE.wav
 ```
 
 Runner sequence: hola, test, mundo, cold test (engine dropped/reloaded), warm
@@ -67,7 +70,7 @@ It does not contain `hola`. Its exact transcript and provenance are recorded in
 that directory's `summary.json`. The synthetic Spanish pair in `fixtures/` supplies both the containing-`hola`
 and non-containing-`hola` cases without a human recording.
 
-For alternating references, explicitly set `AUDIT_ALT_REFERENCE_WAV` and (Qwen)
+For alternating references, explicitly set `AUDIT_ALT_REFERENCE_WAV` and (Reverb)
 `AUDIT_ALT_REFERENCE_TRANSCRIPT`. Four extra requests run A/B/A/B at fixed seed
 with reference hashes and independent voice IDs. A and B never come from generated
 audio. `fixtures/README.md` identifies the synthetic `hola`-containing fixture.

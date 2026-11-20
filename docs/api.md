@@ -69,7 +69,7 @@ Synthesizes text and adds it directly to the server's playback queue in a single
 
 | Parameter  | Type    | Required | Default | Description                            |
 | ---------- | ------- | -------- | ------- | -------------------------------------- |
-| `provider` | string | No | `supertonic` | `supertonic`, `pocket-tts`, `reverb-tts`, or `qwen3-gguf`; empty preserves legacy routing |
+| `provider` | string | No | `supertonic` | `supertonic`, `pocket-tts`, or `reverb-tts`; empty preserves legacy routing |
 | `voice` | string | For cloning | `M1` (Supertonic) | Built-in style or token-owned clone profile UUID; matching `provider:voice` option IDs accepted |
 | `lang`     | string  | No       | `en`    | Language code                          |
 | `play_now` | boolean | No       | `false` | If `true`, clears queue and plays now  |
@@ -100,7 +100,7 @@ curl -X POST "http://localhost:17842/api/tts/play?voice=F1&play_now=true" \
 Cloning playback uses the profile's stored model, revision, reference audio and clone
 mode through the existing bounded inference gate. `lang` defaults to the profile
 language when omitted; Pocket requires its language-specific profile language.
-Qwen supports the languages advertised by its provider. No provider fallback occurs.
+Reverb supports the languages advertised by its provider. No provider fallback occurs.
 Unknown/mismatched providers or voices and incompatible revisions return `400`;
 foreign/deleted profiles return `404`; unavailable providers return `503`. Existing
 rate limits (`429`), deadlines, secure temporary WAV ownership and queue semantics
@@ -140,7 +140,7 @@ synthesis path: `/api/tts`, `/api/tts/play`, `/api/tts/jobs`,
 `/api/voices/{id}/preview`, `/v1/audio/speech`, the reusable library engine
 and the TikTools plugin. Ambiguous input (for example `01/02/2026` without
 an explicit locale) is preserved and only reported. Only the target text is
-prepared: a Qwen voice profile's reference transcript and every reference
+prepared: a cloned voice profile's reference transcript and every reference
 audio are passed to the provider unchanged. Coverage per language is listed
 in [normalization.md](normalization.md) and in `GET /api/info`.
 
@@ -726,6 +726,42 @@ The admin panel includes login attempt tracking to prevent brute-force attacks.
 - Maximum 5 failed attempts per IP in 10 minutes
 - 15-minute lockout after threshold exceeded (expires automatically)
 
+## Breaking changes: Qwen3-TTS removal
+
+Qwen3-TTS (the GGUF/ONNX provider and the older Candle one) was removed. Clients
+that used it must adapt:
+
+- **Providers and models.** `provider=qwen3-gguf` is no longer a provider ID
+  (`GET /api/providers`, `/api/providers/qwen3-gguf/status`,
+  `/api/tts/play?provider=qwen3-gguf` and `POST /api/voices/clones` reject it),
+  and `GET /v1/models` no longer lists `qwen3-tts-1.7b-base`. Requesting
+  `qwen3-tts-0.6b-base` or `qwen3-tts-1.7b-base` (or a retired GPT-SoVITS ID) in
+  `/v1/audio/speech` returns `400` with a "retired" message suggesting
+  `reverb-tts`; requests are never rerouted to another provider.
+- **Stored voice profiles.** Profiles created for `qwen3-gguf`, `qwen3-candle`
+  or `gpt-sovits` still load, appear in `GET /api/voices` and can be deleted
+  with `DELETE /api/voices/{id}`, but previewing or synthesizing with them
+  returns `400` telling you to recreate them as `reverb-tts` profiles (`icl`
+  mode with the exact transcript). Nothing is migrated automatically.
+- **Clone modes.** Profile creation only accepts `icl` for Reverb-TTS (Pocket
+  TTS keeps `audio_prompt`). `x_vector` is rejected with `400`; old profiles that
+  store it still load.
+- **Sampling query parameters removed.** `sampling_preset`, `quality`,
+  `talker_temperature`, `talker_top_k`, `talker_top_p`,
+  `talker_repetition_penalty` and the `predictor_*` equivalents are no longer
+  read by `/api/tts/jobs`, `/api/voices/{id}/preview` or the OpenAI path (they
+  are ignored like any unknown query parameter). Only `seed` remains.
+- **Job status.** The optional `quality` report is gone from job status and SSE
+  snapshots, and `GET /api/info` `synthesis` now reports
+  `{max_text_chars, max_body_bytes, seed_max}` (the `sampling` object with the
+  Qwen parameter bounds was removed).
+- **Configuration.** `[providers.qwen3_gguf]` (and its `sampling`/`quality`
+  subtables) and `[providers.qwen3]` are accepted and ignored with a startup
+  warning, so old `config.toml` files still boot; they are not written back.
+- **Builds.** The Cargo features `qwen-gguf`, `qwen-gguf-vulkan` and
+  `qwen-gguf-cuda` and the `vendor/llama.cpp` submodule no longer exist, and
+  `--build-info` no longer prints `native_backends`/`runtime_backends`.
+
 ## Reliable native synthesis jobs
 
 Use the authenticated [background job API](inference-jobs.md) for long CPU
@@ -757,11 +793,14 @@ The latter is a low-amplitude proxy, not speech/VAD coverage. Warning codes are
 trim, normalize or modify an otherwise valid reference. Health data is returned
 to the authorized creator, not written into default telemetry or job status.
 
-Qwen/Pocket job `context.seed`, when present, is the effective request seed as a
-decimal **string**, so browser clients preserve all 64 bits. It is read-only
-metadata, not a new HTTP generation parameter. Reproduce it through the native
-`ProviderRequest.seed` API or offline runner `AUDIT_SEED=<decimal-u64>`. Omitted
-seeds are selected once per request and sampling state remains request-local.
+Pocket/Reverb job `context.seed`, when present, is the effective request seed as a
+decimal **string**, so browser clients preserve all 64 bits. To reproduce a
+result, send it back as the optional `seed` query parameter of
+`POST /api/tts/jobs` or `POST /api/voices/{id}/preview` (a decimal `u64`;
+anything else is `400`, and a seed on a built-in Supertonic job is `400`
+because Supertonic does not sample), as `seed` in an OpenAI cloning request, or
+through the offline runner `AUDIT_SEED=<decimal-u64>`. Omitted seeds are
+selected once per request and sampling state remains request-local.
 
 ### Voice cloning multipart migration
 

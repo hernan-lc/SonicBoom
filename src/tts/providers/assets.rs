@@ -541,19 +541,14 @@ mod tests {
     /// install + skip-if-verified) against one tiny manifest file.
     /// Ignored by default (needs network).
     #[tokio::test]
-    #[ignore = "needs network: downloads one 4 KB manifest file from HuggingFace"]
+    #[ignore = "needs network: downloads one 2 MB manifest file from HuggingFace"]
     async fn downloads_and_verifies_a_pinned_file() {
         let dir = std::env::temp_dir().join(format!("sb-dl-test-{}", uuid::Uuid::new_v4()));
-        let files = [PinnedFile {
-            path: "config.json",
-            url: PinnedFile::huggingface(
-                "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-                "5d83992436eae1d760afd27aff78a71d676296fc",
-                "config.json",
-            ),
-            sha256: "2e714c787c8edb98b05432685cddb634add2de4d4e645f653d68251ef72ba011",
-            size: 4494,
-        }];
+        let files: Vec<PinnedFile> = crate::tts::providers::reverb_tts::reverb_manifest()
+            .into_iter()
+            .filter(|file| file.path == "model/tokenizer.json")
+            .collect();
+        assert_eq!(files.len(), 1);
         let progress = std::sync::Mutex::new(Vec::new());
         ensure_pinned_files(
             "test",
@@ -568,7 +563,7 @@ mod tests {
         )
         .await
         .expect("pinned download");
-        assert!(dir.join("config.json").is_file());
+        assert!(dir.join("model/tokenizer.json").is_file());
         assert!(
             progress
                 .lock()
@@ -745,10 +740,10 @@ mod tests {
 
     #[test]
     fn huggingface_url_pins_revision() {
-        let url = PinnedFile::huggingface("Qwen/X", "abc123", "model.safetensors");
+        let url = PinnedFile::huggingface("org/X", "abc123", "model.safetensors");
         assert_eq!(
             url,
-            "https://huggingface.co/Qwen/X/resolve/abc123/model.safetensors"
+            "https://huggingface.co/org/X/resolve/abc123/model.safetensors"
         );
     }
 }

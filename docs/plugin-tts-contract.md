@@ -14,7 +14,7 @@ prefix only after verifying it agrees with the explicit provider. Omitted/empty
 provider retains legacy Supertonic routing. Explicit Supertonic rejects unknown styles;
 cloning requires a token-owned, current-revision profile for the resident model.
 Pocket language models are separate; a profile for a different resident model is not
-listed. Qwen continues to use its validated Base ICL mode.
+listed. Profiles of retired providers are never listed.
 
 Profiles are read through the existing manifest/cache-stamp and ownership functions.
 Decoded references use the existing memory admission path. All provider synthesis
@@ -50,10 +50,6 @@ cleanup. This is contract evidence, not speech-quality or audible-device evidenc
 
 ## Remaining validation limits
 
-- Full Pocket-only server tests: 232 passed, one existing failure in
-  `api::openai::tests::supported_models_are_accepted`, whose unguarded assertion expects
-  the Qwen model to route as cloning even without `qwen-gguf`. The file/test was not
-  changed. The six new plugin tests pass in that configuration.
 - Real-model generation and audible playback: NOT RUN for this integration. Model
   quality was accepted separately; no new fidelity claims or engine changes are made.
 - GPU/native OS WebView execution: NOT RUN. CPU default features compile/test; plugin

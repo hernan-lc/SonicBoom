@@ -1,7 +1,7 @@
 # Releases and runtime requirements
 
-Release binaries use default features plus `gui` and Qwen Vulkan: Supertonic,
-Qwen3-TTS, Pocket TTS, playback, HTTP server and tray support are retained.
+Release binaries use the default features plus `gui`: Supertonic, Pocket TTS,
+Reverb-TTS, playback, HTTP server and tray support are retained.
 Models are downloaded separately on normal startup; no credentials, user
 configuration, downloaded voices/models or caches belong in release archives.
 
@@ -35,19 +35,17 @@ requirement if the produced executable has no ONNX dynamic import. If future
 ORT builds use shared libraries they must appear beside the built executable
 (via `ort/copy-dylibs`), be packaged with their notices, and pass the probe.
 
-Vulkan acceleration is included in these packages: Supertonic, Pocket TTS and
-the Qwen ONNX codecs use ORT's WebGPU EP (Vulkan on Linux) with automatic CPU
-fallback, and Qwen GGUF uses llama.cpp Vulkan with CPU fallback. CUDA/ROCm/CoreML
-builds require separate SDKs, provider libraries, driver compatibility and
-hardware validation. Qwen CUDA is an independent opt-in feature. CI does not
+Vulkan acceleration is included in these packages: Supertonic uses ORT's
+WebGPU EP (Vulkan on Linux) with automatic CPU fallback, and Pocket TTS and
+Reverb-TTS can opt into it. CUDA/ROCm/CoreML builds require separate SDKs,
+provider libraries, driver compatibility and hardware validation. CI does not
 certify model inference quality, GPU execution, tray interaction or audio playback.
 
 ## Create a release
 
 1. Fork the project (or push a clone to a GitHub repository you can write to),
    enable Actions if needed, and merge the desired changes into that repository's
-   default branch. Initialize submodules for local builds with
-   `git submodule update --init --recursive`.
+   default branch.
 2. In **Actions → Release → Run workflow**, select the default branch. Choose
    `build` to test and download temporary workflow artifacts without publishing.
    For a release, choose `publish`, enter a new version such as `v1.2.3` or
@@ -137,7 +135,7 @@ any remaining child on failure. It never uses your personal config or models.
   failures must be fixed before publishing; never mask `not found` output.
 * Model-dependent failure: inspect model trust/revision, disk/network access,
   provider enablement and logs separately. A healthy model-free server does
-  not prove successful speech synthesis. Exercise all three providers with
+  not prove successful speech synthesis. Exercise every provider with
   real models and reference audio before claiming full inference validation.
 
 ## Rollback
@@ -151,33 +149,27 @@ consumer downloads must continue to identify the same bytes.
 
 ### Native and container preflight
 
-Initialize sources with `git submodule update --init --recursive`, then run
-`python3 scripts/ci/preflight.py`. It checks the checked-out Gitlink revisions,
-explicit Cargo examples, local path manifests and each Docker builder's manifest
-inputs and feature names. CI runs it before compilation on Linux and Windows.
+Run `python3 scripts/ci/preflight.py`. It checks the local path manifests and
+each Docker builder's manifest inputs and feature names. CI runs it before
+compilation on Linux and Windows.
 Official release binaries (exactly `sonicboom-windows-x86_64.zip` and
-`sonicboom-linux-x86_64.tar.gz`) include all providers with CPU + Vulkan
-backends, built with `cargo build --release --locked --features
-gui,qwen-gguf-vulkan` (Vulkan now also ships in plain default builds).
-The Vulkan SDK is a build-time-only requirement
-(Windows: pinned LunarG SDK via `scripts/ci/install-vulkan.ps1`; Linux:
-`libvulkan-dev vulkan-tools glslc spirv-headers`); end users need only the
-system Vulkan loader/driver. The executable opens the loader at runtime,
-so it starts with no usable Vulkan device and falls back to CPU. Native
-CUDA remains an explicit `qwen-gguf-cuda` opt-in; ONNX Runtime's `cuda`
-feature selects a separate stack. `BUILD-INFO.json` reports the actual
-`features`/`native_backends` queried from the built executable (`--build-info`);
-packaging, smoke and publish verification reject CPU-only metadata.
-Hosted CI proves compilation/backend registration only; real GPU inference
-requires the opt-in `qwen_gguf_smoke --device vulkan` hardware test.
+`sonicboom-linux-x86_64.tar.gz`) include all providers, built with
+`cargo build --release --locked --features gui` (the defaults already carry
+the `webgpu` execution provider). No Vulkan SDK is needed to build; end users
+need only the system Vulkan loader/driver. ONNX Runtime opens the loader at
+runtime, so the executable starts with no usable Vulkan device and falls back
+to the CPU. ONNX Runtime's `cuda` feature selects a separate stack.
+`BUILD-INFO.json` reports the actual `features` queried from the built
+executable (`--build-info`); packaging, smoke and publish verification reject
+metadata that lacks the release features. Hosted CI proves compilation only;
+real GPU inference needs hardware validation.
 
 Docker's CPU and playback targets select their features explicitly. The CUDA
-target selects both ONNX Runtime CUDA and native GGML CUDA. The locked
+target selects ONNX Runtime CUDA. The locked
 ort-sys rc.13 distribution ships CUDA 13 only, so the CUDA images use matching
 CUDA 13/cuDNN runtime and development bases; a CUDA 13 compatible host driver
-is required. CPU images retain their independent SDK-free build. Its pinned toolkit
-builds the portable llama.cpp architecture set without requiring a GPU during
-compilation. At runtime use NVIDIA Container Toolkit (`docker run --gpus all`):
+is required. CPU images retain their independent SDK-free build. The CUDA build
+needs no GPU during compilation. At runtime use NVIDIA Container Toolkit (`docker run --gpus all`):
 `libcuda.so.1` must come from the host driver. Image checks permit only that
 specific driver library to be absent and never ship linker stubs. Hardware
 inference still requires a supported GPU and installed models.
@@ -189,34 +181,25 @@ embedded credentials here; do not place access tokens in build arguments or
 image environment defaults. Model weights, credential files, nested Git data
 and local build caches are excluded from the allowlisted build context.
 
-Native GGML CUDA builds disable multi-GPU NCCL collectives by default
-(`GGML_CUDA_NCCL=OFF`). SonicBoom runs a single service and does not need NCCL
-for single-GPU inference; leaving it enabled made the static `ggml-cuda`
-archive reference NCCL symbols the Rust link never resolved. Set
-`SONICBOOM_CUDA_NCCL=1` to opt in (build.rs then links the discovered NCCL
-library). `SONICBOOM_CUDA_ARCHITECTURES` overrides the compiled architecture
-set; unset keeps the full release set, and CI smoke builds may narrow it to cut
-NVCC time.
-
 ### CI structure and CUDA validation
 
 Ordinary push/pull-request CI (`.github/workflows/ci.yml`) never runs the full
 CUDA Docker build. It runs formatting, Clippy, tests, the security-regression
-manifest guard, the feature matrix, native CPU/Vulkan GGUF builds, Linux and
+manifest guard, the feature matrix, Linux and
 Windows GUI packaging, Docker CPU/playback images and a fast *static* CUDA
 configuration check (`scripts/ci/cuda_structure.py`) that invokes neither NVCC
 nor Docker. That static check proves the CUDA feature names, Docker stages,
-digest-pinned bases, native CMake/NCCL policy and runtime packaging are wired
+digest-pinned bases and runtime packaging are wired
 correctly; it does not prove GPU inference works.
 
-The full native CUDA compile and CUDA Docker image build live in the dedicated
+The full CUDA build and CUDA Docker image build live in the dedicated
 `.github/workflows/cuda-full.yml` workflow, triggered manually and on release
 tags. It is **disabled by default**: the weekly `schedule:` block is commented
-out so it cannot consume ~47-80 minutes of runner time unattended; uncomment it
-to restore the weekly run. It compiles the native backend with the same
+out so it cannot consume runner time unattended; uncomment it
+to restore the weekly run. It builds with the same
 `web-ui` feature set as the production image (the frontend is built on the
 runner and embedded via `SONICBOOM_FRONTEND_PREBUILT=1`, so no Node.js is
-needed inside the CUDA container), verifies NCCL/static linking and
+needed inside the CUDA container), verifies
 shared-library resolution, builds the CUDA image with a layer cache, and runs
 GPU runtime tests only when a self-hosted CUDA runner is attached and GPU tests
 are requested. Release CUDA artifacts are not treated as validated unless those

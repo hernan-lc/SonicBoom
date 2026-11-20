@@ -10,8 +10,8 @@
 //! ([`SegmentPolicy::supertonic`], built on
 //! [`TextProcessor::split_sentences_with_limit`](crate::tts::text::TextProcessor::split_sentences_with_limit)),
 //! while Pocket TTS keeps its tokenizer-aware sentence splitter (token
-//! budget per chunk, autoregressive state per request) and Qwen3-TTS its
-//! 4096-token context handling. Those providers express their own policy;
+//! budget per chunk, autoregressive state per request). Those providers
+//! express their own policy;
 //! this module guarantees the shared contract for the fragments they do
 //! emit: original order, no empty fragments, no cut inside a Unicode
 //! grapheme cluster, and per-fragment [`Fragment`] metadata (index, total)

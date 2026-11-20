@@ -56,7 +56,7 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiterManager>,
     /// Model lifecycle owner (download, load, reload).
     pub model_service: Arc<ModelService>,
-    /// Resident optional voice-cloning providers (Qwen3-TTS, Pocket TTS).
+    /// Resident optional voice-cloning providers (Pocket TTS, Reverb-TTS).
     /// Singletons load once and stay resident; per-request registries borrow
     /// them after syncing live configuration (hot reload without restarts).
     pub providers: Arc<sonicboom::tts::providers::ProviderPool>,
@@ -149,24 +149,12 @@ fn main() -> anyhow::Result<()> {
                 features.push(name);
             }
         }
-        let mut backends = vec!["cpu"];
         if cfg!(feature = "gui") {
             features.push("gui");
         }
-        if cfg!(feature = "qwen-gguf") {
-            features.push("qwen-gguf");
-        }
-        if cfg!(feature = "qwen-gguf-vulkan") {
-            features.push("qwen-gguf-vulkan");
-            backends.push("vulkan");
-        }
-        #[cfg(feature = "qwen-gguf")]
-        let runtime = sonicboom_qwen_llama::runtime_backends();
-        #[cfg(not(feature = "qwen-gguf"))]
-        let runtime = "cpu";
         println!(
             "{}",
-            serde_json::json!({"features":features,"native_backends":backends,"runtime_backends":runtime, "platform":std::env::consts::OS, "architecture":std::env::consts::ARCH, "mode":if cfg!(feature="gui") {"desktop"} else {"headless"}, "playback":cfg!(feature="playback"), "web_ui":cfg!(feature="web-ui"), "onnxruntime":{"status":"unchecked"}})
+            serde_json::json!({"features":features,"platform":std::env::consts::OS, "architecture":std::env::consts::ARCH, "mode":if cfg!(feature="gui") {"desktop"} else {"headless"}, "playback":cfg!(feature="playback"), "web_ui":cfg!(feature="web-ui"), "onnxruntime":{"status":"unchecked"}})
         );
         return Ok(());
     }
@@ -323,7 +311,6 @@ fn prepare_config(config_path: &std::path::Path) -> Result<PrepareOutcome, Strin
     }
     bootstrap.providers.pocket_tts.model_dir = data_dir.join("models/pocket-tts");
     bootstrap.providers.reverb_tts.model_dir = data_dir.join("models/reverb-tts");
-    bootstrap.providers.qwen3_gguf.model_dir = data_dir.join("models/qwen3-tts-1.7b-gguf");
     bootstrap.voices.store_dir = data_dir.join("voices").to_string_lossy().to_string();
     bootstrap.paths.logs = data_dir.join("logs").to_string_lossy().to_string();
     bootstrap.paths.temp_audio = data_dir.join("temp_audio").to_string_lossy().to_string();
@@ -966,10 +953,6 @@ async fn run_server_inner(config_path: std::path::PathBuf, smoke: bool) -> anyho
         provider_pool.sync_reverb_config(crate::api::providers::map_reverb_config(
             &current.providers.reverb_tts,
         ));
-        #[cfg(feature = "qwen-gguf")]
-        provider_pool.sync_gguf_config(crate::api::providers::map_qwen_gguf_config(
-            &current.providers.qwen3_gguf,
-        ));
     }
 
     // Runtime reconfiguration: every committed configuration
@@ -1052,11 +1035,11 @@ async fn doctor() -> anyhow::Result<()> {
         "configuration_path": path, "playback": cfg!(feature = "playback"),
         "web_ui": cfg!(feature = "web-ui"), "cpu_inference": runtime.is_ok(),
         "onnxruntime": runtime.as_ref().map(|_| "inference passed".to_string()).unwrap_or_else(|e| format!("{e:#}")),
-        "compiled_providers": {"supertonic": true, "pocket_tts": cfg!(feature="pocket-tts"), "reverb_tts": cfg!(feature="reverb-tts"), "qwen_gguf": cfg!(feature="qwen-gguf")}
+        "compiled_providers": {"supertonic": true, "pocket_tts": cfg!(feature="pocket-tts"), "reverb_tts": cfg!(feature="reverb-tts")}
     });
     if let Some(Ok(loaded)) = loaded {
         let c = loaded.config;
-        report["enabled_providers"] = serde_json::json!({"supertonic": true, "pocket_tts": c.providers.pocket_tts.enabled, "reverb_tts": c.providers.reverb_tts.enabled, "qwen_gguf": c.providers.qwen3_gguf.enabled});
+        report["enabled_providers"] = serde_json::json!({"supertonic": true, "pocket_tts": c.providers.pocket_tts.enabled, "reverb_tts": c.providers.reverb_tts.enabled});
         report["model_cache_path"] = serde_json::json!(c.model.cache_dir);
         report["port_available"] = serde_json::json!(
             tokio::net::TcpListener::bind((c.server.bind, c.server.port))

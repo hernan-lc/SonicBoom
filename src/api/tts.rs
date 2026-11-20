@@ -40,8 +40,8 @@ pub(super) async fn synthesize_bounded(
         config.inference.generation_deadline_secs,
         state.inference_gate.run_bounded(move || {
             if let Some(c) = sonicboom::tts::control::current() {
-                let forced_cpu = std::env::var("SONICBOOM_EP")
-                    .is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
+                let forced_cpu =
+                    std::env::var("SONICBOOM_EP").is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
                 let device = if forced_cpu {
                     "cpu"
                 } else if cfg!(all(feature = "webgpu", target_os = "linux")) {
@@ -615,10 +615,7 @@ fn plugin_identity<'a>(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or("supertonic");
-    if !matches!(
-        provider,
-        "supertonic" | "pocket-tts" | "qwen3-gguf" | "reverb-tts"
-    ) {
+    if !matches!(provider, "supertonic" | "pocket-tts" | "reverb-tts") {
         return Err(AppError::BadRequest("unknown provider".into()));
     }
     let voice = voice
@@ -647,7 +644,8 @@ mod plugin_identity_tests {
             plugin_identity(Some("pocket-tts"), Some("pocket-tts:id")).unwrap(),
             ("pocket-tts", "id")
         );
-        assert!(plugin_identity(Some("pocket-tts"), Some("qwen3-gguf:id")).is_err());
+        assert!(plugin_identity(Some("pocket-tts"), Some("reverb-tts:id")).is_err());
+        assert!(plugin_identity(Some("qwen3-gguf"), Some("id")).is_err());
         assert!(plugin_identity(Some("unknown"), None).is_err());
     }
 }
@@ -774,7 +772,7 @@ mod plugin_play_tests {
                     if self.0 == "pocket-tts" {
                         "pocket-tts-en"
                     } else {
-                        "qwen3-tts-1.7b-base"
+                        "reverb-tts"
                     }
                     .into(),
                 ],
@@ -789,7 +787,7 @@ mod plugin_play_tests {
                 ],
                 devices: vec!["cpu".into()],
                 requires_reference_audio: true,
-                requires_reference_transcript: self.0 == "qwen3-gguf",
+                requires_reference_transcript: self.0 == "reverb-tts",
                 sample_rate: Some(24_000),
             }
         }
@@ -838,7 +836,7 @@ mod plugin_play_tests {
             reference_hash: "synthetic-fixture".into(),
             reference_sample_rate: 24_000,
             reference_duration_secs: 3.0,
-            transcript: (provider.id() == "qwen3-gguf").then(|| "different reference words".into()),
+            transcript: (provider.id() == "reverb-tts").then(|| "different reference words".into()),
             owner_token_hash: Some("test-owner".into()),
             consent: sonicboom::tts::voices::VoiceConsent {
                 basis: "owner".into(),
@@ -874,7 +872,7 @@ mod plugin_play_tests {
             Arc::new(tokens),
             Arc::new(Some(AudioManager::for_test(tx))),
         );
-        for id in ["pocket-tts", "qwen3-gguf"] {
+        for id in ["pocket-tts", "reverb-tts"] {
             let provider = Arc::new(Stub(id, ProviderStatusState::Ready));
             let profile = profile(&config, &provider);
             let request = plugin_clone_request(
@@ -985,7 +983,7 @@ mod plugin_play_tests {
             plugin_clone_request(
                 &config,
                 &provider,
-                "qwen3-gguf",
+                "reverb-tts",
                 p.clone(),
                 reference(),
                 "test",

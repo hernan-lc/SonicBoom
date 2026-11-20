@@ -313,7 +313,6 @@ fn synchronous_http_budget(configured: u64, path: &str, query: Option<&str>) -> 
         .find_map(|part| part.strip_prefix("provider="))
         .unwrap_or("supertonic");
     let budget = match provider {
-        "qwen3-gguf" => 180,
         "pocket-tts" => 60,
         // Masked-diffusion passes: slower than real time on the CPU.
         "reverb-tts" => 120,
@@ -332,10 +331,6 @@ mod synchronous_budget_tests {
     fn provider_budgets_do_not_expand_jobs_or_other_requests() {
         use super::synchronous_http_budget as budget;
         assert_eq!(
-            budget(120, "/api/tts/play", Some("provider=qwen3-gguf")),
-            180
-        );
-        assert_eq!(
             budget(120, "/api/tts/play", Some("provider=pocket-tts")),
             60
         );
@@ -347,9 +342,9 @@ mod synchronous_budget_tests {
             budget(120, "/api/tts/play", Some("provider=supertonic")),
             15
         );
-        assert_eq!(budget(20, "/api/tts/play", Some("provider=qwen3-gguf")), 20);
+        assert_eq!(budget(20, "/api/tts/play", Some("provider=reverb-tts")), 20);
         assert_eq!(
-            budget(120, "/api/tts/jobs", Some("provider=qwen3-gguf")),
+            budget(120, "/api/tts/jobs", Some("provider=reverb-tts")),
             120
         );
     }

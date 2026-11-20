@@ -1,6 +1,6 @@
 # SonicBoom
 
-Rust/Axum TTS server (Supertonic 3 via ONNX Runtime; optional Pocket TTS and Qwen3-TTS). Default port `17842`.
+Rust/Axum TTS server (Supertonic 3 via ONNX Runtime; optional Pocket TTS and Reverb-TTS). Default port `17842`.
 
 ## Docs
 

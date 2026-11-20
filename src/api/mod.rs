@@ -11,7 +11,6 @@ pub mod providers;
 #[cfg(feature = "playback")]
 pub mod queue;
 pub mod rate_limit;
-pub mod sampling;
 pub mod speech_prep;
 pub mod tts;
 pub mod voices;
@@ -959,8 +958,8 @@ mod tests {
                     store
                         .create(sonicboom::tts::voices::NewVoiceProfile {
                             name: format!("test-{i}"),
-                            provider: "qwen3-gguf".into(),
-                            model: "qwen3-tts-1.7b-base".into(),
+                            provider: "reverb-tts".into(),
+                            model: "reverb-tts".into(),
                             model_revision: "test".into(),
                             language: "en".into(),
                             clone_mode: "icl".into(),
@@ -1053,9 +1052,11 @@ mod tests {
             .iter()
             .map(|p| p["provider_id"].as_str().unwrap().to_string())
             .collect();
-        assert!(!ids.contains(&"qwen3".to_string()));
-        assert!(!ids.contains(&"gpt-sovits".to_string()));
+        for retired in ["qwen3", "qwen3-gguf", "gpt-sovits"] {
+            assert!(!ids.contains(&retired.to_string()), "{retired} listed");
+        }
         assert!(ids.contains(&"pocket-tts".to_string()));
+        assert!(ids.contains(&"reverb-tts".to_string()));
         assert!(ids.contains(&"supertonic".to_string()));
         let _ = std::fs::remove_dir_all(&store_dir);
     }
@@ -1430,6 +1431,170 @@ mod tests {
         let _ = std::fs::remove_dir_all(&store_dir);
     }
 
+    /// Providers whose engines were removed but whose profiles old servers
+    /// stored: `(provider, model, clone_mode)` exactly as persisted then.
+    const RETIRED_PROFILES: &[(&str, &str, &str)] = &[
+        ("qwen3-candle", "qwen3-tts-0.6b-base", "x_vector"),
+        ("qwen3-gguf", "qwen3-tts-1.7b-base", "icl"),
+        ("gpt-sovits", "gpt-sovits-v2pro-onnx", "icl"),
+    ];
+
+    #[tokio::test]
+    async fn retired_provider_profiles_list_and_delete_but_never_synthesize() {
+        let dir = std::env::temp_dir().join(format!("retired-profiles-{}", uuid::Uuid::new_v4()));
+        let voices_dir = dir.join("voices");
+        std::fs::create_dir_all(&voices_dir).unwrap();
+        let tokens = TokenStore::load(dir.join("tokens.json").to_str().unwrap())
+            .await
+            .unwrap();
+        let (token, raw) = tokens.create(None).await.unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut manifest = serde_json::Map::new();
+        let mut ids = Vec::new();
+        for (provider, model, mode) in RETIRED_PROFILES {
+            let id = uuid::Uuid::new_v4().to_string();
+            manifest.insert(
+                id.clone(),
+                serde_json::json!({
+                    "id": id, "name": format!("old {provider}"), "provider": provider,
+                    "model": model, "model_revision": "old-revision", "language": "es",
+                    "clone_mode": mode, "reference_hash": "h", "reference_sample_rate": 24000,
+                    "reference_duration_secs": 3.0, "transcript": "texto",
+                    "owner_token_hash": token.token_hash,
+                    "consent": {"basis": "owner", "note": "", "created_at": now},
+                    "created_at": now, "updated_at": now
+                }),
+            );
+            ids.push(id);
+        }
+        std::fs::write(
+            voices_dir.join("profiles.json"),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        let mut config = test_config();
+        config.voices.store_dir = voices_dir.to_string_lossy().into_owned();
+        let app = router(test_state(config, Arc::new(tokens), Arc::new(None))).await;
+        let send = |method: &str, uri: &str, content_type: &str, body: &str| {
+            app.clone().oneshot(raw_request(
+                method,
+                uri,
+                Some(&raw),
+                content_type,
+                body.as_bytes(),
+            ))
+        };
+
+        // Old profiles still load and are listed with their stored values.
+        let listed = body_json(
+            send("GET", "/api/voices", "application/json", "")
+                .await
+                .unwrap(),
+        )
+        .await;
+        let data = listed["data"].as_array().unwrap();
+        assert_eq!(data.len(), RETIRED_PROFILES.len());
+        for (provider, _, _) in RETIRED_PROFILES {
+            assert!(
+                data.iter().any(|v| v["provider"] == *provider),
+                "{provider} profile missing from {listed}"
+            );
+        }
+
+        // They never synthesize: an explicit retired error that names the
+        // replacement, not a 404 or a silent reroute.
+        for id in &ids {
+            let response = send(
+                "POST",
+                &format!("/api/voices/{id}/preview"),
+                "text/plain",
+                "hola",
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "preview {id}");
+            let message = body_json(response).await.to_string();
+            assert!(message.contains("retired"), "{message}");
+            assert!(message.contains("reverb-tts"), "{message}");
+            let speech = send(
+                "POST",
+                "/v1/audio/speech",
+                "application/json",
+                &format!(r#"{{"model":"reverb-tts","input":"hola","voice":"{id}"}}"#),
+            )
+            .await
+            .unwrap();
+            assert_eq!(speech.status(), StatusCode::BAD_REQUEST, "speech {id}");
+            assert!(body_json(speech).await.to_string().contains("retired"));
+        }
+
+        // Retired model IDs get the same explicit error, never a 404.
+        for model in sonicboom::tts::providers::catalog::RETIRED_MODELS {
+            let response = send(
+                "POST",
+                "/v1/audio/speech",
+                "application/json",
+                &format!(
+                    r#"{{"model":"{model}","input":"hola","voice":"{}"}}"#,
+                    ids[0]
+                ),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{model}");
+            let message = body_json(response).await.to_string();
+            assert!(message.contains("retired"), "{message}");
+            assert!(message.contains("reverb-tts"), "{message}");
+        }
+
+        // Retired providers cannot create new profiles.
+        let clone = send(
+            "POST",
+            "/api/voices/clones?name=n&provider=qwen3-gguf&model=qwen3-tts-1.7b-base\
+             &language=es&consent_basis=owner&transcript=texto",
+            "audio/wav",
+            "",
+        )
+        .await
+        .unwrap();
+        assert_eq!(clone.status(), StatusCode::BAD_REQUEST);
+        assert!(body_json(clone).await.to_string().contains("retired"));
+        // Removed conditioning modes are rejected at creation with a clear message.
+        let clone = send(
+            "POST",
+            "/api/voices/clones?name=n&provider=reverb-tts&model=reverb-tts&language=es\
+             &consent_basis=owner&mode=x_vector",
+            "audio/wav",
+            "",
+        )
+        .await
+        .unwrap();
+        assert_eq!(clone.status(), StatusCode::BAD_REQUEST);
+        assert!(body_json(clone).await.to_string().contains("icl"));
+
+        // They can be deleted, and only the deleted one disappears.
+        let deleted = send(
+            "DELETE",
+            &format!("/api/voices/{}", ids[0]),
+            "application/json",
+            "",
+        )
+        .await
+        .unwrap();
+        assert_eq!(deleted.status(), StatusCode::OK);
+        let listed = body_json(
+            send("GET", "/api/voices", "application/json", "")
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            listed["data"].as_array().unwrap().len(),
+            RETIRED_PROFILES.len() - 1
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn models_list_includes_cloning_models_with_owners() {
         let (app, _, store_dir) = voices_test_app().await;
@@ -1450,7 +1615,7 @@ mod tests {
             "tts-1",
             "tts-1-hd",
             "supertonic-3",
-            "qwen3-tts-1.7b-base",
+            "reverb-tts",
             "pocket-tts-en",
             "pocket-tts-es",
         ] {
@@ -1459,10 +1624,12 @@ mod tests {
                 "models list missing {expected}"
             );
         }
-        assert!(
-            !ids.contains(&"qwen3-tts-0.6b-base".to_string()),
-            "retired Candle model must not be listed"
-        );
+        for retired in sonicboom::tts::providers::catalog::RETIRED_MODELS {
+            assert!(
+                !ids.contains(&retired.to_string()),
+                "retired model {retired} must not be listed"
+            );
+        }
         let _ = std::fs::remove_dir_all(&store_dir);
     }
 
@@ -1598,7 +1765,6 @@ mod tests {
             ),
             ("pocket-tts", stale.id.as_str(), StatusCode::BAD_REQUEST),
             ("pocket-tts", foreign.id.as_str(), StatusCode::NOT_FOUND),
-            #[cfg(feature = "qwen-gguf")]
             ("qwen3-gguf", owned.id.as_str(), StatusCode::BAD_REQUEST),
         ] {
             assert_eq!(

@@ -41,7 +41,7 @@ Synthesizes text to speech using OpenAI-compatible request format.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `model` | string | No | `tts-1` | Model ID: `tts-1`, `tts-1-hd`, `supertonic-3` (Supertonic), `qwen3-tts-1.7b-base` (Qwen3-TTS), `pocket-tts-en`, `pocket-tts-es` (Pocket TTS). Anything else → `400` (retired GPT-SoVITS IDs → explicit retired-model `400`) |
+| `model` | string | No | `tts-1` | Model ID: `tts-1`, `tts-1-hd`, `supertonic-3` (Supertonic), `reverb-tts` (Reverb-TTS), `pocket-tts-en`, `pocket-tts-es` (Pocket TTS). Anything else → `400` (retired GPT-SoVITS and Qwen3-TTS IDs → explicit retired-model `400` suggesting `reverb-tts`) |
 | `input` | string | Yes | - | Text to synthesize |
 | `voice` | string | No | `alloy` | Supertonic voice name/alias, or (for cloning models) an authorized voice-profile ID from `POST /api/voices/clones` (unknown → `400`, never a silent fallback) |
 | `response_format` | string | No | `opus` | Output format: `opus`, `mp3`, `wav`, `flac` (unknown → `400`) |
@@ -61,14 +61,14 @@ profile's reference transcript and reference audio are never modified. See
 [api.md](api.md#text-normalization) for details and the
 `POST /api/tts/normalize` preview.
 
-Cloning example (Qwen3-TTS, Japanese):
+Cloning example (Reverb-TTS, Spanish):
 
 ```json
 {
-  "model": "qwen3-tts-0.6b-base",
+  "model": "reverb-tts",
   "voice": "<authorized-voice-profile-id>",
-  "language": "ja",
-  "input": "こんにちは。今日は音声合成のテストです。",
+  "language": "es",
+  "input": "Hola, esta es una prueba de síntesis de voz.",
   "response_format": "wav"
 }
 ```

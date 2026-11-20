@@ -11,8 +11,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use sonicboom::tts::providers::types::SamplingRequest;
-
 // ---------------------------------------------------------------------------
 // Public constants (referenced across the binary)
 // ---------------------------------------------------------------------------
@@ -365,138 +363,16 @@ pub struct PathsConfig {
     pub token_store: String,
 }
 
-/// Removed Candle `[providers.qwen3]` section, kept only so old
-/// configuration files still boot. Every field is accepted and ignored;
-/// the server logs a warning pointing at `[providers.qwen3_gguf]`.
-/// Do not add new fields here and do not read this anywhere: it carries
-/// no runtime meaning since the Candle provider was deleted.
+/// A provider section of an engine that was removed (`[providers.qwen3]`,
+/// `[providers.qwen3_gguf]`, `[providers.gpt_sovits]`), kept only so old
+/// configuration files still boot. Every key is accepted and ignored; the
+/// server logs a warning naming the section. Do not add fields here and do
+/// not read this anywhere: it carries no runtime meaning. Stored voice
+/// profiles that reference a removed provider are never reinterpreted as
+/// another provider's voices; their reference WAVs stay on disk for explicit
+/// recreation as `reverb-tts` profiles.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct DeprecatedQwen3Section {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub model_dir: Option<String>,
-    #[serde(default)]
-    pub model_id: Option<String>,
-    #[serde(default)]
-    pub revision: Option<String>,
-    #[serde(default)]
-    pub device: Option<String>,
-    #[serde(default)]
-    pub max_concurrent: Option<usize>,
-    #[serde(default)]
-    pub cache_entries: Option<usize>,
-    #[serde(default)]
-    pub max_tokens: Option<usize>,
-}
-
-/// Removed GPT-SoVITS `[providers.gpt_sovits]` section, kept only so old
-/// configuration files still boot. Every field is accepted and ignored;
-/// the server logs a warning pointing at `[providers.pocket_tts]`.
-/// Do not add new fields here and do not read this anywhere: it carries
-/// no runtime meaning since the GPT-SoVITS provider was retired. Stored
-/// voice profiles that reference GPT-SoVITS models are never reinterpreted
-/// as Pocket TTS voices; their reference WAVs stay on disk for explicit
-/// user recreation as Pocket profiles.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct DeprecatedGptSovitsSection {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub model_dir: Option<String>,
-    #[serde(default)]
-    pub model_id: Option<String>,
-    #[serde(default)]
-    pub revision: Option<String>,
-    #[serde(default)]
-    pub device: Option<String>,
-    #[serde(default)]
-    pub max_concurrent: Option<usize>,
-    #[serde(default)]
-    pub cache_entries: Option<usize>,
-    #[serde(default)]
-    pub top_k: Option<usize>,
-    #[serde(default)]
-    pub top_p: Option<f32>,
-    #[serde(default)]
-    pub temperature: Option<f32>,
-    #[serde(default)]
-    pub repetition_penalty: Option<f32>,
-}
-
-/// Native Qwen3-TTS 1.7B GGUF/ONNX provider settings
-/// (`[providers.qwen3_gguf]`). Additive: older configuration files without
-/// this section keep working via `#[serde(default)]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Qwen3GgufConfig {
-    /// Enable the GGUF/ONNX provider (default `false`).
-    #[serde(default)]
-    pub enabled: bool,
-    /// Directory holding the verified GGUF/ONNX bundle.
-    #[serde(default = "default_qwen_gguf_model_dir")]
-    pub model_dir: PathBuf,
-    /// Requested device: `auto` (CPU unless a GPU backend is compiled in),
-    /// `cpu`, `vulkan` (requires `qwen-gguf-vulkan`), or `cuda`
-    /// (requires `qwen-gguf-cuda`; rejected otherwise).
-    #[serde(default = "default_provider_device")]
-    pub device: String,
-    /// llama.cpp GPU layer offload (`-1` offloads all layers, `0` is CPU).
-    #[serde(default = "default_qwen_gguf_gpu_layers")]
-    pub gpu_layers: i32,
-    /// Worker threads for GGUF inference.
-    #[serde(default = "default_qwen_gguf_threads")]
-    pub threads: usize,
-    /// Maximum concurrent syntheses (serialized per model by default).
-    #[serde(default = "default_provider_concurrency")]
-    pub max_concurrent: usize,
-    /// Voice-conditioning cache entries.
-    #[serde(default = "default_provider_cache")]
-    pub cache_entries: usize,
-    /// Maximum acoustic code frames per synthesis.
-    #[serde(default = "default_qwen_gguf_max_tokens")]
-    pub max_tokens: usize,
-    /// Explicit `device = "vulkan"`/`"cuda"` that cannot initialize normally
-    /// fails the load with an actionable error. Set `true` to allow a
-    /// reported fallback to CPU instead; `device = "auto"` always permits it.
-    #[serde(default)]
-    pub allow_cpu_fallback: bool,
-    /// Default sampling for Qwen3-TTS (`[providers.qwen3_gguf.sampling]`).
-    /// Omitted means the pinned upstream `balanced` behavior. Per-request
-    /// overrides take precedence over this default.
-    #[serde(default)]
-    pub sampling: SamplingRequest,
-    /// Quality detection/regeneration policy (`[providers.qwen3_gguf.quality]`).
-    #[serde(default)]
-    pub quality: QwenQualitySection,
-}
-
-/// Qwen3-TTS quality detection configuration
-/// (`[providers.qwen3_gguf.quality]`). Disabled by default: detection adds
-/// deterministic CPU work but no regeneration unless `policy = "retry"`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct QwenQualitySection {
-    /// Enable detection/reporting (default `false`).
-    #[serde(default)]
-    pub enabled: bool,
-    /// Handling mode: `off`, `report`, `retry`, or `experimental_trim`.
-    #[serde(default = "default_qwen_quality_policy")]
-    pub policy: String,
-    /// Automatic regeneration attempts (hard ceiling of 1).
-    #[serde(default = "default_qwen_quality_retries")]
-    pub max_retries: usize,
-}
-
-impl Default for QwenQualitySection {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            policy: default_qwen_quality_policy(),
-            max_retries: default_qwen_quality_retries(),
-        }
-    }
-}
+pub struct RetiredProviderSection {}
 
 /// Native Pocket TTS ONNX provider settings (`[providers.pocket_tts]`).
 /// Additive: older configuration files without this section keep working
@@ -574,25 +450,24 @@ pub struct ReverbTtsConfig {
     pub cpu_threads: usize,
 }
 
-/// Provider section grouping (`[providers.qwen3_gguf]`,
-/// `[providers.pocket_tts]`). Leftover `[providers.qwen3]` Candle and
-/// `[providers.gpt_sovits]` sections are tolerated for boot compatibility
-/// but ignored (see [`DeprecatedQwen3Section`] and
-/// [`DeprecatedGptSovitsSection`]): delete them from old configuration
-/// files.
+/// Provider section grouping (`[providers.pocket_tts]`,
+/// `[providers.reverb_tts]`). Leftover sections of removed engines
+/// (`[providers.qwen3]`, `[providers.qwen3_gguf]`, `[providers.gpt_sovits]`)
+/// are tolerated for boot compatibility but ignored (see
+/// [`RetiredProviderSection`]): delete them from old configuration files.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvidersConfig {
-    #[serde(default)]
-    pub qwen3_gguf: Qwen3GgufConfig,
     #[serde(default)]
     pub pocket_tts: PocketTtsConfig,
     #[serde(default)]
     pub reverb_tts: ReverbTtsConfig,
     #[serde(default, skip_serializing)]
-    pub qwen3: DeprecatedQwen3Section,
+    pub qwen3: Option<RetiredProviderSection>,
     #[serde(default, skip_serializing)]
-    pub gpt_sovits: DeprecatedGptSovitsSection,
+    pub qwen3_gguf: Option<RetiredProviderSection>,
+    #[serde(default, skip_serializing)]
+    pub gpt_sovits: Option<RetiredProviderSection>,
 }
 
 /// Voice-profile store settings (`[voices]`).
@@ -795,24 +670,6 @@ fn default_provider_concurrency() -> usize {
 fn default_provider_cache() -> usize {
     16
 }
-fn default_qwen_gguf_model_dir() -> PathBuf {
-    PathBuf::from("./models/qwen3-tts-1.7b-gguf")
-}
-fn default_qwen_gguf_gpu_layers() -> i32 {
-    -1
-}
-fn default_qwen_gguf_threads() -> usize {
-    4
-}
-fn default_qwen_gguf_max_tokens() -> usize {
-    512
-}
-fn default_qwen_quality_policy() -> String {
-    "report".to_string()
-}
-fn default_qwen_quality_retries() -> usize {
-    1
-}
 fn default_pocket_model_dir() -> PathBuf {
     PathBuf::from("./models/pocket-tts")
 }
@@ -882,23 +739,6 @@ impl Default for PocketTtsConfig {
     }
 }
 
-impl Default for Qwen3GgufConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            model_dir: default_qwen_gguf_model_dir(),
-            device: default_provider_device(),
-            gpu_layers: default_qwen_gguf_gpu_layers(),
-            threads: default_qwen_gguf_threads(),
-            max_concurrent: default_provider_concurrency(),
-            cache_entries: default_provider_cache(),
-            max_tokens: default_qwen_gguf_max_tokens(),
-            allow_cpu_fallback: false,
-            sampling: SamplingRequest::default(),
-            quality: QwenQualitySection::default(),
-        }
-    }
-}
 fn default_max_voice_profiles() -> usize {
     256
 }

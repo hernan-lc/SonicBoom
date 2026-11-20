@@ -8,10 +8,9 @@
 //! * [`reference_echo`] — reference-transcript continuation detection, layered
 //!   and ASR-optional.
 //!
-//! [`policy`] decides what, if anything, to do with a finding, and [`report`]
-//! carries the structured result. Everything here is fast enough for the
-//! request path; the optional ASR layer is a benchmark/offline dependency and
-//! is never required during generation.
+//! [`policy`] selects whether detection runs, and [`report`] carries the
+//! structured result. The optional ASR layer is a benchmark/offline
+//! dependency and is never required during generation.
 
 pub mod audio_health;
 pub mod policy;
@@ -19,7 +18,7 @@ pub mod reference_echo;
 pub mod report;
 
 pub use audio_health::{AudioHealth, analyze as analyze_audio};
-pub use policy::{DetectionMode, MAX_RETRIES_CEILING, QualityPolicy};
+pub use policy::DetectionMode;
 pub use reference_echo::EchoAnalysis;
 pub use report::{QualityIssue, QualityReport, QualityStatus, Severity};
 
@@ -117,7 +116,7 @@ pub fn evaluate(
     let health = audio_health::analyze(samples, sample_rate);
     let issues = health_issues(&health, Some(estimated_seconds(target_text)));
     let echo = reference_echo::analyze(reference_transcript, target_text, asr_transcript);
-    QualityReport::from_parts(mode.as_str(), Some(health), Some(echo), issues, 0)
+    QualityReport::from_parts(mode.as_str(), Some(health), Some(echo), issues)
 }
 
 #[cfg(test)]

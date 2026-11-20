@@ -12,7 +12,6 @@ import ModelSelector from "./ModelSelector.vue";
 import VoiceSelector from "./VoiceSelector.vue";
 import PronunciationSettings from "./PronunciationSettings.vue";
 import SpokenPreview from "./SpokenPreview.vue";
-import AdvancedSampling from "./AdvancedSampling.vue";
 import GenerationStatus from "./GenerationStatus.vue";
 import ResultComparison from "./ResultComparison.vue";
 const emit = defineEmits<{ navigate: [tab: "voices" | "engines"] }>();
@@ -26,10 +25,7 @@ const {
     selectedModel,
     availableVoices,
     preview,
-    sampling,
-    samplingIssues,
     info,
-    resetSampling,
 } = studio;
 const {
     pending,
@@ -68,14 +64,7 @@ watch(pending, (value) => {
     if (value) pauseComparisons();
 });
 const languages = computed(() => selectedModel.value.languages);
-// Advanced controls only exist for the Qwen3-TTS cloning engine.
-const advancedAvailable = computed(
-    () =>
-        selectedModel.value.cloned &&
-        selectedModel.value.provider === "qwen3-gguf",
-);
 const constraints = computed(() => info.value?.synthesis);
-const samplingBounds = computed(() => constraints.value?.sampling);
 const codepoints = computed(() => [...text.value].length);
 const textBytes = computed(() => new TextEncoder().encode(text.value).length);
 // Show byte counts only when they matter: near the server limit.
@@ -129,8 +118,6 @@ watch([model, voice, language], ([nextModel, nextVoice, nextLanguage]) => {
         /* session-only */
     }
 });
-const quality = computed(() => snapshot.value?.quality);
-const qualityIssues = computed(() => quality.value?.issues ?? []);
 watch(preview, () => void generate(true));
 function detachPlayback() {
     player.value?.pause();
@@ -227,14 +214,6 @@ onBeforeUnmount(() => {
             </SectionCard>
             <DisclosurePanel :label="t('Pronunciation')">
                 <PronunciationSettings :disabled="pending" />
-                <AdvancedSampling
-                    v-if="advancedAvailable"
-                    :sampling="sampling"
-                    :issues="samplingIssues"
-                    :bounds="samplingBounds"
-                    :pending="pending"
-                    @reset="resetSampling"
-                />
             </DisclosurePanel>
             <p v-if="active" class="prev-run-line" :title="active.input.text">
                 {{
@@ -249,13 +228,7 @@ onBeforeUnmount(() => {
                 <button
                     id="btn"
                     class="primary"
-                    :disabled="
-                        pending ||
-                        !!jobId ||
-                        !canGenerate ||
-                        (advancedAvailable &&
-                            Object.keys(samplingIssues).length > 0)
-                    "
+                    :disabled="pending || !!jobId || !canGenerate"
                 >
                     {{ t(pending ? "Generating…" : "Generate speech") }}</button
                 ><button
@@ -294,8 +267,6 @@ onBeforeUnmount(() => {
                 :pending="pending"
                 :snapshot="snapshot"
                 :complete="complete"
-                :quality="quality"
-                :quality-issues="qualityIssues"
                 :error="error"
                 :job-id="jobId"
             />

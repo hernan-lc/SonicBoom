@@ -120,14 +120,14 @@ it('checks Unicode names and consent without uploading invalid drafts', async ()
 });
 
 it('revalidates provider switching and ICL Unicode transcript boundaries', async () => {
-  mock.studio.capabilities.value.push({ provider_id: 'qwen3-gguf', requires_reference_audio: true, requires_reference_transcript: true, models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'] });
-  mock.studio.providers.value.push({ provider_id: 'qwen3-gguf', state: 'ready', enabled: true, active_model: 'qwen-base' });
-  mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, providers: { ...constraints.providers, 'qwen3-gguf': { duration_seconds: [1, 30], models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'], transcript_required_for: ['icl'] } } });
+  mock.studio.capabilities.value.push({ provider_id: 'reverb-tts', requires_reference_audio: true, requires_reference_transcript: true, models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'] });
+  mock.studio.providers.value.push({ provider_id: 'reverb-tts', state: 'ready', enabled: true, active_model: 'reverb-tts' });
+  mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, providers: { ...constraints.providers, 'reverb-tts': { duration_seconds: [1, 30], models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'], transcript_required_for: ['icl'] } } });
   await reference(wav());
   // Return to engine selection after choosing a Pocket recording.
   await wrapper.findAll('button').find(button => button.text() === 'Back')!.trigger('click');
-  await choose('#cloneProvider', 'qwen3-gguf');
-  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('qwen-base');
+  await choose('#cloneProvider', 'reverb-tts');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('reverb-tts');
   await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('form').trigger('submit'); await flushPromises();
   expect(wrapper.get('#cloneTranscript').attributes('aria-invalid')).toBe('true');
@@ -143,7 +143,7 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
 it('shows only ready engines and models until unavailable choices are revealed', async () => {
   mock.studio.capabilities.value[0].models = ['pocket-tts-en', 'pocket-tts-es'];
   mock.studio.capabilities.value[0].languages = ['en', 'es'];
-  mock.studio.capabilities.value.push({ provider_id: 'qwen3-gguf', requires_reference_audio: true, requires_reference_transcript: true, models: ['qwen-base'], languages: ['en'], clone_modes: ['icl'] });
+  mock.studio.capabilities.value.push({ provider_id: 'reverb-tts', requires_reference_audio: true, requires_reference_transcript: true, models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'] });
   mock.studio.providers.value = [{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en' }];
   await flushPromises();
   expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('pocket-tts');
@@ -170,17 +170,17 @@ it('shows only ready engines and models until unavailable choices are revealed',
   await flushPromises();
   options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
   expect(options.some((text) => text.includes('pocket-tts'))).toBe(true);
-  expect(options.some((text) => text.includes('qwen3-gguf'))).toBe(false);
+  expect(options.some((text) => text.includes('reverb-tts'))).toBe(false);
   clickButton('Show unavailable engines');
   await flushPromises();
   const unavailableEngine = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
-    item.textContent?.includes('qwen3-gguf'),
+    item.textContent?.includes('reverb-tts'),
   );
   expect(unavailableEngine).toBeTruthy();
   unavailableEngine!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await flushPromises();
-  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('qwen3-gguf');
-  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('qwen-base');
+  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('reverb-tts');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('reverb-tts');
   expect(wrapper.text()).toContain('Enable its engine');
 });
 

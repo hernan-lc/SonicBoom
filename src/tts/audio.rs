@@ -115,7 +115,7 @@ pub fn resample_pcm_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec
 ///
 /// Linear interpolation is acceptable when the source rate is close to the
 /// target (Supertonic, 44.1 -> 48 kHz), and stays exactly as before there. For
-/// sources at or below 36 kHz (Qwen and Pocket TTS, 24 kHz) a 2x linear
+/// sources at or below 36 kHz (Pocket TTS and Reverb-TTS, 24 kHz) a 2x linear
 /// upsample leaves spectral images at about -33 dB in 12-20 kHz, heard as hiss
 /// and harshness. Band-limited (windowed-sinc) interpolation pushes them below
 /// -100 dB without touching the passband.

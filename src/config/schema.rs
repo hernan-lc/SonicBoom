@@ -709,39 +709,7 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         secret: false,
         allowed_values_source: None,
     });
-    add(SettingSchema {
-        path: "providers.qwen3_gguf.enabled".to_string(),
-        description: "Enable the Qwen3-TTS GGUF/ONNX voice-cloning provider (default false)"
-            .to_string(),
-        type_name: "boolean",
-        apply: ApplyStrategy::Hot,
-        min: None,
-        max: None,
-        allowed_values: None,
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
-    add(SettingSchema {
-        path: "providers.qwen3_gguf.allow_cpu_fallback".to_string(),
-        description:
-            "Allow an explicit device=vulkan/cuda that cannot initialize to fall back to CPU \
-             with a reported reason (device=auto always may)"
-                .to_string(),
-        type_name: "boolean",
-        apply: ApplyStrategy::Hot,
-        min: None,
-        max: None,
-        allowed_values: None,
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
     for (path, desc) in [
-        (
-            "providers.qwen3_gguf.model_dir",
-            "Directory holding the verified Qwen3-TTS 1.7B GGUF/ONNX bundle",
-        ),
         (
             "providers.pocket_tts.model_dir",
             "Directory holding the verified Pocket TTS ONNX bundles",
@@ -801,25 +769,6 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         });
     }
     add(SettingSchema {
-        path: "providers.qwen3_gguf.device".to_string(),
-        description:
-            "Qwen3-TTS GGUF/ONNX device: cpu, auto, vulkan (qwen-gguf-vulkan build), or cuda (qwen-gguf-cuda build)"
-                .to_string(),
-        type_name: "string",
-        apply: ApplyStrategy::Hot,
-        min: None,
-        max: None,
-        allowed_values: Some(vec![
-            "cpu".to_string(),
-            "auto".to_string(),
-            "vulkan".to_string(),
-            "cuda".to_string(),
-        ]),
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
-    add(SettingSchema {
         path: "providers.reverb_tts.device".to_string(),
         description: "Reverb-TTS device: cpu (default) or auto (Vulkan for the transformer; \
             the codec always runs on the CPU)"
@@ -848,36 +797,6 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
     });
 
     for (path, desc, min, max) in [
-        (
-            "providers.qwen3_gguf.max_concurrent",
-            "Qwen3-TTS GGUF/ONNX uses one serialized model-owning worker",
-            1.0,
-            1.0,
-        ),
-        (
-            "providers.qwen3_gguf.cache_entries",
-            "Qwen3-TTS GGUF/ONNX voice-conditioning cache entries",
-            1.0,
-            1024.0,
-        ),
-        (
-            "providers.qwen3_gguf.max_tokens",
-            "Maximum Qwen3-TTS GGUF/ONNX acoustic frames per synthesis",
-            1.0,
-            1024.0,
-        ),
-        (
-            "providers.qwen3_gguf.threads",
-            "Qwen3-TTS GGUF/ONNX worker threads",
-            1.0,
-            256.0,
-        ),
-        (
-            "providers.qwen3_gguf.gpu_layers",
-            "Qwen3-TTS GGUF/ONNX GPU layer offload (-1 offloads all layers)",
-            -1.0,
-            1024.0,
-        ),
         (
             "providers.pocket_tts.max_concurrent",
             "Pocket TTS uses one serialized mutable model",

@@ -1,17 +1,12 @@
-//! Feature-resolution and SDK-preflight regression guards for the native GGUF
-//! build.
+//! Feature-resolution regression guards.
 //!
-//! These read the manifests/build script as data and never invoke Cargo, so
-//! they are cheap and cannot deadlock against the outer `cargo test`. They
-//! lock down the rules that keep the two acceleration stacks distinct:
+//! These read the manifest as data and never invoke Cargo, so they are cheap
+//! and cannot deadlock against the outer `cargo test`. They lock down the
+//! rules for the ONNX acceleration features:
 //!
 //!   * the root `default` set keeps the core providers and never selects more
 //!     than one mutually-exclusive ONNX execution provider;
-//!   * ONNX Runtime features (`cuda`/`rocm`/`coreml`) never reach the native
-//!     llama.cpp crate;
-//!   * only `qwen-gguf-cuda`/`qwen-gguf-vulkan` forward to
-//!     `sonicboom-qwen-llama/{cuda,vulkan}`;
-//!   * the native build script validates requested SDKs before CMake runs.
+//!   * `cuda`/`rocm`/`coreml` each forward only to the matching `ort` feature.
 use std::path::Path;
 
 fn manifest(relative: &str) -> String {
@@ -43,9 +38,8 @@ fn root_defaults_keep_core_providers_and_one_onnx_execution_provider() {
         "server",
         "web-ui",
         "playback",
-        "qwen-gguf",
-        "qwen-gguf-vulkan",
         "pocket-tts",
+        "reverb-tts",
         "gui",
     ] {
         assert!(
@@ -63,20 +57,10 @@ fn root_defaults_keep_core_providers_and_one_onnx_execution_provider() {
         onnx_eps.len() <= 1,
         "`default` selects conflicting ONNX execution providers: {onnx_eps:?}"
     );
-    // NOTE: `qwen-gguf-vulkan` ships in `default`, so the Vulkan SDK (glslc,
-    // loader/headers, SPIRV-Headers) is a hard build requirement for every
-    // default build, CI included. Docker pins `--no-default-features` and
-    // stays CPU-only. The CPU-only local configuration is
-    // `--no-default-features --features qwen-gguf`; see docs/providers.md.
-    // `qwen-gguf-cuda` must stay opt-in: CUDA and Vulkan stacks are distinct.
-    assert!(
-        !default.contains(&"qwen-gguf-cuda".to_string()),
-        "`default` must not enable the CUDA backend stack: {default:?}"
-    );
 }
 
 #[test]
-fn onnx_gpu_features_never_enable_native_llama_backends() {
+fn onnx_gpu_features_enable_only_the_matching_ort_feature() {
     let root = manifest("Cargo.toml");
     for (feature, expected) in [
         ("cuda", "ort/cuda"),
@@ -88,56 +72,10 @@ fn onnx_gpu_features_never_enable_native_llama_backends() {
             deps.contains(&expected.to_string()),
             "`{feature}` must enable `{expected}`: {deps:?}"
         );
-        assert!(
-            !deps.iter().any(|dep| dep.contains("sonicboom-qwen-llama")),
-            "`{feature}` is an ONNX-only flag and must not activate the native llama.cpp crate: {deps:?}"
-        );
-    }
-}
-
-#[test]
-fn native_backends_are_opted_into_only_by_explicit_features() {
-    let root = manifest("Cargo.toml");
-    assert_eq!(
-        feature_list(&root, "qwen-gguf-vulkan"),
-        vec!["qwen-gguf", "sonicboom-qwen-llama/vulkan"]
-    );
-    assert_eq!(
-        feature_list(&root, "qwen-gguf-cuda"),
-        vec!["qwen-gguf", "sonicboom-qwen-llama/cuda"]
-    );
-}
-
-#[test]
-fn native_crate_backends_are_independent_and_off_by_default() {
-    let native = manifest("native/qwen-llama/Cargo.toml");
-    assert_eq!(
-        feature_list(&native, "default"),
-        Vec::<String>::new(),
-        "the native crate must not enable a backend by default"
-    );
-    assert!(!feature_list(&native, "vulkan").contains(&"cuda".to_string()));
-    assert!(!feature_list(&native, "cuda").contains(&"vulkan".to_string()));
-}
-
-#[test]
-fn build_script_validates_sdks_before_cmake_and_is_reconfigurable() {
-    let build = manifest("native/qwen-llama/build.rs");
-    for needle in [
-        "cfg!(feature = \"vulkan\")",
-        "cfg!(feature = \"cuda\")",
-        "GGML_VULKAN",
-        "GGML_CUDA",
-        // SDK discovery + the documented bypass must stay wired up.
-        "CUDAToolkit_ROOT",
-        "CUDACXX",
-        "VULKAN_SDK",
-        "SONICBOOM_SPIRV_INCLUDE_DIR",
-        "SONICBOOM_SKIP_SDK_CHECK",
-    ] {
-        assert!(
-            build.contains(needle),
-            "native build.rs must keep `{needle}` so GPU requests fail early and reconfiguration is deterministic"
+        assert_eq!(
+            deps.len(),
+            1,
+            "`{feature}` is an ONNX-only flag and must not enable other features: {deps:?}"
         );
     }
 }

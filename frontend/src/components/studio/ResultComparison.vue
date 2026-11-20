@@ -24,9 +24,7 @@ const emit = defineEmits<{ play: [id: string]; remove: [index: number] }>();
         <span class="muted">
           {{ result.text.slice(0, 80) }} · {{ result.voice }} · {{ t(`language.${result.language}`) }} ·
           {{ result.model }} · {{ t('{seconds}s', { seconds: result.durationSecs.toFixed(2) }) }}
-          <template v-if="result.preset"> · {{ t('Preset: {preset}', { preset: result.preset }) }}</template>
           <template v-if="result.seed"> · {{ t('Seed: {seed}', { seed: result.seed }) }}</template>
-          <template v-if="result.quality"> · {{ t('Quality: {status}', { status: result.quality.quality_status }) }}</template>
         </span>
         <a :href="result.url" :download="result.filename">{{ t('Download') }}</a>
         <button type="button" class="btn-inline" @click="emit('remove', index)">{{ t('Remove') }}</button>

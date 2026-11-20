@@ -190,8 +190,8 @@ mod tests {
             fail: None,
         }));
         registry.register(Arc::new(FakeProvider {
-            id: "qwen3",
-            models: vec!["qwen3-tts-0.6b-base".to_string()],
+            id: "other",
+            models: vec!["other-model".to_string()],
             fail: None,
         }));
         registry
@@ -206,13 +206,13 @@ mod tests {
         assert_eq!(error.code(), "unsupported_model");
         assert_eq!(error.http_status(), 400);
         assert!(error.message().contains("supertonic-3"));
-        assert!(error.message().contains("qwen3-tts-0.6b-base"));
+        assert!(error.message().contains("other-model"));
     }
 
     #[test]
     fn routing_selects_the_owning_provider() {
         let registry = registry();
-        let request = ProviderRequest::new("qwen3-tts-0.6b-base", "voice", "hello", "en");
+        let request = ProviderRequest::new("other-model", "voice", "hello", "en");
         assert!(registry.synthesize(&request).is_ok());
     }
 
@@ -225,11 +225,11 @@ mod tests {
             fail: None,
         }));
         registry.register(Arc::new(FakeProvider {
-            id: "qwen3",
-            models: vec!["qwen3-tts-0.6b-base".to_string()],
+            id: "other",
+            models: vec!["other-model".to_string()],
             fail: Some(ProviderError::model_missing("weights absent")),
         }));
-        let failing = ProviderRequest::new("qwen3-tts-0.6b-base", "v", "hi", "en");
+        let failing = ProviderRequest::new("other-model", "v", "hi", "en");
         let error = registry.synthesize(&failing).unwrap_err();
         assert_eq!(error.code(), "model_missing");
         let healthy = ProviderRequest::new("supertonic-3", "F1", "hi", "en");

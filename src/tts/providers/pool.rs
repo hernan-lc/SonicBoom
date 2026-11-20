@@ -1,6 +1,6 @@
 //! Persistent optional-provider singletons.
 //!
-//! The Pocket TTS and GGUF/ONNX models are large (hundreds of megabytes
+//! The Pocket TTS and Reverb-TTS models are large (hundreds of megabytes
 //! to gigabytes of weights); they must load once and stay resident
 //! between requests — never reload per request. This pool owns the
 //! singletons and syncs their configuration from the live `AppConfig` on
@@ -12,8 +12,6 @@ use std::sync::Arc;
 use super::TtsProviderRegistry;
 use super::pocket_tts::{PocketTtsConfig, PocketTtsProvider};
 use super::reverb_tts::{ReverbTtsConfig, ReverbTtsProvider};
-#[cfg(feature = "qwen-gguf")]
-use super::qwen_gguf::provider::{QwenGgufConfig, QwenGgufProvider};
 use super::supertonic::SupertonicProvider;
 
 type DesiredProviders = Option<(u64, PocketTtsConfig)>;
@@ -26,10 +24,6 @@ pub struct ProviderPool {
     pub pocket: Arc<PocketTtsProvider>,
     /// Reverb-TTS singleton (ONNX sessions + cached reference codes behind one lock).
     pub reverb: Arc<ReverbTtsProvider>,
-    /// Qwen3-TTS 1.7B GGUF/ONNX singleton (native worker, cached
-    /// reference conditioning). Compiled only with `qwen-gguf`.
-    #[cfg(feature = "qwen-gguf")]
-    pub qwen_gguf: Arc<QwenGgufProvider>,
 }
 
 impl Default for ProviderPool {
@@ -39,8 +33,6 @@ impl Default for ProviderPool {
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             pocket: PocketTtsProvider::new(PocketTtsConfig::default()),
             reverb: ReverbTtsProvider::new(ReverbTtsConfig::default()),
-            #[cfg(feature = "qwen-gguf")]
-            qwen_gguf: QwenGgufProvider::new(QwenGgufConfig::default()),
         }
     }
 }
@@ -62,16 +54,6 @@ impl ProviderPool {
     /// synthesis holds the model is retried by the next registry build.
     pub fn sync_reverb_config(&self, reverb: ReverbTtsConfig) {
         self.reverb.sync_config(reverb);
-    }
-
-    /// Sync the GGUF singleton configuration (reconfiguration drops its
-    /// loaded worker; unchanged configs keep serving). Kept separate from
-    /// [`Self::sync_from`] so builds without `qwen-gguf` are untouched.
-    /// There is no background downloader yet: an enabled provider with a
-    /// verified bundle loads explicitly via `load`, never implicitly here.
-    #[cfg(feature = "qwen-gguf")]
-    pub fn sync_gguf_config(&self, gguf: QwenGgufConfig) {
-        self.qwen_gguf.sync_config(gguf);
     }
 
     /// Reject request-scoped snapshots older than the most recently adopted
@@ -137,9 +119,7 @@ impl ProviderPool {
     /// public bundles need none.
     pub fn kick_ensure_if_needed(&self, hf_token: Option<String>) {
         self.pocket.kick_ensure_if_needed(hf_token.clone());
-        self.reverb.kick_ensure_if_needed(hf_token.clone());
-        #[cfg(feature = "qwen-gguf")]
-        self.qwen_gguf.kick_ensure_if_needed(hf_token);
+        self.reverb.kick_ensure_if_needed(hf_token);
     }
 
     /// Build a request-scoped registry around the resident singletons plus
@@ -149,8 +129,6 @@ impl ProviderPool {
         registry.register(supertonic);
         registry.register(Arc::clone(&self.pocket) as Arc<dyn super::TtsProvider>);
         registry.register(Arc::clone(&self.reverb) as Arc<dyn super::TtsProvider>);
-        #[cfg(feature = "qwen-gguf")]
-        registry.register(Arc::clone(&self.qwen_gguf) as Arc<dyn super::TtsProvider>);
         registry
     }
 }
@@ -179,17 +157,14 @@ mod tests {
             "./models",
         )));
         let registry = pool.registry(supertonic);
-        // No Candle provider remains: Qwen means the GGUF/ONNX backend.
-        // GPT-SoVITS is retired: no "gpt-sovits" id may appear.
-        assert!(!registry.provider_ids().contains(&"qwen3".to_string()));
-        assert!(!registry.provider_ids().contains(&"gpt-sovits".to_string()));
-        #[cfg(feature = "qwen-gguf")]
+        // Retired providers must never be registered.
+        for retired in ["qwen3", "qwen3-gguf", "gpt-sovits"] {
+            assert!(!registry.provider_ids().contains(&retired.to_string()));
+        }
         assert_eq!(
             registry.provider_ids(),
-            vec!["pocket-tts", "qwen3-gguf", "reverb-tts", "supertonic"]
+            vec!["pocket-tts", "reverb-tts", "supertonic"]
         );
-        #[cfg(not(feature = "qwen-gguf"))]
-        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "reverb-tts", "supertonic"]);
     }
 
     #[test]

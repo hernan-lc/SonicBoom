@@ -16,34 +16,34 @@ from preflight import (
 
 class PathNormalizationTests(unittest.TestCase):
     def test_windows_and_posix_paths_normalize_identically(self):
-        expected = 'native/qwen-llama/Cargo.toml'
+        expected = 'vendor/esaxx-rs/Cargo.toml'
         self.assertEqual(to_docker_path(expected), expected)
-        self.assertEqual(to_docker_path('native\\qwen-llama\\Cargo.toml'), expected)
+        self.assertEqual(to_docker_path('vendor\\esaxx-rs\\Cargo.toml'), expected)
         self.assertEqual(
-            to_docker_path(PureWindowsPath('native', 'qwen-llama', 'Cargo.toml')),
+            to_docker_path(PureWindowsPath('vendor', 'esaxx-rs', 'Cargo.toml')),
             expected,
         )
-        self.assertEqual(to_docker_path(Path('native/qwen-llama/Cargo.toml')), expected)
+        self.assertEqual(to_docker_path(Path('vendor/esaxx-rs/Cargo.toml')), expected)
 
     def test_fs_path_is_portable(self):
         root = Path(tempfile.gettempdir())
         self.assertEqual(to_fs_path(root, 'a/b/c.txt'), root / 'a' / 'b' / 'c.txt')
 
     def test_copy_sources_normalize_and_strip_prefixes(self):
-        self.assertEqual(_copy_sources('COPY native ./native'), ['native'])
+        self.assertEqual(_copy_sources('COPY vendor ./vendor'), ['vendor'])
         self.assertEqual(
             _copy_sources('COPY Cargo.toml Cargo.lock ./'),
             ['Cargo.toml', 'Cargo.lock'],
         )
         self.assertEqual(_copy_sources('COPY /src ./src'), ['src'])
         self.assertEqual(
-            _copy_sources('COPY --chown=1000:1000 native ./native'),
-            ['native'],
+            _copy_sources('COPY --chown=1000:1000 vendor ./vendor'),
+            ['vendor'],
         )
 
     def test_docker_included_accepts_windows_separators(self):
-        rules = ['**', '!native/', '!native/**']
-        self.assertTrue(docker_included('native\\qwen-llama\\Cargo.toml', rules))
+        rules = ['**', '!vendor/', '!vendor/**']
+        self.assertTrue(docker_included('vendor\\esaxx-rs\\Cargo.toml', rules))
 
 
 class PreflightTests(unittest.TestCase):
@@ -61,37 +61,27 @@ class PreflightTests(unittest.TestCase):
     def test_repository_inputs(self):
         validate(self.root)
 
-    def test_missing_example(self):
-        (self.root / 'examples/cache_benchmark.rs').unlink()
-        with self.assertRaisesRegex(ValueError, 'cache_benchmark'):
-            validate(self.root)
-
-    def test_missing_submodule(self):
-        (self.root / 'vendor/llama.cpp/include/llama.h').unlink()
-        with self.assertRaisesRegex(ValueError, 'initialize pinned submodules'):
+    def test_missing_path_dependency_source(self):
+        (self.root / 'vendor/esaxx-rs/src/lib.rs').unlink()
+        with self.assertRaisesRegex(ValueError, 'vendor/esaxx-rs/src/lib.rs'):
             validate(self.root)
 
     def test_unknown_docker_feature(self):
         path = self.root / 'Dockerfile'
-        path.write_text(path.read_text().replace('server,qwen-gguf,', 'server,qwen,'))
-        with self.assertRaisesRegex(ValueError, 'unknown Cargo feature qwen'):
+        path.write_text(path.read_text().replace('reverb-tts', 'reverb'))
+        with self.assertRaisesRegex(ValueError, 'unknown Cargo feature reverb'):
             validate(self.root)
 
     def test_optional_path_must_be_copied_before_fetch(self):
         path = self.root / 'Dockerfile'
-        path.write_text(path.read_text().replace('COPY native ./native', ''))
+        path.write_text(path.read_text().replace('COPY vendor ./vendor', ''))
         with self.assertRaisesRegex(ValueError, 'before cargo fetch'):
             validate(self.root)
 
-    def test_cuda_must_select_native_and_onnx_backends(self):
+    def test_cuda_must_select_the_onnx_cuda_backend(self):
         path = self.root / 'Dockerfile'
-        path.write_text(path.read_text().replace('server,cuda,qwen-gguf-cuda,', 'server,cuda,qwen-gguf,'))
+        path.write_text(path.read_text().replace('server,cuda,', 'server,'))
         with self.assertRaisesRegex(ValueError, 'expected provider/backend features'):
-            validate(self.root)
-
-    def test_missing_optional_path_source(self):
-        (self.root / 'native/qwen-llama/src/lib.rs').unlink()
-        with self.assertRaisesRegex(ValueError, 'native/qwen-llama/src/lib.rs'):
             validate(self.root)
 
     def test_context_must_include_examples(self):
@@ -102,9 +92,9 @@ class PreflightTests(unittest.TestCase):
 
     def test_credentials_and_nested_git_are_excluded(self):
         rules = (ROOT / '.dockerignore').read_text().splitlines()
-        for path in ['.env', 'tokens.json', 'models/weights.onnx', 'vendor/llama.cpp/.git',
-                     'native/.env', 'frontend/.env.local', 'vendor/tokens.json',
-                     'native/weights.gguf', 'vendor/weights.onnx']:
+        for path in ['.env', 'tokens.json', 'models/weights.onnx', 'vendor/ort/.git',
+                     'frontend/.env.local', 'vendor/tokens.json',
+                     'vendor/weights.gguf', 'vendor/weights.onnx']:
             self.assertFalse(docker_included(path, rules), path)
 
 

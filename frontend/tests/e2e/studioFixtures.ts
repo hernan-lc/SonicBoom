@@ -17,7 +17,6 @@ export async function studioFixtures(page: Page) {
   const voices: any[] = [];
   let revision = 1, jobs = 0, patches = 0;
   const config = { model: { inference_steps: 5 }, voices: { max_upload_bytes: 8388608 }, providers: { pocket_tts: { enabled: true, model_id: 'pocket-tts-en' } } };
-  const sampling = { provider: 'qwen3-gguf', seed_max: '18446744073709551615', temperature: { min: 0, max: 5 }, top_k: { min: 0, max: 2048, integer: true }, top_p: { min: 0, max: 1, exclusive_min: true }, repetition_penalty: { min: 1, max: 4 } };
   const schema = [
     { path: 'model.inference_steps', description: 'Inference steps', type: 'integer', apply: 'hot', min: 1, max: 50, nullable: false, secret: false },
     { path: 'voices.max_upload_bytes', description: 'Maximum voice reference upload size in bytes', type: 'integer', apply: 'hot', min: 1024, max: 67108864, nullable: false, secret: false },
@@ -28,7 +27,7 @@ export async function studioFixtures(page: Page) {
   await page.route(/\/(api|v1)\//, async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
-    if (path === '/api/info') return json({ version: 'test', mode: 'server', setup_complete: true, auth: { mode: 'local', required: false }, features: { playback: false, audio_devices: false, hot_reload: true }, config_revision: revision, model: { status: 'ready' }, synthesis: { max_text_chars: 1000, max_body_bytes: 10000, sampling } });
+    if (path === '/api/info') return json({ version: 'test', mode: 'server', setup_complete: true, auth: { mode: 'local', required: false }, features: { playback: false, audio_devices: false, hot_reload: true }, config_revision: revision, model: { status: 'ready' }, synthesis: { max_text_chars: 1000, max_body_bytes: 10000, seed_max: '18446744073709551615' } });
     if (path === '/api/providers') return json({ providers: [{ provider_id: 'pocket-tts', enabled: true, state: 'ready', active_model: 'pocket-tts-en', effective_device: 'cpu', detail: null }], capabilities: [{ provider_id: 'pocket-tts', models: ['pocket-tts-en'], languages: ['en'], devices: ['cpu'], clone_modes: ['audio_prompt'], requires_reference_audio: true, requires_reference_transcript: false, sample_rate: 24000 }] });
     if (path === '/v1/voices') return json({ data: [{ id: 'builtin', name: 'Built-in speaker' }] });
     if (path === '/api/audio/devices') return json({ devices: [] });

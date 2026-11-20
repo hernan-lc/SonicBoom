@@ -155,10 +155,8 @@ browser projects. Browser endpoints are mocked and no model weights are fetched.
 
 | Build | Automated scope here | Additional release validation |
 | --- | --- | --- |
-| Default server/playback/gui/Qwen/Pocket | Linux CPU formatting, all-target Clippy, Rust tests, embedded assets | Real model download/synthesis/quality, audio/tray smoke tests on supported OSes |
+| Default server/playback/gui/Pocket/Reverb | Linux CPU formatting, all-target Clippy, Rust tests, embedded assets | Real model download/synthesis/quality, audio/tray smoke tests on supported OSes |
 | --no-default-features --features server | Lightweight API/server tests | Deployment smoke test on target platform |
-| --features qwen-gguf-vulkan | Requires Vulkan SDK/toolchain | Real Vulkan device/driver, model load, synthesis/cancel/concurrency |
-| --features qwen-gguf-cuda | Requires CUDA toolkit | Supported NVIDIA GPU/driver, model load, synthesis/cancel/concurrency |
 | ONNX cuda, rocm or coreml | Platform-specific execution provider | Corresponding OS/runtime/device; enable at most one of these features |
 | Pocket TTS | Default build compiles CPU execution | Real downloaded bundles and multilingual sample smoke tests |
 

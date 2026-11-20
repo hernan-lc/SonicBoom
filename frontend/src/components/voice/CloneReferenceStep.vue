@@ -83,7 +83,6 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
     <p v-if="errors.cloneMode" id="cloneMode-error" class="field-error" role="alert">{{ errors.cloneMode }}</p>
   </fieldset>
 
-  <p v-if="provider === 'qwen3-gguf'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Qwen ICL needs the exact words, punctuation and language of the recording. A mismatched transcript can cause reference words to be repeated. Speaker-only mode is not validated.') }}</span></p>
   <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb works best with 3-10 s of clean speech from one speaker and needs its exact transcript. Its weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
   <p v-if="provider === 'pocket-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Pocket uses the recording without a transcript. Each language needs its own model; select a matching model and language.') }}</span></p>
 

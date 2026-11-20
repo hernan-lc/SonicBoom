@@ -1,5 +1,9 @@
 # Provider Benchmarks
 
+> Historical note: the Qwen3-TTS and GPT-SoVITS sections below describe providers
+> that were removed. Their rows are kept as archived measurements and are not
+> reproducible with this tree.
+
 Real measurements only. No fabricated metrics: hardware-gated rows stay
 **pending** until they are measured on the named hardware with the pinned
 revisions in `docs/providers.md`.

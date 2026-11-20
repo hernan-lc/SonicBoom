@@ -61,7 +61,7 @@ configuration/download handling are reused.
 
 ## Build profiles
 
-Desktop defaults retain GUI, web assets, playback, Pocket and Qwen/Vulkan.
+Desktop defaults retain GUI, web assets, playback, Pocket and Reverb-TTS (WebGPU).
 Other profiles use `--no-default-features`:
 
 | Features | Purpose |
@@ -70,14 +70,14 @@ Other profiles use `--no-default-features`:
 | `server,web-ui` | API plus embedded Vue assets (Node required at build time) |
 | `server,android-ort` | Termux CPU Supertonic |
 | `server,android-ort,pocket-tts` | Optional Pocket CPU provider |
-| `server,android-ort,qwen-gguf` | Optional Qwen CPU provider |
+| `server,android-ort,reverb-tts` | Optional Reverb-TTS CPU provider |
 | `server,playback` | Desktop playback queue |
 
 ```sh
 ./scripts/termux/build.sh
 # Optional builds, never automatically enabled/downloaded:
 SONICBOOM_TERMUX_PROVIDER=pocket ./scripts/termux/build.sh
-SONICBOOM_TERMUX_PROVIDER=qwen ./scripts/termux/build.sh
+SONICBOOM_TERMUX_PROVIDER=reverb ./scripts/termux/build.sh
 ```
 
 The default command is:
@@ -179,7 +179,7 @@ The existing inference gate defaults to one running and eight pending requests.
 
 CI's Android NDK job checks compilation, feature dependencies and runtime ELF ABI.
 It does **not** execute Android inference. Native execution and performance results
-must be recorded separately. Pocket cloning and Qwen inference require their own
+must be recorded separately. Pocket and Reverb-TTS cloning require their own
 explicit models/reference-audio tests; compilation does not establish synthesis
 compatibility. Android Vulkan is not validated or enabled by these scripts.
 
@@ -207,7 +207,7 @@ is required. Preserve model/config directories when restarting.
 
 The existing gate/control tests cover queue limits, cancellation and deadlines;
 Supertonic model corruption under offline startup, physical disk-full conditions,
-long-running memory/thermal behavior and Qwen real-model synthesis still require
+long-running memory/thermal behavior and cloning-provider synthesis still require
 explicit native fault-injection/hardware tests. Do not treat the short probe as
 coverage of every failure mode.
 
@@ -230,15 +230,7 @@ checks finite, audible output and releases the provider. Set `POCKET_TTS_MODEL`
 only to a supported model ID and provide text appropriate for that language when
 adapting the probe. Only English is used by the default probe.
 
-For Qwen, the existing `qwen_gguf_smoke` example uses `QWEN_GGUF_MODEL_DIR`,
-`QWEN_REFERENCE_WAV`, `QWEN_REFERENCE_TRANSCRIPT` and `QWEN_GGUF_DEVICE=cpu`.
-The 1.7B provider needs substantially more memory than Supertonic/Pocket; measure
-available RAM and context/load peaks before attempting it. A successful native
-build is not a claim of successful Qwen inference on a memory-constrained phone.
-
 Run native Rust tests with a clean loader path: `env -u LD_LIBRARY_PATH cargo test --locked --no-default-features --features server,android-ort`. A parent application can inject private C++ libraries that break compiler tools; putting all Termux libraries on the runtime loader path can also shadow Android system dependencies.
-
-A model-free Qwen CPU link/backend probe is available with `env -u LD_LIBRARY_PATH cargo run --locked --no-default-features --features android-ort,qwen-gguf --example qwen_backend_probe`. It also rejects missing/corrupted GGUF files without loading real weights.
 
 Native device results and remaining validation limits are recorded in [VALIDATION.md](VALIDATION.md).
 

@@ -12,13 +12,13 @@ cmake --version >/dev/null
 pkg-config --exists openssl opus || fail 'Install openssl and libopus'
 prepare_ort
 cd "$ROOT"
-# One can opt into Pocket/Qwen CPU without changing the default build.
+# One can opt into a cloning provider without changing the default build.
 features=server,android-ort
 case "${SONICBOOM_TERMUX_PROVIDER:-supertonic}" in
     supertonic) ;;
     pocket) features=$features,pocket-tts ;;
-    qwen) git submodule update --init --recursive; features=$features,qwen-gguf ;;
-    *) fail 'Provider must be supertonic, pocket, or qwen' ;;
+    reverb) features=$features,reverb-tts ;;
+    *) fail 'Provider must be supertonic, pocket, or reverb' ;;
 esac
 cargo build --release --locked --no-default-features --features "$features" --bin SonicBoom
 env -u LD_LIBRARY_PATH "$ROOT/target/release/SonicBoom" --onnx-self-test

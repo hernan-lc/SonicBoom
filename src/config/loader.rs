@@ -175,14 +175,6 @@ pub const ALL_CONFIG_PATHS: &[&str] = &[
     "security.cookie_secure",
     "security.enable_hsts",
     "security.allow_insecure_remote",
-    "providers.qwen3_gguf.enabled",
-    "providers.qwen3_gguf.model_dir",
-    "providers.qwen3_gguf.device",
-    "providers.qwen3_gguf.gpu_layers",
-    "providers.qwen3_gguf.threads",
-    "providers.qwen3_gguf.max_concurrent",
-    "providers.qwen3_gguf.cache_entries",
-    "providers.qwen3_gguf.max_tokens",
     "providers.pocket_tts.enabled",
     "providers.pocket_tts.model_dir",
     "providers.pocket_tts.model_id",
@@ -952,20 +944,27 @@ strictness = 3
     }
 
     #[test]
-    fn parse_toml_tolerates_removed_qwen3_section() {
-        // Boot compatibility: files written before the Candle removal keep
-        // their [providers.qwen3] section; it parses and is ignored (the
-        // manager warns), so the server starts instead of failing.
+    fn parse_toml_tolerates_retired_provider_sections() {
+        // Boot compatibility: files written before a provider was removed
+        // keep its section; it parses and is ignored (the manager warns), so
+        // the server starts instead of failing on `deny_unknown_fields`.
         let config = parse_toml(
-            "[providers.qwen3]\nenabled = true\nmodel_id = \"qwen3-tts-0.6b-base\"\ndevice = \"cuda\"\n",
+            "[providers.qwen3]\nenabled = true\nmodel_id = \"qwen3-tts-0.6b-base\"\ndevice = \"cuda\"\n\
+             [providers.qwen3_gguf]\nenabled = true\nmodel_dir = \"./models/qwen3-tts-1.7b-gguf\"\n\
+             gpu_layers = -1\n[providers.qwen3_gguf.sampling]\nseed = 7\n\
+             [providers.qwen3_gguf.sampling.talker]\ntemperature = 0.9\n\
+             [providers.qwen3_gguf.quality]\nenabled = true\npolicy = \"report\"\n\
+             [providers.gpt_sovits]\nenabled = true\n",
         )
         .unwrap();
-        assert!(config.providers.qwen3.enabled);
-        assert_eq!(
-            config.providers.qwen3.model_id.as_deref(),
-            Some("qwen3-tts-0.6b-base")
-        );
-        assert!(!config.providers.qwen3_gguf.enabled);
+        assert!(config.providers.qwen3.is_some());
+        assert!(config.providers.qwen3_gguf.is_some());
+        assert!(config.providers.gpt_sovits.is_some());
+        assert!(parse_toml("").unwrap().providers.qwen3_gguf.is_none());
+        // Retired sections never reappear when the configuration is saved.
+        let rendered = toml::to_string(&config).unwrap();
+        assert!(!rendered.contains("qwen3"), "{rendered}");
+        assert!(!rendered.contains("gpt_sovits"), "{rendered}");
     }
 
     #[test]

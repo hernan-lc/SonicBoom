@@ -208,7 +208,6 @@ fn validate_model_language(model: &str, language: &str) -> Result<(), AppError> 
             )
             .map_err(|_| unsupported())
         }
-        Some(ModelProvider::QwenGguf) => qwen_language(language).ok_or_else(unsupported),
         Some(ModelProvider::ReverbTts) => {
             sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
                 model, language,
@@ -216,23 +215,6 @@ fn validate_model_language(model: &str, language: &str) -> Result<(), AppError> 
             .map_err(|_| unsupported())
         }
     }
-}
-
-#[cfg(feature = "qwen-gguf")]
-fn qwen_language(language: &str) -> Option<()> {
-    sonicboom::tts::providers::qwen_gguf::provider::QWEN_GGUF_LANGUAGES
-        .contains(&language)
-        .then_some(())
-}
-
-/// Without the backend, the published Qwen3-TTS language list still
-/// describes the model; synthesis itself reports the provider as not
-/// compiled.
-#[cfg(not(feature = "qwen-gguf"))]
-fn qwen_language(language: &str) -> Option<()> {
-    ["en", "de", "es", "zh", "ja", "fr", "ko", "ru", "it", "pt"]
-        .contains(&language)
-        .then_some(())
 }
 
 #[cfg(test)]
@@ -505,8 +487,9 @@ mod tests {
         assert!(validate_model_language("pocket-tts-es", "es").is_ok());
         assert!(validate_model_language("pocket-tts-es", "en").is_err());
         assert!(validate_model_language("tts-1", "es").is_ok());
-        assert!(validate_model_language("qwen3-tts-1.7b-base", "ko").is_ok());
-        assert!(validate_model_language("qwen3-tts-1.7b-base", "ar").is_err());
+        assert!(validate_model_language("reverb-tts", "en").is_ok());
+        assert!(validate_model_language("reverb-tts", "ar").is_err());
+        assert!(validate_model_language("qwen3-tts-1.7b-base", "ko").is_err());
         assert!(validate_model_language("gpt-sovits-v2-onnx", "en").is_err());
     }
 }

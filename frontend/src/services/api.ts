@@ -24,8 +24,6 @@ import type {
   SetupResult,
 } from './contracts';
 const id = encodeURIComponent;
-/** Optional Qwen3-TTS sampling/quality query parameters. Empty values are omitted. */
-export type SamplingQuery = Record<string, string | number | undefined | null>;
 export function createApi(http: HttpClient) {
   return {
     info: async (signal?: AbortSignal) =>
@@ -86,15 +84,10 @@ export function createApi(http: HttpClient) {
       language: string,
       voice: string,
       cloned: boolean,
-      sampling?: SamplingQuery,
       signal?: AbortSignal,
       pronunciation?: SpeechPronunciation,
     ) => {
       const params = new URLSearchParams({ lang: language, format: 'wav', [cloned ? 'profile' : 'voice']: voice });
-      if (sampling)
-        for (const [key, value] of Object.entries(sampling)) {
-          if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
-        }
       // Added last and only when present: legacy callers produce the same URL as before.
       for (const [key, value] of Object.entries(pronunciationQuery(pronunciation))) params.set(key, value);
       return http

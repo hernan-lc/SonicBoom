@@ -139,10 +139,6 @@ and empty assignments are rejected.
 ### Voice-Cloning Providers (TOML only, no environment secrets)
 
 ```toml
-[providers.qwen3_gguf]
-enabled = false            # Qwen3-TTS 1.7B GGUF/ONNX, needs --features qwen-gguf
-device = "auto"            # cpu | auto | vulkan (needs qwen-gguf-vulkan) | cuda (needs qwen-gguf-cuda)
-
 [providers.pocket_tts]
 enabled = false            # Pocket TTS ONNX, CPU only (cpu|auto)
 model_id = "pocket-tts-en"
@@ -157,8 +153,10 @@ max_upload_bytes = 8388608
 ```
 
 All optional providers default to `enabled = false`: existing builds boot
-Supertonic exactly as before and fetch no extra weights. See
-[providers.md](providers.md).
+Supertonic exactly as before and fetch no extra weights. Leftover
+`[providers.qwen3]`, `[providers.qwen3_gguf]` and `[providers.gpt_sovits]`
+sections of removed providers are accepted, ignored and reported with a startup
+warning. See [providers.md](providers.md).
 
 ### Text Normalization (TOML only)
 

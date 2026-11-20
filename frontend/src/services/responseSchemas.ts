@@ -9,7 +9,6 @@ import type {
   ConfigStatus,
   SettingSchema,
   Job,
-  QualityReport,
   Json,
 } from './contracts';
 import { voiceSummarySchema } from '../features/cloning/cloneSchemas';
@@ -22,9 +21,6 @@ const optionalString = z
 const json: z.ZodType<Json> = z.lazy(() =>
   z.union([z.null(), z.boolean(), number, z.string(), z.array(json), z.record(z.string(), json)]),
 );
-const numericBounds = z
-  .object({ min: number, max: number, integer: z.boolean().optional(), exclusive_min: z.boolean().optional() })
-  .refine((value) => value.min <= value.max);
 const coverageLevel = z.enum(['full', 'partial', 'none']);
 const normalizationMode = z.enum(['auto', 'off']);
 const readingStyle = z.enum(['precise', 'natural', 'digits']);
@@ -86,14 +82,7 @@ export const infoSchema: z.ZodType<ServerInfo> = z.object({
     .object({
       max_text_chars: number.int().positive(),
       max_body_bytes: number.int().positive(),
-      sampling: z.object({
-        provider: z.string(),
-        seed_max: z.string().regex(/^\d{1,20}$/),
-        temperature: numericBounds,
-        top_k: numericBounds,
-        top_p: numericBounds,
-        repetition_penalty: numericBounds,
-      }),
+      seed_max: z.string().regex(/^\d{1,20}$/),
     })
     .optional(),
   // A malformed or absent block means "older server": the pronunciation controls stay hidden.
@@ -181,49 +170,6 @@ export const schemaResponse = z.union([
 ]);
 export const devicesSchema = z.object({ devices: z.array(z.object({ id: z.string(), name: z.string() })) });
 export const audioOutputSchema = z.object({ device: z.string(), available: z.boolean() });
-const qualitySchema: z.ZodType<QualityReport> = z.object({
-  quality_status: z.enum(['ok', 'warning', 'failed']),
-  retries: number.int().nonnegative(),
-  mode: z.string(),
-  issues: z.array(
-    z.object({
-      kind: z.string(),
-      severity: z.enum(['info', 'warning', 'error']),
-      detail: z.string(),
-      confidence: number.nullish(),
-    }),
-  ),
-  audio: z
-    .object({
-      sample_count: number,
-      sample_rate: number,
-      duration_secs: number,
-      non_finite_samples: number,
-      peak: number,
-      rms: number,
-      dc_offset: number,
-      clipped_samples: number,
-      clipping_fraction: number,
-      near_silent_fraction: number,
-      max_discontinuity: number,
-      impulsive_samples: number,
-      chunk_boundary_peaks: number,
-    })
-    .nullish()
-    .transform((value) => value ?? undefined),
-  echo: z
-    .object({
-      detected: z.boolean(),
-      asr_required: z.boolean(),
-      matched_words: number,
-      candidate_words: number,
-      at_start: z.boolean(),
-      confidence: number.nullish(),
-      evidence: z.array(z.string()),
-    })
-    .nullish()
-    .transform((value) => value ?? undefined),
-});
 export const jobSchema: z.ZodType<Job> = z.object({
   id: z.string().optional(),
   stage: z.string().min(1),
@@ -236,7 +182,6 @@ export const jobSchema: z.ZodType<Job> = z.object({
   cancellation_requested: z.boolean().optional(),
   deadline_exceeded: z.boolean().optional(),
   error: optionalString,
-  quality: qualitySchema.nullish().transform((value) => value ?? undefined),
   context: z
     .object({
       provider: z.string(),

@@ -5,8 +5,6 @@
 !Cargo.lock
 !examples/
 !examples/**
-!native/
-!native/**
 !vendor/
 !vendor/**
 !src/
@@ -23,11 +21,6 @@ frontend/dist
 **/build
 **/node_modules
 
-# llama.cpp inference builds do not consume upstream test model fixtures.
-vendor/llama.cpp/models
-vendor/llama.cpp/tests
-vendor/llama.cpp/docs
-vendor/llama.cpp/media
 # Exclude developer credentials and model weights even below allowlisted trees.
 **/.env
 **/.env.*

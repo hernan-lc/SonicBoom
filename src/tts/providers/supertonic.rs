@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn unknown_supertonic_model_is_rejected() {
         let provider = SupertonicProvider::new(std::path::PathBuf::from("./models"));
-        let error = provider.load("qwen3-tts-0.6b-base").unwrap_err();
+        let error = provider.load("other-model").unwrap_err();
         assert_eq!(error.code(), "unsupported_model");
     }
 }

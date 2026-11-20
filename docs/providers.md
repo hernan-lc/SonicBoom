@@ -2,17 +2,16 @@
 
 Local, in-process voice cloning with no Python, PyTorch, `tch`, upstream
 CLI, network TTS service, or sidecar process at runtime. Supertonic 3
-(`ort`-based ONNX) stays the default provider; Qwen3-TTS 1.7B GGUF/ONNX
-(opt-in build) and Pocket TTS (ONNX Runtime) are optional and disabled by
-default. The Candle Qwen backend and GPT-SoVITS were removed; Pocket TTS
-is the audio-prompt cloning provider.
+(`ort`-based ONNX) stays the default provider; Pocket TTS and Reverb-TTS
+(both ONNX Runtime) are optional and disabled by default. The Qwen3-TTS
+backends (Candle and GGUF/ONNX) and GPT-SoVITS were removed; see
+[Retired providers](#retired-providers).
 
 Upstream implementations under review (revalidate before pinning a
 dependency revision):
 
 | Provider | Source | Reviewed revision | Reality |
 |---|---|---|---|
-| Qwen3-TTS GGUF/ONNX | https://huggingface.co/Emerald7664/Qwen3-TTS-ONNX (ref: https://github.com/HaujetZhao/Qwen3-TTS-GGUF) | `0a36d692562f83a862466b0bf8c12154ddf1965d` | Native Rust + llama.cpp GGUF + ONNX INT8; 1.7B Base ICL cloning only (x-vector explicitly rejected); CPU validated; Vulkan compiled into official releases by default, real GPU inference validated on AMD BC-250/RADV (output-equivalence vs CPU unvalidated) |
 | Pocket TTS | https://huggingface.co/KevinAHM/pocket-tts-onnx (export of https://github.com/kyutai-labs/pocket-tts) | `58a6d00cf13d239b6748cb0769f35c580a8f606c` | Pure-Rust driver over 5 ONNX graphs per language; CPU sessions; reference WAV, no transcript (audio-prompt mode) |
 
 ONNX Runtime's packaged native library is the only native-code exception
@@ -31,7 +30,7 @@ and is shared by all providers (initialized once). Python was used
 - `SupertonicProvider`: adapter preserving all ten style voices, `alloy`
   aliases, formats, auth, rate limits, and the engine API. No second
   synthesis path: the registry routes to the same inference code.
-- `QwenGgufProvider` / `PocketTtsProvider`: asset validation, language/mode
+- `PocketTtsProvider` / `ReverbTtsProvider`: asset validation, language/mode
   validation, device resolution with effective-device reporting,
   per-model serialization so concurrent voices never swap reference data,
   and a bounded conditioning cache keyed by
@@ -39,13 +38,14 @@ and is shared by all providers (initialized once). Python was used
 - `src/tts/voices.rs`: persistent `VoiceProfileStore` (opaque UUID, consent
   metadata, `<uuid>.wav` references, no arbitrary client filenames, no
   transcript/audio logging).
-- Config `[providers.qwen3_gguf]` / `[providers.pocket_tts]` (`enabled=false`
+- Config `[providers.pocket_tts]` / `[providers.reverb_tts]` (`enabled=false`
   by default) and `[voices]`; schema, validation, hot reload (per-request
-  reads, last-healthy state retained on failure). Leftover `[providers.qwen3]`
-  Candle and `[providers.gpt_sovits]` sections are tolerated for boot
-  compatibility but ignored (with a startup warning): delete them from old
-  files. Old GPT-SoVITS voice profiles are kept on disk but unavailable;
-  recreate them as Pocket profiles from their stored reference audio.
+  reads, last-healthy state retained on failure). Leftover
+  `[providers.qwen3]`, `[providers.qwen3_gguf]` and `[providers.gpt_sovits]`
+  sections are tolerated for boot compatibility but ignored (with a startup
+  warning): delete them from old files. Voice profiles of retired providers
+  are kept on disk and listed, but cannot synthesize (see
+  [Retired providers](#retired-providers)).
 - Endpoints: `GET /api/providers`, `GET /api/providers/{id}/status`,
   `POST /api/voices/clones`, `GET /api/voices`, `GET /api/voices/{id}`,
   `DELETE /api/voices/{id}`, `POST /api/voices/{id}/preview`; extended
@@ -64,10 +64,7 @@ Performance work planned after this Vulkan rollout is tracked in
 | Feature | Effect |
 |---|---|
 | (default) | Supertonic 3 + Pocket TTS compiled with Vulkan-first ONNX inference (`webgpu`); no weights fetched |
-| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic and Pocket TTS; CPU is the automatic fallback. The Qwen ONNX codecs (int8 speaker/codec encoders, fp16 decoder) run on CPU by default (the int8 graphs produced wrong audio on the WebGPU EP; `SONICBOOM_QWEN_CODEC_EP=gpu` exists only to reproduce that; `SONICBOOM_QWEN_CODEC_THREADS` and `SONICBOOM_QWEN_DECODER_CHUNK` tune decode speed, see `docs/future-optimizations.md`). Pocket TTS runs on CPU by default. `SONICBOOM_POCKET_EP=auto` opts into Vulkan-first (the four correct graphs on the GPU, the decoder on CPU, with a load-time RMS/RTF probe and a request-time EOS retry). Do not enable it while Supertonic also uses WebGPU: the Pocket probe overlapped Supertonic's warm-up and crashed inside Dawn (3 of 3 startups on AMD RADV, see `docs/future-optimizations.md`). `gpu` forces every graph (reproduction), and `custom` uses `SONICBOOM_POCKET_GPU_GRAPHS`. Set `SONICBOOM_EP=cpu` to force CPU only; `SONICBOOM_WARMUP=0` skips the post-load GPU warm-up. Ships in `default` |
-| `qwen-gguf` | Qwen3-TTS 1.7B GGUF/ONNX provider, CPU (`device=cpu\|auto`) |
-| `qwen-gguf-vulkan` | Allow GGUF `device=vulkan` on Vulkan-capable GPUs (implies `qwen-gguf`; ships in `default`) |
-| `qwen-gguf-cuda` | Additionally allow GGUF `device=cuda` (NVIDIA only; implies `qwen-gguf`) |
+| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic and Pocket TTS; CPU is the automatic fallback. Pocket TTS runs on CPU by default. `SONICBOOM_POCKET_EP=auto` opts into Vulkan-first (the four correct graphs on the GPU, the decoder on CPU, with a load-time RMS/RTF probe and a request-time EOS retry). Do not enable it while Supertonic also uses WebGPU: the Pocket probe overlapped Supertonic's warm-up and crashed inside Dawn (3 of 3 startups on AMD RADV, see `docs/future-optimizations.md`). `gpu` forces every graph (reproduction), and `custom` uses `SONICBOOM_POCKET_GPU_GRAPHS`. Set `SONICBOOM_EP=cpu` to force CPU only; `SONICBOOM_WARMUP=0` skips the post-load GPU warm-up. Ships in `default` |
 | `reverb-tts` | Reverb-TTS ONNX provider (ships in `default`, disabled by default; **weights are CC BY-NC 4.0, non-commercial**). CPU by default, `device = "auto"` runs the transformer on Vulkan |
 | `pocket-tts` | Pocket TTS ONNX provider, CPU by default (`SONICBOOM_POCKET_EP=auto` opts into Vulkan-first, see `webgpu` above) |
 | `cuda` / `rocm` / `coreml` | Alternative ORT EPs for Supertonic. `cuda`/`rocm` require `--no-default-features` (no combined prebuilt with WebGPU); `coreml` is chosen automatically on macOS |
@@ -76,61 +73,25 @@ AMD BC-250 (`gfx1013`) is CPU-only for the acceptance criteria. Do not
 imply CUDA runs on AMD, and do not claim ROCm/MIGraphX support without
 proof. `coreml`/`cuda`/`rocm` stay mutually exclusive.
 
-### Build-time SDK validation
-
-The native wrapper (`native/qwen-llama/build.rs`) prints the effective
-backend selection and validates every requested SDK **before** CMake runs, so
-a missing SDK fails early and actionably instead of deep inside
-`ggml-cuda`/`ggml-vulkan`:
-
-- `qwen-gguf-cuda` requires the CUDA Toolkit (`nvcc`). Discovery mirrors
-  CMake's `FindCUDAToolkit`: `CUDACXX`, `CUDAToolkit_ROOT`,
-  `CUDA_PATH`/`CUDA_HOME`, `/usr/local/cuda/bin`, `/opt/cuda/bin`, the
-  Windows default toolkit path, then `PATH`.
-- `qwen-gguf-vulkan` requires `glslc`, the Vulkan loader/headers, and
-  SPIRV-Headers. The pinned llama.cpp revision finds the SPIRV-Headers
-  *config* package but never links its include directory, so the build script
-  locates a directory holding `spirv/unified1/spirv.hpp`,
-  `spirv-headers/spirv.hpp` or `spirv.hpp` (`$SONICBOOM_SPIRV_INCLUDE_DIR`,
-  `$VULKAN_SDK/include`, `~/.local[/spirv-headers]/include`, a
-  `CMAKE_PREFIX_PATH` prefix, `/usr/include`, `/usr/local/include`,
-  `/opt/include`) and wires it into the `ggml-vulkan` target. Set
-  `SONICBOOM_SPIRV_INCLUDE_DIR` when the headers live somewhere non-standard.
-- `qwen-gguf-cuda,qwen-gguf-vulkan` together are allowed only when **both**
-  SDKs validate; otherwise the build stops naming the missing one.
-
-Each failure names the required tool, the discovery variables, and a recovery
-command (install path, `export CUDAToolkit_ROOT=…`/`VULKAN_SDK=…`/
-`SONICBOOM_SPIRV_INCLUDE_DIR=…`, or the CPU-only build). `CMAKE_PREFIX_PATH`
-and every discovery variable are registered with `cargo:rerun-if-env-changed`,
-so changing them reconfigures deterministically. `SONICBOOM_SKIP_SDK_CHECK=1`
-bypasses the pre-flight scan for unusual toolchains where CMake can still
-discover the SDK. A `cargo:warning` line such as
-`native GGML backend selection: CPU + Vulkan (ggml-vulkan)` states the
-effective selection without reading CMake output.
-
 ## Language support (explicit, no silent substitution)
 
-- Qwen3-TTS 1.7B Base (GGUF/ONNX): `en`, `de`, `es`, `zh`, `ja`, `fr`,
-  `ko`, `ru`, `it`, `pt`. Japanese (`language=ja`) synthesizes through the
-  Base model in ICL clone mode.
 - Pocket TTS: `en` (`pocket-tts-en`), `es` (`pocket-tts-es`),
   `pt` (`pocket-tts-pt`), `de` (`pocket-tts-de`), `it` (`pocket-tts-it`),
   and `fr` (`pocket-tts-fr-24l`, larger 24-layer preview). Each has its
   own pinned bundle and tokenizer. Use `pt` for Portuguese, not `por`.
   Chinese (`zh`), Japanese (`ja`), Dutch (`nl`), and other unverified bundles
   return explicit unsupported-language/model errors. No language falls back
-  to English or another provider. Existing Qwen language support is unchanged.
+  to English or another provider.
 - Reverb-TTS: `de`, `en`, `es`, `fr`, `it`, `pl`, `pt` with one multilingual
   model (`reverb-tts`). Other languages (including Japanese and Chinese)
   return an explicit unsupported-language error.
-- GPT-SoVITS is retired: its model IDs return an explicit retired-model
-  error and its old voice profiles are unavailable (recreate as Pocket).
+- Retired providers (GPT-SoVITS, Qwen3-TTS): their model IDs return an
+  explicit retired-model error and their old voice profiles are unavailable
+  (recreate as Reverb-TTS).
 - Supertonic: unchanged (English synthesis; legacy voice aliases).
 
-Unknown provider/model/voice/language, incompatible variants (non-1.7B
-Qwen bundles, x-vector mode on the GGUF backend, non-`audio_prompt` mode
-on Pocket TTS), missing assets, and unavailable devices all return explicit,
+Unknown provider/model/voice/language, incompatible variants (non-`audio_prompt` mode
+on Pocket TTS, non-`icl` mode on Reverb-TTS), missing assets, and unavailable devices all return explicit,
 actionable errors. Configured `cpu` fallback from `auto` is allowed where
 supported, and the effective device is always reported.
 
@@ -159,83 +120,6 @@ All of these expectations were written by an agent and have not yet been
 reviewed by fluent speakers. Coverage per feature is reported by
 `/api/info` and in each `/api/tts/normalize` response.
 
-## Qwen3-TTS 1.7B GGUF/ONNX setup (CPU smoke test)
-
-1. Default source builds include Qwen on CPU + Vulkan in one binary
-   (loader opened at runtime, CPU fallback with `device=auto`); building
-   them requires the Vulkan SDK (glslc, loader/headers, SPIRV-Headers).
-   Official releases add `--features gui` on top of the defaults; add
-   `--features qwen-gguf-cuda` for native CUDA source builds. Provider
-   status exposes compiled/available backends, Vulkan GPU name, requested
-   vs effective device, model-loading status, Vulkan init error and CPU
-   fallback reason. Verify real GPU use with
-   `cargo run --release --example qwen_gguf_smoke -- <model-dir> vulkan`.
-2. Press Enable on the qwen3-gguf card (or set `enabled = true` and
-   hot-reload): the server downloads the pinned bundle into
-   `[providers.qwen3_gguf] model_dir` (`./models/qwen3-tts-1.7b-gguf`) in
-   parallel with serving, verifying every file against the manifest in
-   `src/tts/providers/qwen_gguf/models.rs` (repo
-   `Emerald7664/Qwen3-TTS-ONNX` at revision
-   `0a36d692562f83a862466b0bf8c12154ddf1965d`). Only the 1.7B Base bundle
-   is supported; anything else fails explicitly.
-3. Watch `/api/providers/qwen3-gguf/status` until `ready` (progress
-   reported while downloading/loading; failures name the cause).
-4. Record or reuse a recording you own (1–30 s accepted) **plus the exact
-   reference transcript** (`icl` is the only supported mode).
-5. Create a profile:
-
-```bash
-curl -X POST 'http://127.0.0.1:17842/api/voices/clones?name=my-voice&provider=qwen3-gguf&model=qwen3-tts-1.7b-base&language=en&mode=icl&transcript=<exact-transcript>&consent_basis=owner' \
-  -H 'Authorization: Bearer <token>' -H 'Content-Type: audio/wav' \
-  --data-binary @reference.wav
-```
-
-6. Synthesize (OpenAI-compatible):
-
-```json
-{
-  "model": "qwen3-tts-1.7b-base",
-  "voice": "<profile-id>",
-  "language": "en",
-  "input": "Hello, this is a local voice cloning test.",
-  "response_format": "wav"
-}
-```
-
-CPU smoke-test status: **measured** — 41 frames / 3.28 s audio, EOS
-reached, finite PCM, conditioning cache hit on repeat, bit-identical
-output for the same seed/reference. See
-`benchmarks/results/2026-10-15-qwen-gguf/`.
-
-### Qwen3-TTS sampling and quality settings
-
-Additive configuration (existing files keep loading unchanged):
-
-```toml
-[providers.qwen3_gguf.sampling]
-preset = "balanced"        # balanced | stable | expressive | custom
-
-[providers.qwen3_gguf.quality]
-enabled = false            # detection is off by default
-policy = "report"          # off | report | retry | experimental_trim
-max_retries = 1            # hard ceiling of 1; bounded regeneration only
-```
-
-`balanced` reproduces the pinned upstream defaults exactly, so under identical
-artifacts, seed and device the output is unchanged. `stable` and `expressive`
-are experimental; `custom` takes explicit `[providers.qwen3_gguf.sampling.talker]`
-/ `.predictor` parameters (`temperature`, `top_k`, `top_p`, `repetition_penalty`).
-
-Per-request overrides are optional query parameters on `/api/tts/jobs`,
-`/api/voices/{id}/preview` and the OpenAI path: `sampling_preset`, `seed`
-(a decimal string so all 64 bits survive JavaScript), `quality`,
-`talker_temperature`, `talker_top_k`, `talker_top_p`, `talker_repetition_penalty`,
-and the `predictor_*` equivalents. Invalid values are a `400`; specifying
-sampling/quality for a non-Qwen provider is rejected explicitly rather than
-silently ignored. Detection semantics, the offline-ASR requirement for echo
-confirmation, and remaining limitations are documented in
-`docs/qwen-gguf-architecture.md`.
-
 ## Pinned download manifests
 
 Optional-provider downloads retry transient network failures, interrupted bodies,
@@ -247,12 +131,6 @@ Permanent HTTP errors, oversized bodies, checksum mismatches and local disk erro
 fail immediately. Staged files are removed on failure; only size- and
 SHA-256-verified files are installed.
 
-Qwen3-TTS 1.7B GGUF/ONNX (`Emerald7664/Qwen3-TTS-ONNX`
-`0a36d692562f83a862466b0bf8c12154ddf1965d`), SHA-256 verified by the
-server before loading (full hashes in
-`src/tts/providers/qwen_gguf/models.rs` `MANIFEST`): talker
-`qwen3_tts_talker.q5_k.gguf`, predictor `qwen3_tts_predictor.q8_0.gguf`,
-speaker/codec/decode INT8 ONNX bundles, embeddings, tokenizer.
 Pocket TTS per-language bundles (`KevinAHM/pocket-tts-onnx`
 `58a6d00cf13d239b6748cb0769f35c580a8f606c`, CC-BY-4.0): `bundle.json`,
 `tokenizer.model`, `bos_before_voice.npy`, `text_conditioner.onnx`,
@@ -365,31 +243,29 @@ Notes:
 - **Not provided.** No built-in preset voices yet (upstream ships 16 as code files) and no
   per-request speed control.
 
-## GPT-SoVITS retirement
+## Retired providers
 
-GPT-SoVITS was removed and replaced by Pocket TTS. Its model IDs
-(`gpt-sovits-v2-onnx`, `gpt-sovits-v2pro-onnx`, `gpt-sovits-v2proplus-onnx`)
-return an explicit retired-model error (never a silent reroute), a
-leftover `[providers.gpt_sovits]` config section boots with a warning
-and is otherwise ignored, and old GPT-SoVITS voice profiles are kept on
-disk but unavailable: recreate them as `pocket-tts` profiles
-(`mode=audio_prompt`) from their stored reference audio. The old
-`models/gpt-sovits-v2pro` cache is left inert for manual removal.
+GPT-SoVITS and Qwen3-TTS (both the Candle and the GGUF/ONNX backends) were
+removed. SonicBoom never reinterprets their data as another engine's:
+
+- Their model IDs (`gpt-sovits-v2-onnx`, `gpt-sovits-v2pro-onnx`,
+  `gpt-sovits-v2proplus-onnx`, `qwen3-tts-0.6b-base`, `qwen3-tts-1.7b-base`)
+  return `400` with an explicit "retired" message that suggests `reverb-tts`,
+  never a silent reroute and never a generic unknown-model error.
+- Leftover `[providers.qwen3]`, `[providers.qwen3_gguf]` and
+  `[providers.gpt_sovits]` config sections boot with a warning and are
+  otherwise ignored. They are dropped the next time the configuration is saved.
+- Stored voice profiles of the retired providers (`gpt-sovits`,
+  `qwen3-candle`, `qwen3-gguf`) still load, appear in `GET /api/voices`, and can
+  be deleted, but any synthesis with them returns `400` explaining that they
+  must be recreated as `reverb-tts` profiles (mode `icl`, with the exact
+  transcript) from the reference audio. There is no automatic migration.
+- Leftover model caches (`models/qwen3-tts-1.7b-gguf`, `models/gpt-sovits-v2pro`)
+  are left inert for manual removal.
 
 ## Configuration reference
 
 ```toml
-[providers.qwen3_gguf]
-enabled = false
-model_dir = "./models/qwen3-tts-1.7b-gguf"
-device = "auto"          # cpu | auto | vulkan (needs qwen-gguf-vulkan) | cuda (needs qwen-gguf-cuda)
-gpu_layers = -1
-threads = 4
-max_concurrent = 1
-cache_entries = 16
-max_tokens = 512         # acoustic frames per synthesis (1-1024)
-allow_cpu_fallback = false  # explicit vulkan/cuda failure falls back to CPU when true
-
 [providers.pocket_tts]
 enabled = false
 model_dir = "./models/pocket-tts"
@@ -421,42 +297,6 @@ steps = 8                # main sampler passes (1-64); upstream default 8
 cpu_threads = 4          # 1-32
 ```
 
-### Native GGUF/ONNX backend (`qwen3-gguf`, opt-in build)
-
-Compiled only with `--features qwen-gguf` (not in default builds). It owns
-`qwen3-tts-1.7b-base` end to end — ICL cloning, EOS-terminated generation,
-reference-conditioning cache with reuse, cancellation recovery — and it is
-the only Qwen backend: the Candle provider was removed.
-
-```toml
-[providers.qwen3_gguf]
-enabled = false
-model_dir = "./models/qwen3-tts-1.7b-gguf"
-device = "auto"          # cpu | auto | vulkan (needs qwen-gguf-vulkan) | cuda (needs qwen-gguf-cuda)
-gpu_layers = -1          # -1 offloads all layers, 0 is CPU
-threads = 4              # 1-256
-max_concurrent = 1
-cache_entries = 16
-max_tokens = 512         # acoustic frames per synthesis (1-1024)
-allow_cpu_fallback = false  # explicit device failure -> reported CPU fallback when true
-```
-
-CPU status: **measured** — 41 frames / 3.28 s audio, EOS reached, finite
-PCM, conditioning cache hit on repeat (1.64 s → 0.004 s), bit-identical
-output for the same seed/reference; GPU failures fall back to CPU with the
-reason reported in `/api/providers/qwen3-gguf/status` (never silent).
-X-vector cloning is rejected explicitly until validated against the
-reference implementation.
-
-Vulkan status (BC-250/RADV, release, seed 42): **initializes and runs** —
-34 frames / 2.72 s audio, EOS, finite PCM, bit-identical across repeated
-runs, ~28× faster generation than CPU (2.8 s vs 77.7 s for 256 tokens).
-**Content equivalence with the validated CPU path is not established**:
-outputs differ substantially from the first samples, so Vulkan is proven
-functional but not proven correct — CPU remains the reference path and
-Vulkan stays opt-in. Full numbers and limits in
-`benchmarks/results/2026-10-15-qwen-gguf/bc250-vulkan-vs-cpu.json`.
-
 No passwords or tokens live in TOML. Invalid provider updates keep the
 last healthy state and surface actionable status via
 `/api/providers/{id}/status` and `/api/config/status`.
@@ -485,13 +325,9 @@ last healthy state and surface actionable status via
   reference+synthesis, SHA-256-verified downloads). CPU smoke-test results
   are recorded in `benchmarks/providers.md`; rows stay pending until
   measured. No fake/silent fallbacks exist anywhere in the new code.
-- Non-1.7B Qwen bundles (including the retired 0.6B Candle model),
-  unvalidated Pocket TTS bundles, non-`audio_prompt` Pocket modes,
+- Unvalidated Pocket TTS bundles, non-`audio_prompt` Pocket modes,
   GPU EPs for Pocket TTS, ROCm/CUDA on BC-250, and FLAC/MP3 reference
   uploads are explicitly unsupported and rejected with actionable errors.
-  Qwen 1.7B via the GGUF/ONNX backend is CPU-validated (see above);
-  Vulkan runs but its output equivalence is unvalidated, CUDA is
-  unmeasured, and x-vector mode remains unsupported until measured.
 
 ## Reliable native synthesis jobs
 
@@ -500,24 +336,11 @@ inference, with progress and cooperative cancellation. The synchronous routes
 remain supported. See [ownership/cache architecture](inference-architecture.md)
 for model residency, integrity verification, reloads and cache bounds.
 
-Qwen GGUF `device=auto` selects Vulkan/CUDA only when the matching
-`qwen-gguf-vulkan`/`qwen-gguf-cuda` build feature is compiled and the
-backend initializes; otherwise it reports CPU with the fallback reason.
-Explicit `vulkan`/`cuda` fails with an actionable error if build/runtime
-support is unavailable, **unless** `allow_cpu_fallback = true` is set, in
-which case the failure is reported and synthesis runs on CPU. The
-requested device is the config value; the effective device (with any
-fallback reason) is exposed as `effective_device`/detail in
-`/api/providers/qwen3-gguf/status` and is never the requested value unless
-it actually initialized. `cpu` remains supported on AMD BC-250. ROCm
-acceleration is not implemented or advertised.
-
-Provider concurrency settings must be 1. Sampling, frame-limit and cache-only
-changes retain weights; genuine model/device changes coordinate with active work.
-GGUF CPU can remain substantially slower than real-time (RTF ~26 measured);
-use jobs rather than raising an HTTP timeout alone. Measured resident/peak RAM
-can be several GB per model; see the current benchmark rows before enabling
-multiple backends.
+Provider concurrency settings must be 1. Cache-only changes retain weights;
+genuine model/device changes coordinate with active work. Cloning engines can
+be slower than real time on the CPU: use jobs rather than raising an HTTP
+timeout alone. Measured resident/peak RAM can be several GB per model; see the
+current benchmark rows before enabling multiple backends.
 
 ### Audio isolation and quality follow-up (2026-10-16)
 
@@ -527,14 +350,6 @@ The UI now separates new submission from explicitly resuming the stored previous
 input; a changed text/model/voice cannot silently resume an older job. A new
 submission clears and releases old audio, and disposal invalidates callbacks.
 Cancellation acknowledgement does not imply native completion.
-
-Qwen remains **1.7B Base ICL only**. Provide an authorized clean reference
-(3–10 seconds is a useful starting range, subject to provider bounds) and its
-exact transcript, punctuation and language. Transcript mismatch and reference
-utterance echo are different from previous-request contamination. No transcript,
-reference codes or leading audio have been removed as a workaround. Experimental
-X-vector remains disabled: the converted speaker-only prompt and decoder path
-have no validated intelligibility/speaker/leakage comparison with ICL.
 
 Pocket uses transcript-free audio prompting and separate en/es/pt/de/it/fr
 bundles (French is `pocket-tts-fr-24l`); unsupported pairings still fail explicitly.

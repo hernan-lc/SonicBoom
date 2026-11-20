@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fast source/manifest checks before downloading or compiling dependencies.
+"""Fast manifest and Docker-input checks before downloading or compiling dependencies.
 
 Dockerfile `COPY` instructions and `.dockerignore` rules are always written
 with POSIX separators, so every Docker-context path this module builds must be
@@ -90,11 +90,10 @@ def validate(root=ROOT):
             local = tomllib.loads((root / path / 'Cargo.toml').read_text())
             lib = local.get('lib', {}).get('path', 'src/lib.rs')
             required.append(to_docker_path(path / lib))
-    required.extend(['vendor/llama.cpp/include/llama.h', 'vendor/llama.cpp/CMakeLists.txt'])
     rules = (root / '.dockerignore').read_text().splitlines()
     for path in required:
         if not to_fs_path(root, path).is_file():
-            raise ValueError(f'Missing manifest/native input: {path}; initialize pinned submodules')
+            raise ValueError(f'Missing manifest input: {path}')
         if not docker_included(path, rules):
             raise ValueError(f'Docker context excludes required input: {path}')
     stage = ''
@@ -117,9 +116,9 @@ def validate(root=ROOT):
                 raise ValueError(f'{stage}: missing explicit features')
             selected = set(features[1].split(','))
             expected = {
-                'builder': {'server', 'qwen-gguf', 'pocket-tts', 'web-ui'},
-                'builder-playback': {'server', 'playback', 'qwen-gguf', 'pocket-tts', 'web-ui'},
-                'builder-cuda': {'server', 'cuda', 'qwen-gguf-cuda', 'pocket-tts', 'web-ui'},
+                'builder': {'server', 'pocket-tts', 'reverb-tts', 'web-ui', 'webgpu'},
+                'builder-playback': {'server', 'playback', 'pocket-tts', 'reverb-tts', 'web-ui'},
+                'builder-cuda': {'server', 'cuda', 'pocket-tts', 'reverb-tts', 'web-ui'},
             }
             for feature in features[1].split(','):
                 if feature not in manifest['features']:
@@ -131,13 +130,9 @@ def validate(root=ROOT):
 
 def main():
     validate()
-    status = subprocess.check_output(['git', 'submodule', 'status', '--recursive'], cwd=ROOT, text=True)
-    if not status.strip() or any(line[0] != ' ' for line in status.splitlines()):
-        raise ValueError(f'Submodules must match the committed gitlinks:\n{status}')
-    print(status, end='')
     subprocess.run(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1'],
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
-    print('Pinned native sources, Cargo manifests, Docker inputs and features verified')
+    print('Cargo manifests, Docker inputs and features verified')
 
 
 if __name__ == '__main__':

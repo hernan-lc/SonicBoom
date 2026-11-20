@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { t, renderMessage, type Message } from '../../i18n';
 import DisclosurePanel from '../ui/DisclosurePanel.vue';
-import type { Job, QualityReport } from '../../services/contracts';
+import type { Job } from '../../services/contracts';
 defineProps<{
   pending: boolean;
   snapshot: Job | null;
   complete: boolean;
-  quality?: QualityReport;
-  qualityIssues: QualityReport['issues'];
   error: Message | null;
   jobId: string | null;
 }>();
@@ -28,13 +26,7 @@ defineProps<{
       <div><dt>{{ t('Voice') }}</dt><dd>{{ snapshot.context.voice }}</dd></div>
       <div v-if="snapshot.audio_secs"><dt>{{ t('Generated duration: {seconds}s', { seconds: snapshot.audio_secs.toFixed(2) }) }}</dt><dd>RTF {{ snapshot.rtf?.toFixed(2) ?? '—' }}</dd></div>
       <div v-if="snapshot.context.seed"><dt>{{ t('Seed: {seed}', { seed: snapshot.context.seed }) }}</dt></div>
-      <div v-if="quality"><dt>{{ t('Sampling preset: {preset}', { preset: quality.mode }) }}</dt><dd>{{ t('Quality: {status}', { status: quality.quality_status }) }} · {{ t('Warnings: {count}', { count: qualityIssues.length }) }} · {{ t('Retries: {count}', { count: quality.retries }) }}</dd></div>
     </dl>
-    <ul v-if="qualityIssues.length" class="quality-issues">
-      <li v-for="issue in qualityIssues" :key="issue.kind">
-        {{ t('{kind}: {detail}', { kind: issue.kind, detail: issue.detail }) }}
-      </li>
-    </ul>
   </DisclosurePanel>
   <p v-if="error" role="alert" class="feedback error">
     {{ renderMessage(error) }}

@@ -54,12 +54,35 @@ pub(crate) fn parse_clone_mode_public(raw: &str) -> Result<CloneMode, AppError> 
 fn parse_clone_mode(raw: &str) -> Result<CloneMode, AppError> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "icl" => Ok(CloneMode::Icl),
-        "x_vector" | "x-vector" | "xvector" => Ok(CloneMode::XVector),
         "audio_prompt" | "audio-prompt" | "audioprompt" => Ok(CloneMode::AudioPrompt),
         other => Err(AppError::BadRequest(format!(
-            "unsupported clone mode '{other}' (expected one of: icl, x_vector, audio_prompt)"
+            "unsupported clone mode '{other}' (expected one of: icl, audio_prompt)"
         ))),
     }
+}
+
+/// Stored profiles of retired providers keep loading, listing and deleting,
+/// but can never synthesize: their conditioning belongs to an engine that no
+/// longer exists and is never reinterpreted by another provider.
+pub(crate) fn ensure_provider_active(provider: &str) -> Result<(), AppError> {
+    if sonicboom::tts::providers::catalog::is_retired_provider(provider) {
+        return Err(AppError::BadRequest(format!(
+            "voice profile uses the retired '{provider}' provider and is unavailable; recreate it \
+             as a reverb-tts profile (mode icl, with the exact reference transcript) from its \
+             reference audio, or delete it"
+        )));
+    }
+    Ok(())
+}
+
+/// Parse the optional `seed` query value (decimal `u64`); anything else is `400`.
+pub(crate) fn parse_seed(raw: Option<String>) -> Result<Option<u64>, AppError> {
+    let Some(raw) = raw.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    raw.parse::<u64>()
+        .map(Some)
+        .map_err(|_| AppError::BadRequest(format!("seed must be an unsigned integer, got '{raw}'")))
 }
 
 /// Decode an uploaded WAV body to mono `f32` PCM (MIME **and** actual format
@@ -426,6 +449,7 @@ pub(crate) async fn owned_reference(
             .ok_or_else(|| AppError::NotFound("unknown voice profile".into()))
     })
     .await?;
+    ensure_provider_active(&profile.provider)?;
     let cache = state.inference_gate.voices.clone();
     let profile_copy = profile.clone();
     let store_dir = state.config.get().await.voices.store_dir.clone();
@@ -791,21 +815,17 @@ async fn post_clones_inner(
         ));
     }
     let provider = query.provider.trim().to_ascii_lowercase();
-    // The Candle provider is gone: Qwen cloning means the GGUF/ONNX backend.
-    #[cfg(feature = "qwen-gguf")]
-    let cloning = provider == "qwen3-gguf" || provider == "pocket-tts" || provider == "reverb-tts";
-    #[cfg(not(feature = "qwen-gguf"))]
-    let cloning = provider == "pocket-tts" || provider == "reverb-tts";
-    if !cloning {
+    if sonicboom::tts::providers::catalog::is_retired_provider(&provider) {
+        return Err(AppError::BadRequest(format!(
+            "provider '{}' is retired and no longer available for voice cloning; use reverb-tts",
+            query.provider
+        )));
+    }
+    if provider != "pocket-tts" && provider != "reverb-tts" {
         return Err(AppError::BadRequest(format!(
             "unsupported provider '{}' for voice cloning \
-             (expected one of: {}; supertonic uses built-in style voices)",
-            query.provider,
-            if cfg!(feature = "qwen-gguf") {
-                "qwen3-gguf, pocket-tts, reverb-tts"
-            } else {
-                "pocket-tts, reverb-tts"
-            }
+             (expected one of: pocket-tts, reverb-tts; supertonic uses built-in style voices)",
+            query.provider
         )));
     }
     let mode = parse_clone_mode(&query.mode)?;
@@ -844,13 +864,6 @@ async fn post_clones_inner(
             "ICL mode requires the exact reference transcript",
             None,
             None,
-        ));
-    }
-    if mode == CloneMode::XVector && transcript.is_some() {
-        return Err(AppError::BadRequest(
-            "x_vector mode does not accept a transcript \
-             (use icl mode for transcript-conditioned cloning)"
-                .to_string(),
         ));
     }
     if query.consent_basis.trim().is_empty() {
@@ -923,20 +936,15 @@ async fn post_clones_inner(
     .await
     .map_err(|e| AppError::internal(e.to_string()))??;
     match provider.as_str() {
-        #[cfg(feature = "qwen-gguf")]
-        "qwen3-gguf" => {
-            sonicboom::tts::providers::qwen_gguf::provider::QwenGgufProvider::validate_reference(
-                &pcm, rate,
-            )
-            .map_err(provider_error_to_app)?
-        }
         "pocket-tts" => {
             sonicboom::tts::providers::pocket_tts::PocketTtsProvider::validate_reference(&pcm, rate)
                 .map_err(provider_error_to_app)?
         }
         "reverb-tts" => {
-            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::validate_reference(&pcm, rate)
-                .map_err(provider_error_to_app)?;
+            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::validate_reference(
+                &pcm, rate,
+            )
+            .map_err(provider_error_to_app)?;
             // The transcript is mandatory for icl; make sure it survives cleanup.
             sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::prepare_transcript(
                 transcript_for_validation.as_deref().unwrap_or(""),
@@ -993,11 +1001,9 @@ pub(crate) fn config_revision_for(
     provider: &str,
 ) -> String {
     match provider {
-        #[cfg(feature = "qwen-gguf")]
-        "qwen3-gguf" => sonicboom::tts::providers::qwen_gguf::models::REVISION.to_string(),
         "pocket-tts" => config.providers.pocket_tts.revision.clone(),
         "reverb-tts" => config.providers.reverb_tts.revision.clone(),
-        // Retired providers (GPT-SoVITS) and anything unknown: a revision
+        // Retired providers (GPT-SoVITS, Qwen3-TTS) and anything unknown: a revision
         // that matches nothing, so legacy profiles fail closed with an
         // explicit retired/incompatible error instead of being reused.
         _ => "retired:unknown-provider".to_string(),
@@ -1085,11 +1091,6 @@ pub async fn delete_voice(
     })
     .await?;
     match provider.as_str() {
-        #[cfg(feature = "qwen-gguf")]
-        "qwen3-gguf" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
-            state.providers.qwen_gguf.as_ref(),
-            id.trim(),
-        ),
         "pocket-tts" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
             state.providers.pocket.as_ref(),
             id.trim(),
@@ -1121,28 +1122,9 @@ pub struct PreviewQuery {
     pub format: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
-    #[serde(default)]
-    pub sampling_preset: Option<String>,
+    /// Optional fixed seed (decimal `u64`) for providers that sample.
     #[serde(default)]
     pub seed: Option<String>,
-    #[serde(default)]
-    pub quality: Option<String>,
-    #[serde(default)]
-    pub talker_temperature: Option<f32>,
-    #[serde(default)]
-    pub talker_top_k: Option<usize>,
-    #[serde(default)]
-    pub talker_top_p: Option<f32>,
-    #[serde(default)]
-    pub talker_repetition_penalty: Option<f32>,
-    #[serde(default)]
-    pub predictor_temperature: Option<f32>,
-    #[serde(default)]
-    pub predictor_top_k: Option<usize>,
-    #[serde(default)]
-    pub predictor_top_p: Option<f32>,
-    #[serde(default)]
-    pub predictor_repetition_penalty: Option<f32>,
     /// Text normalization mode: `auto` or `off` (absent = server default).
     #[serde(default)]
     pub normalization: Option<String>,
@@ -1163,23 +1145,6 @@ impl PreviewQuery {
             normalization: self.normalization.clone(),
             locale: self.locale.clone(),
             reading_style: self.reading_style.clone(),
-        }
-    }
-
-    /// Collect the optional sampling/quality overrides (unparsed).
-    pub(crate) fn sampling_input(&self) -> super::sampling::SamplingInput {
-        super::sampling::SamplingInput {
-            preset: self.sampling_preset.clone(),
-            seed: self.seed.clone(),
-            quality: self.quality.clone(),
-            talker_temperature: self.talker_temperature,
-            talker_top_k: self.talker_top_k,
-            talker_top_p: self.talker_top_p,
-            talker_repetition_penalty: self.talker_repetition_penalty,
-            predictor_temperature: self.predictor_temperature,
-            predictor_top_k: self.predictor_top_k,
-            predictor_top_p: self.predictor_top_p,
-            predictor_repetition_penalty: self.predictor_repetition_penalty,
         }
     }
 }
@@ -1261,17 +1226,6 @@ async fn post_preview_inner(
     }
     let (profile, reference) =
         owned_reference(&state, id.trim().to_string(), token.rate_limit_key()).await?;
-    // Legacy GPT-SoVITS profiles are preserved on disk but unusable: their
-    // conditioning is not Pocket conditioning and must never be silently
-    // reinterpreted. The owner can recreate them as Pocket profiles from
-    // the stored reference audio (see GET /api/voices/{id}).
-    if profile.provider == "gpt-sovits" {
-        return Err(AppError::BadRequest(
-            "voice profile uses the retired GPT-SoVITS provider and is unavailable; recreate it \
-             as a pocket-tts profile (mode audio_prompt) from its stored reference audio"
-                .into(),
-        ));
-    }
     if profile.model_revision != config_revision_for(&config, &profile.provider) {
         return Err(AppError::BadRequest(
             "voice profile belongs to an incompatible model revision; create a new profile".into(),
@@ -1298,8 +1252,7 @@ async fn post_preview_inner(
     request.clone_mode = Some(mode);
     request.reference_transcript = profile.transcript.clone();
     request.reference_audio = Some(reference);
-    // Optional per-request sampling/quality overrides (validated strictly).
-    let (sampling, quality) = query.sampling_input().into_parts()?;
+    request.seed = parse_seed(query.seed.clone())?;
     let registry = build_registry_for_state(&state).await;
     let provider = registry
         .resolve_model(&profile.model)
@@ -1314,16 +1267,6 @@ async fn post_preview_inner(
             provider.id()
         )));
     }
-    // Sampling and quality modes are Qwen3-TTS-only: reject them explicitly
-    // for other providers rather than silently ignoring a requested setting.
-    if (sampling.is_some() || quality.is_some()) && provider.id() != "qwen3-gguf" {
-        return Err(AppError::BadRequest(format!(
-            "sampling and quality options are not supported by provider '{}' (only qwen3-gguf)",
-            provider.id()
-        )));
-    }
-    request.sampling = sampling;
-    request.quality = quality;
     let audio = synthesize_provider_bounded(&state, provider, request)
         .await
         .map_err(provider_error_to_app)?;

@@ -1,6 +1,6 @@
 //! Reference-transcript echo detection.
 //!
-//! Qwen3-TTS ICL conditioning can continue the *reference* transcript before
+//! ICL conditioning of cloning models can continue the *reference* transcript before
 //! the requested text (upstream issue #341). Confirming that requires knowing
 //! what was actually spoken, so detection is layered:
 //!

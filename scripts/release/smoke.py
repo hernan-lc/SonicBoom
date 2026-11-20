@@ -72,16 +72,11 @@ def smoke(archive):
         info = json.loads(subprocess.check_output([str(binary), '--build-info'], cwd=root, env=env, text=True))
         validate_build_info(info)
         recorded = json.loads((app / 'BUILD-INFO.json').read_text())
-        for key in ('features', 'native_backends'):
-            if recorded[key] != info[key]:
-                raise RuntimeError(f'Packaged build metadata differs from executable: {key}')
-        # Invalid ICD forces no usable device without relying on hosted GPU availability.
+        if recorded['features'] != info['features']:
+            raise RuntimeError('Packaged build metadata differs from executable: features')
+        # Invalid ICD forces the CPU fallback without relying on hosted GPU availability.
         env['VK_DRIVER_FILES'] = str(root / 'missing-driver.json')
         env['VK_ICD_FILENAMES'] = env['VK_DRIVER_FILES']
-        no_gpu = json.loads(subprocess.check_output([str(binary), '--build-info'], cwd=root, env=env, text=True))
-        if 'vulkan: ' in no_gpu['runtime_backends']:
-            raise RuntimeError('Invalid ICD probe unexpectedly found a Vulkan device')
-        validate_build_info(no_gpu)
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]

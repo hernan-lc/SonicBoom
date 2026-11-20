@@ -68,8 +68,6 @@ pub struct QualityReport {
     pub audio: Option<AudioHealth>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub echo: Option<EchoAnalysis>,
-    /// Automatic regeneration attempts spent producing the returned audio.
-    pub retries: usize,
     /// Detection mode that produced this report.
     pub mode: String,
 }
@@ -81,7 +79,6 @@ impl QualityReport {
             issues: Vec::new(),
             audio: None,
             echo: None,
-            retries: 0,
             mode: "off".to_string(),
         }
     }
@@ -92,7 +89,6 @@ impl QualityReport {
         audio: Option<AudioHealth>,
         echo: Option<EchoAnalysis>,
         mut issues: Vec<QualityIssue>,
-        retries: usize,
     ) -> Self {
         if echo.as_ref().is_some_and(|e| e.detected) {
             issues.push(QualityIssue::warning(
@@ -112,15 +108,8 @@ impl QualityReport {
             issues,
             audio,
             echo,
-            retries,
             mode: mode.to_string(),
         }
-    }
-
-    /// Whether this report should trigger a bounded regeneration attempt.
-    pub fn is_confident_failure(&self) -> bool {
-        self.quality_status == QualityStatus::Failed
-            || self.echo.as_ref().is_some_and(|e| e.detected)
     }
 }
 
@@ -131,34 +120,27 @@ mod tests {
 
     #[test]
     fn status_derives_from_findings() {
-        let ok = QualityReport::from_parts("report", None, None, vec![], 0);
+        let ok = QualityReport::from_parts("report", None, None, vec![]);
         assert_eq!(ok.quality_status, QualityStatus::Ok);
 
-        let warned = QualityReport::from_parts(
-            "report",
-            None,
-            None,
-            vec![QualityIssue::warning("x", "y")],
-            0,
-        );
+        let warned =
+            QualityReport::from_parts("report", None, None, vec![QualityIssue::warning("x", "y")]);
         assert_eq!(warned.quality_status, QualityStatus::Warning);
 
         let failed =
-            QualityReport::from_parts("report", None, None, vec![QualityIssue::error("x", "y")], 0);
+            QualityReport::from_parts("report", None, None, vec![QualityIssue::error("x", "y")]);
         assert_eq!(failed.quality_status, QualityStatus::Failed);
-        assert!(failed.is_confident_failure());
     }
 
     #[test]
-    fn confirmed_echo_raises_warning_and_flags_regeneration() {
+    fn confirmed_echo_raises_warning() {
         let echo = crate::tts::quality::reference_echo::analyze(
             "the quick brown fox",
             "hello there",
             Some("quick brown fox hello there"),
         );
-        let report = QualityReport::from_parts("retry", None, Some(echo), vec![], 1);
+        let report = QualityReport::from_parts("report", None, Some(echo), vec![]);
         assert_eq!(report.quality_status, QualityStatus::Warning);
-        assert!(report.is_confident_failure());
         assert!(
             report
                 .issues
@@ -170,7 +152,7 @@ mod tests {
     #[test]
     fn report_serializes_without_nulls_or_content() {
         let health = audio_health::analyze(&[0.1, -0.1, 0.2], 24_000);
-        let report = QualityReport::from_parts("report", Some(health), None, vec![], 0);
+        let report = QualityReport::from_parts("report", Some(health), None, vec![]);
         let value = serde_json::to_value(&report).unwrap();
         assert_eq!(value["quality_status"], "ok");
         assert_eq!(value["mode"], "report");

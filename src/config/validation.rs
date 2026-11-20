@@ -351,50 +351,6 @@ fn validate_providers(config: &AppConfig) -> Result<(), String> {
     if !(1..=4096).contains(&config.voices.max_profiles) {
         return Err("voices.max_profiles must be 1..=4096".into());
     }
-    let gguf = &config.providers.qwen3_gguf;
-    if !["cpu", "auto", "vulkan", "cuda"].contains(&gguf.device.as_str()) {
-        return Err(
-            "providers.qwen3_gguf.device must be one of: cpu, auto, vulkan, cuda".to_string(),
-        );
-    }
-    if gguf.max_concurrent != 1 {
-        return Err("providers.qwen3_gguf.max_concurrent must be 1: one model-owning worker serializes native inference".to_string());
-    }
-    if !(1..=1024).contains(&gguf.cache_entries) {
-        return Err("providers.qwen3_gguf.cache_entries must be between 1 and 1024".to_string());
-    }
-    if !(1..=1024).contains(&gguf.max_tokens) {
-        return Err("providers.qwen3_gguf.max_tokens must be between 1 and 1024".to_string());
-    }
-    if !(1..=256).contains(&gguf.threads) {
-        return Err("providers.qwen3_gguf.threads must be between 1 and 256".to_string());
-    }
-    if gguf.gpu_layers < -1 {
-        return Err("providers.qwen3_gguf.gpu_layers must be -1 (all) or >= 0".to_string());
-    }
-    if let Some(params) = &gguf.sampling.talker {
-        params.validate("providers.qwen3_gguf.sampling.talker")?;
-    }
-    if let Some(params) = &gguf.sampling.predictor {
-        params.validate("providers.qwen3_gguf.sampling.predictor")?;
-    }
-    if !["off", "report", "retry", "experimental_trim"].contains(&gguf.quality.policy.as_str()) {
-        return Err(
-            "providers.qwen3_gguf.quality.policy must be one of: off, report, retry, \
-             experimental_trim"
-                .to_string(),
-        );
-    }
-    if gguf.quality.max_retries > sonicboom::tts::quality::MAX_RETRIES_CEILING {
-        return Err(format!(
-            "providers.qwen3_gguf.quality.max_retries must be 0 or {} (unbounded regeneration is \
-             rejected)",
-            sonicboom::tts::quality::MAX_RETRIES_CEILING
-        ));
-    }
-    if gguf.model_dir.as_os_str().is_empty() {
-        return Err("providers.qwen3_gguf.model_dir must not be empty".to_string());
-    }
     let pocket = &config.providers.pocket_tts;
     if !["cpu", "auto"].contains(&pocket.device.as_str()) {
         return Err("providers.pocket_tts.device must be one of: cpu, auto \
@@ -662,31 +618,11 @@ mod tests {
     #[test]
     fn optional_providers_default_to_disabled() {
         let config = valid_config();
-        assert!(!config.providers.qwen3_gguf.enabled);
-        assert!(!config.providers.gpt_sovits.enabled);
+        assert!(!config.providers.pocket_tts.enabled);
+        assert!(!config.providers.reverb_tts.enabled);
+        assert!(config.providers.qwen3_gguf.is_none());
+        assert!(config.providers.gpt_sovits.is_none());
         assert!(validate(&config).is_ok());
-    }
-
-    #[test]
-    fn gguf_section_defaults_to_disabled_and_validates() {
-        let config = valid_config();
-        assert!(!config.providers.qwen3_gguf.enabled);
-        assert!(validate(&config).is_ok());
-        let mut config = valid_config();
-        config.providers.qwen3_gguf.device = "rocm".to_string();
-        assert!(validate(&config).is_err());
-        let mut config = valid_config();
-        config.providers.qwen3_gguf.device = "vulkan".to_string();
-        assert!(validate(&config).is_ok());
-        let mut config = valid_config();
-        config.providers.qwen3_gguf.max_concurrent = 2;
-        assert!(validate(&config).is_err());
-        let mut config = valid_config();
-        config.providers.qwen3_gguf.max_tokens = 0;
-        assert!(validate(&config).is_err());
-        let mut config = valid_config();
-        config.providers.qwen3_gguf.threads = 257;
-        assert!(validate(&config).is_err());
     }
 
     #[test]
@@ -698,10 +634,10 @@ mod tests {
         let mut config = valid_config();
         config.providers.pocket_tts.device = "rocm".to_string();
         assert!(validate(&config).is_err());
-        // A leftover [providers.gpt_sovits] section is tolerated and ignored.
+        // Leftover sections of retired providers are tolerated and ignored.
         let mut config = valid_config();
-        config.providers.gpt_sovits.enabled = true;
-        config.providers.gpt_sovits.device = Some("cuda".to_string());
+        config.providers.gpt_sovits = Some(Default::default());
+        config.providers.qwen3_gguf = Some(Default::default());
         assert!(validate(&config).is_ok());
     }
 }

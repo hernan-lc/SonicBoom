@@ -2,7 +2,7 @@ import { computed, getCurrentScope, onScopeDispose, ref, shallowRef, watch } fro
 import { ApiError } from '../services/http';
 import { monitorJob } from '../services/jobs';
 import { t, msg, uiError, errorMessage, type Message } from '../i18n';
-import type { Job, NormalizationMode, QualityReport, ReadingStyle } from '../services/contracts';
+import type { Job, NormalizationMode, ReadingStyle } from '../services/contracts';
 import type { Studio } from './useStudio';
 /**
  * Everything a generation needs, frozen at submission. `normalization` and `locale`
@@ -19,7 +19,7 @@ export type GenerationInput = Readonly<{
   locale?: string;
   reading_style?: ReadingStyle;
 }>;
-type ActiveGeneration = Readonly<{ jobId: string; input: GenerationInput; requestEpoch: number; preset: string }>;
+type ActiveGeneration = Readonly<{ jobId: string; input: GenerationInput; requestEpoch: number }>;
 /** One completed generation, retained for side-by-side comparison. */
 export interface GenerationResult {
   jobId: string;
@@ -28,9 +28,7 @@ export interface GenerationResult {
   durationSecs: number;
   text: string;
   language: string;
-  preset: string;
   seed?: string;
-  quality?: QualityReport;
   model: string;
   voice: string;
   /** The generated audio; the waveform player renders it directly. */
@@ -55,11 +53,6 @@ export function useSynthesis(studio: Studio) {
   let disposed = false;
   let epoch = 0;
   const canGenerate = computed(() => studio.selectedModel.value.ready && !!studio.voice.value);
-  /** Sampling overrides apply only to the Qwen3-TTS provider. */
-  const samplingFor = (model: string) =>
-    studio.selectedModel.value.provider === 'qwen3-gguf' && studio.selectedModel.value.id === model
-      ? studio.samplingParams.value
-      : undefined;
   function release(result: GenerationResult) {
     URL.revokeObjectURL(result.url);
   }
@@ -126,9 +119,7 @@ export function useSynthesis(studio: Studio) {
         durationSecs: result.audio_secs ?? 0,
         text: generation.input.text,
         language: generation.input.language,
-        preset: generation.preset,
         seed: result.context?.seed,
-        quality: result.quality,
         model: generation.input.model,
         voice: generation.input.voice,
       });
@@ -185,18 +176,16 @@ export function useSynthesis(studio: Studio) {
     control = new AbortController();
     const signal = control.signal;
     try {
-      const preset = studio.sampling.value.preset;
       const job = await studio.api.createJob(
         input.text,
         input.language,
         input.voice,
         input.cloned,
-        samplingFor(input.model),
         signal,
         { normalization: input.normalization, locale: input.locale, reading_style: input.reading_style },
       );
       if (disposed || requestEpoch !== epoch) return;
-      const generation = Object.freeze({ jobId: job.id, input, requestEpoch, preset });
+      const generation = Object.freeze({ jobId: job.id, input, requestEpoch });
       active.value = generation;
       await monitor(generation, signal);
     } catch (failure) {

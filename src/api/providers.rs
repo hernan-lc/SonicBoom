@@ -18,38 +18,6 @@ fn parse_device(raw: &str) -> DevicePreference {
     DevicePreference::parse(raw).unwrap_or(DevicePreference::Auto)
 }
 
-#[cfg(feature = "qwen-gguf")]
-pub fn map_qwen_gguf_config(
-    gguf: &crate::config::model::Qwen3GgufConfig,
-) -> sonicboom::tts::providers::qwen_gguf::provider::QwenGgufConfig {
-    use sonicboom::tts::providers::qwen_gguf::worker::Device;
-    sonicboom::tts::providers::qwen_gguf::provider::QwenGgufConfig {
-        enabled: gguf.enabled,
-        model_dir: crate::config::paths::resolve_model_dir(&gguf.model_dir),
-        device: match gguf.device.trim().to_ascii_lowercase().as_str() {
-            "cpu" => Device::Cpu,
-            "vulkan" => Device::Vulkan,
-            "cuda" => Device::Cuda,
-            _ => Device::Auto,
-        },
-        gpu_layers: gguf.gpu_layers,
-        threads: gguf.threads.max(1),
-        max_tokens: gguf.max_tokens.max(1),
-        cache_capacity: gguf.cache_entries.max(1),
-        allow_cpu_fallback: gguf.allow_cpu_fallback,
-        sampling: gguf.sampling.clone(),
-        quality: {
-            use sonicboom::tts::quality::{DetectionMode, QualityPolicy};
-            let mode = if gguf.quality.enabled {
-                DetectionMode::parse(&gguf.quality.policy).unwrap_or(DetectionMode::Report)
-            } else {
-                DetectionMode::Off
-            };
-            QualityPolicy::new(mode, gguf.quality.max_retries)
-        },
-    }
-}
-
 pub fn map_reverb_config(
     reverb: &crate::config::model::ReverbTtsConfig,
 ) -> sonicboom::tts::providers::reverb_tts::ReverbTtsConfig {
@@ -96,8 +64,6 @@ pub fn build_registry(
 ) -> TtsProviderRegistry {
     pool.sync_pocket_config(map_pocket_config(&config.providers.pocket_tts));
     pool.sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
-    #[cfg(feature = "qwen-gguf")]
-    pool.sync_gguf_config(map_qwen_gguf_config(&config.providers.qwen3_gguf));
     // Hot-reload path: no HF token at request time (public bundles need
     // none; gated bundles report an explicit auth error in status).
     pool.kick_ensure_if_needed(None);
@@ -119,10 +85,6 @@ pub async fn build_registry_for_state(state: &crate::AppState) -> TtsProviderReg
     state
         .providers
         .sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
-    #[cfg(feature = "qwen-gguf")]
-    state
-        .providers
-        .sync_gguf_config(map_qwen_gguf_config(&config.providers.qwen3_gguf));
     state.providers.kick_ensure_if_needed(None);
     let supertonic = Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
     if let Some(handle) = supertonic_handle(state).await {
@@ -153,9 +115,6 @@ pub async fn get_providers(
         registry.get("reverb-tts").map(|p| p.capabilities()),
     ]
     .into_iter()
-    .chain(
-        cfg!(feature = "qwen-gguf").then(|| registry.get("qwen3-gguf").map(|p| p.capabilities())),
-    )
     .collect::<Vec<_>>();
     let body = serde_json::json!({
         "providers": registry.statuses(),
@@ -188,12 +147,7 @@ pub async fn get_provider_status(
             ))
         }
         None => Err(crate::error::AppError::BadRequest(format!(
-            "unknown provider '{id}' (expected one of: supertonic, pocket-tts, reverb-tts{})",
-            if cfg!(feature = "qwen-gguf") {
-                ", qwen3-gguf"
-            } else {
-                ""
-            }
+            "unknown provider '{id}' (expected one of: supertonic, pocket-tts, reverb-tts)"
         ))),
     }
 }
@@ -217,9 +171,6 @@ pub fn provider_error_to_app(
         | ProviderErrorKind::DeviceUnavailable => {
             crate::error::AppError::ServiceUnavailable(error.message().to_string())
         }
-        ProviderErrorKind::InferenceFailed if error.message().contains("maximum frame limit without EOS") => {
-            crate::error::AppError::ServiceUnavailable("Generation reached the configured frame limit without EOS; audio was withheld. Use shorter text or increase providers.qwen3_gguf.max_tokens within its validated range.".into())
-        }
         ProviderErrorKind::InferenceFailed => {
             crate::error::AppError::internal(error.message().to_string())
         }
@@ -235,17 +186,14 @@ mod tests {
         let config = AppConfig::default();
         let pool = sonicboom::tts::providers::ProviderPool::new();
         let registry = build_registry(&config, None, &pool);
-        // The Candle provider is gone: no "qwen3" id may appear.
-        assert!(!registry.provider_ids().contains(&"qwen3".to_string()));
-        // GPT-SoVITS is retired: it must never appear as a provider id.
-        assert!(!registry.provider_ids().contains(&"gpt-sovits".to_string()));
-        #[cfg(feature = "qwen-gguf")]
+        // Retired providers must never appear as a provider id.
+        for retired in ["qwen3", "qwen3-gguf", "gpt-sovits"] {
+            assert!(!registry.provider_ids().contains(&retired.to_string()));
+        }
         assert_eq!(
             registry.provider_ids(),
-            vec!["pocket-tts", "qwen3-gguf", "reverb-tts", "supertonic"]
+            vec!["pocket-tts", "reverb-tts", "supertonic"]
         );
-        #[cfg(not(feature = "qwen-gguf"))]
-        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "reverb-tts", "supertonic"]);
         for status in registry.statuses() {
             if status.provider_id == "supertonic" {
                 assert_eq!(status.effective_device.as_deref(), Some("cpu"));
@@ -291,37 +239,6 @@ mod tests {
             sonicboom::tts::providers::types::ProviderStatusState::NotInstalled
         );
         assert_eq!(status.effective_device.as_deref(), Some("cpu"));
-        assert!(registry.get("supertonic").is_some());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[cfg(feature = "qwen-gguf")]
-    #[test]
-    fn enabling_gguf_without_weights_reports_not_installed() {
-        // Same hot-reload contract as the other native providers: enabled
-        // but no verified bundle means `not_installed`, and the 1.7B model
-        // stays routable to its owning provider while Supertonic keeps serving.
-        let dir =
-            std::env::temp_dir().join(format!("qwen-gguf-no-weights-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut config = AppConfig::default();
-        config.providers.qwen3_gguf.enabled = true;
-        config.providers.qwen3_gguf.model_dir = dir.clone();
-        let pool = sonicboom::tts::providers::ProviderPool::new();
-        pool.sync_gguf_config(map_qwen_gguf_config(&config.providers.qwen3_gguf));
-        let supertonic =
-            std::sync::Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
-        let registry = pool.registry(supertonic);
-        let status = registry.get("qwen3-gguf").unwrap().status();
-        assert!(status.enabled);
-        assert_eq!(
-            status.state,
-            sonicboom::tts::providers::types::ProviderStatusState::NotInstalled
-        );
-        assert_eq!(
-            registry.resolve_model("qwen3-tts-1.7b-base").unwrap().id(),
-            "qwen3-gguf"
-        );
         assert!(registry.get("supertonic").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }

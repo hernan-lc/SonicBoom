@@ -25,24 +25,14 @@ use crate::{
 /// provider. Unknown identifiers are rejected with `400` instead of
 /// silently using another model.
 pub use sonicboom::tts::providers::catalog::SUPPORTED_OPENAI_MODELS;
-use sonicboom::tts::providers::catalog::{ModelProvider, model_provider};
+use sonicboom::tts::providers::catalog::{ModelProvider, is_retired_model, model_provider};
 
 /// Whether `model` selects a voice-cloning provider (voice must be an
 /// authorized profile ID) rather than Supertonic built-in voices.
-/// The removed 0.6B Candle model is no longer a cloning model.
-/// Model IDs of the retired GPT-SoVITS provider. They are rejected with
-/// an explicit retired-model error, never silently rerouted to Pocket TTS
-/// or Supertonic.
-pub const RETIRED_GPT_SOVITS_MODELS: &[&str] = &[
-    "gpt-sovits-v2-onnx",
-    "gpt-sovits-v2pro-onnx",
-    "gpt-sovits-v2proplus-onnx",
-];
-
 pub fn is_cloning_model(model: &str) -> bool {
     matches!(
         model_provider(model),
-        Some(ModelProvider::QwenGguf | ModelProvider::PocketTts | ModelProvider::ReverbTts)
+        Some(ModelProvider::PocketTts | ModelProvider::ReverbTts)
     )
 }
 
@@ -157,16 +147,16 @@ fn default_format() -> String {
     "opus".to_string()
 }
 
-/// Validate the requested model identifier. Retired GPT-SoVITS IDs get
-/// an explicit retired-model error instead of the generic unknown-model
-/// message, and are never rerouted to another provider.
+/// Validate the requested model identifier. Retired IDs (GPT-SoVITS,
+/// Qwen3-TTS) get an explicit retired-model error instead of the generic
+/// unknown-model message, and are never rerouted to another provider.
 pub fn validate_model(model: &str) -> Result<(), AppError> {
     if SUPPORTED_OPENAI_MODELS.contains(&model) {
         Ok(())
-    } else if RETIRED_GPT_SOVITS_MODELS.contains(&model) {
+    } else if is_retired_model(model) {
         Err(AppError::BadRequest(format!(
-            "model '{model}' is retired (GPT-SoVITS was replaced by Pocket TTS); \
-             use one of: {}",
+            "model '{model}' is retired and no longer available; \
+             use 'reverb-tts' for voice cloning or one of: {}",
             SUPPORTED_OPENAI_MODELS.join(", ")
         )))
     } else {
@@ -232,7 +222,7 @@ pub fn map_voice(openai_voice: &str) -> Result<String, AppError> {
 }
 
 /// Synthesize speech with a cloning provider for `POST /v1/audio/speech`
-/// when `model` selects Qwen3-TTS or Pocket TTS. `voice` must be an
+/// when `model` selects a cloning provider. `voice` must be an
 /// authorized voice-profile ID owned by the calling token; the stored
 /// reference audio and transcript travel with the request.
 async fn post_speech_cloning(
@@ -264,13 +254,6 @@ async fn post_speech_cloning(
     let (profile, reference) =
         super::voices::owned_reference(state, profile_id.to_string(), token.rate_limit_key())
             .await?;
-    if profile.provider == "gpt-sovits" {
-        return Err(AppError::BadRequest(
-            "voice profile uses the retired GPT-SoVITS provider and is unavailable; recreate it \
-             as a pocket-tts profile (mode audio_prompt) from its stored reference audio"
-                .into(),
-        ));
-    }
     if profile.model_revision != super::voices::config_revision_for(&config, &profile.provider) {
         return Err(AppError::BadRequest(
             "voice profile belongs to an incompatible model revision; create a new profile".into(),
@@ -425,7 +408,6 @@ pub async fn get_models() -> impl IntoResponse {
         .iter()
         .map(|id| {
             let owned_by = match model_provider(id) {
-                Some(ModelProvider::QwenGguf) => "local:qwen3-gguf",
                 Some(ModelProvider::PocketTts) => "local:pocket-tts",
                 Some(ModelProvider::ReverbTts) => "local:reverb-tts",
                 _ => "local",
@@ -486,6 +468,7 @@ pub async fn get_voices(State(state): State<crate::AppState>) -> impl IntoRespon
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sonicboom::tts::providers::catalog::RETIRED_MODELS;
 
     #[test]
     fn supported_models_are_accepted() {
@@ -496,27 +479,28 @@ mod tests {
         for model in ["tts-1", "tts-1-hd", "supertonic-3"] {
             assert!(!is_cloning_model(model), "{model} must stay supertonic");
         }
-        for model in ["qwen3-tts-1.7b-base", "pocket-tts-en", "pocket-tts-es"] {
+        for model in ["pocket-tts-en", "pocket-tts-es", "reverb-tts"] {
             assert!(
                 is_cloning_model(model),
                 "{model} must route to a cloning provider"
             );
         }
-        // Retired GPT-SoVITS IDs are rejected, never rerouted.
-        for model in RETIRED_GPT_SOVITS_MODELS {
+        // Retired IDs are rejected with an explicit error, never rerouted.
+        for model in RETIRED_MODELS {
             assert!(!is_cloning_model(model), "{model} must stay retired");
-            assert!(validate_model(model).is_err(), "{model} must be rejected");
+            let Err(AppError::BadRequest(message)) = validate_model(model) else {
+                panic!("{model} must be rejected as a bad request");
+            };
+            assert!(message.contains("retired"), "{message}");
+            assert!(message.contains("reverb-tts"), "{message}");
         }
-        // The removed 0.6B Candle model is neither listed nor cloning.
-        assert!(validate_model("qwen3-tts-0.6b-base").is_err());
-        assert!(!is_cloning_model("qwen3-tts-0.6b-base"));
     }
 
     #[tokio::test]
     async fn model_ownership_and_feature_disabled_errors() {
         for (model, provider) in [
             ("tts-1", ModelProvider::Supertonic),
-            ("qwen3-tts-1.7b-base", ModelProvider::QwenGguf),
+            ("reverb-tts", ModelProvider::ReverbTts),
             ("pocket-tts-en", ModelProvider::PocketTts),
             ("pocket-tts-es", ModelProvider::PocketTts),
         ] {
@@ -536,7 +520,7 @@ mod tests {
             }
         }
         assert_eq!(model_provider("unknown"), None);
-        for model in RETIRED_GPT_SOVITS_MODELS {
+        for model in RETIRED_MODELS {
             assert_eq!(model_provider(model), None);
         }
         let response = get_models().await.into_response();
@@ -544,13 +528,13 @@ mod tests {
             .await
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let qwen = body["data"]
+        let reverb = body["data"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|model| model["id"] == "qwen3-tts-1.7b-base")
+            .find(|model| model["id"] == "reverb-tts")
             .unwrap();
-        assert_eq!(qwen["owned_by"], "local:qwen3-gguf");
+        assert_eq!(reverb["owned_by"], "local:reverb-tts");
     }
 
     #[test]
@@ -691,8 +675,8 @@ mod tests {
         let profile = sonicboom::tts::voices::VoiceProfile {
             id: uuid::Uuid::new_v4().to_string(),
             name: "Synthetic authorized fixture".into(),
-            provider: "qwen3-gguf".into(),
-            model: "qwen3-tts-1.7b-base".into(),
+            provider: "reverb-tts".into(),
+            model: "reverb-tts".into(),
             model_revision: "test".into(),
             language: "es".into(),
             clone_mode: "icl".into(),
@@ -714,7 +698,7 @@ mod tests {
             sample_rate: 24_000,
         };
         let request: SpeechRequest = serde_json::from_str(
-            r#"{"model":"qwen3-tts-1.7b-base","input":"Tengo 3 gatos el 26/10/2026","seed":7}"#,
+            r#"{"model":"reverb-tts","input":"Tengo 3 gatos el 26/10/2026","seed":7}"#,
         )
         .unwrap();
         let speech = request.speech(&config, &profile.language).unwrap();

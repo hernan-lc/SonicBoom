@@ -52,12 +52,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -96,10 +95,9 @@ jobs:
           fi
 
       # The default `playback` feature (rodio/cpal) links against ALSA on Linux.
-      # The default `qwen-gguf-vulkan` feature compiles ggml-vulkan, which
-      # needs the Vulkan SDK at build time (glslc, headers, SPIRV-Headers).
-      - name: Install ALSA and Vulkan development libraries
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan-dev vulkan-tools glslc spirv-headers
+      # The WebGPU execution provider loads the Vulkan loader at runtime.
+      - name: Install ALSA and the Vulkan loader
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan1
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -144,12 +142,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
@@ -182,7 +179,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
@@ -202,7 +198,7 @@ jobs:
       - name: Check Android feature graph
         run: |
           cargo tree --color never --locked --target aarch64-linux-android --no-default-features --features server,android-ort > android-tree.txt
-          if grep -E '(^|[ │├└─])(alsa|cpal|rodio|tao|tray-icon|ksni|sonicboom-qwen-llama|ash) v' android-tree.txt; then
+          if grep -E '(^|[ │├└─])(alsa|cpal|rodio|tao|tray-icon|ksni|ash) v' android-tree.txt; then
             echo 'Unexpected desktop or GPU dependency' >&2
             exit 1
           fi
@@ -210,8 +206,8 @@ jobs:
         run: cargo build --locked --target aarch64-linux-android --no-default-features --features server,android-ort --bin SonicBoom
       - name: Check optional Pocket provider
         run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,pocket-tts --bin SonicBoom
-      - name: Check optional Qwen CPU provider
-        run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,qwen-gguf --bin SonicBoom
+      - name: Check optional Reverb-TTS provider
+        run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,reverb-tts --bin SonicBoom
       - name: Validate official Android ORT artifact
         run: |
           curl --fail --location https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.24.3/onnxruntime-android-1.24.3.aar -o runtime.aar
@@ -235,21 +231,20 @@ jobs:
             args: --no-default-features
           - features: tiktools-plugin
             args: --no-default-features --features tiktools-plugin
-          - features: qwen-gguf
-            args: --no-default-features --features qwen-gguf
           - features: server,pocket-tts
             args: --no-default-features --features server,pocket-tts
-          - features: server,qwen-gguf,pocket-tts
-            args: --no-default-features --features server,qwen-gguf,pocket-tts
+          - features: server,reverb-tts
+            args: --no-default-features --features server,reverb-tts
+          - features: server,pocket-tts,reverb-tts
+            args: --no-default-features --features server,pocket-tts,reverb-tts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
@@ -266,69 +261,6 @@ jobs:
       - name: Clippy server provider feature combinations
         if: contains(matrix.features, 'server')
         run: cargo clippy --locked ${{ matrix.args }} --all-targets -- -D warnings
-
-  # Native GGUF/ONNX backend (opt-in feature, CPU llama.cpp build).
-  # Real-model and Vulkan hardware tests stay ignored/opt-in: this job
-  # compiles the backend and runs the offline unit tests only.
-  gguf:
-    name: Native GGUF backend (qwen-gguf)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Verify pinned native sources and manifests
-        shell: bash
-        run: python3 scripts/ci/preflight.py
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Install native build tools
-        run: sudo apt-get update && sudo apt-get install -y cmake g++
-
-      - name: Cache Cargo dependencies (gguf)
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: gguf-host-${{ hashFiles('vendor/**') }}
-          cache-bin: 'false'
-          save-if: ${{ github.event_name != 'pull_request' }}
-
-      - name: Clippy (qwen-gguf)
-        run: cargo clippy --locked --no-default-features --features qwen-gguf --all-targets -- -D warnings
-
-      - name: Unit tests (qwen-gguf, offline)
-        run: cargo test --locked --no-default-features --features qwen-gguf --lib
-
-  vulkan:
-    name: Native Vulkan backend (Linux)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.12'
-      - name: Verify pinned native sources and manifests
-        run: python3 scripts/ci/preflight.py
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - name: Install Vulkan SDK build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ libvulkan-dev vulkan-tools glslc spirv-headers
-      - name: Compile and test explicit Vulkan backend (no GPU inference)
-        run: cargo test --locked --no-default-features --features qwen-gguf-vulkan --lib
 
   # The desktop tray on Linux is pure-Rust StatusNotifierItem (ksni): no GTK
   # system libraries are needed. Never reintroduce a GTK build dependency.
@@ -354,12 +286,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -388,20 +319,15 @@ jobs:
           cache-bin: 'false'
           save-if: ${{ github.event_name != 'pull_request' }}
 
-      - name: Install pinned Vulkan SDK (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/ci/install-vulkan.ps1
-
       - name: Install ALSA development libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan-dev vulkan-tools glslc spirv-headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan1
 
       - name: Linux GUI graph must not contain glib
         if: runner.os == 'Linux'
         run: |
           set -e
-          if cargo tree --locked --features gui,qwen-gguf-vulkan --target x86_64-unknown-linux-gnu -i glib 2>/dev/null | grep -q 'glib v'; then
+          if cargo tree --locked --features gui --target x86_64-unknown-linux-gnu -i glib 2>/dev/null | grep -q 'glib v'; then
             echo "ERROR: glib present in Linux GUI dependency graph" >&2
             exit 1
           fi
@@ -409,7 +335,7 @@ jobs:
 
       - name: Clippy (GUI)
         if: runner.os == 'Windows'
-        run: cargo clippy --locked --features gui,qwen-gguf-vulkan --target ${{ matrix.target }} --all-targets -- -D warnings
+        run: cargo clippy --locked --features gui --target ${{ matrix.target }} --all-targets -- -D warnings
 
       # ort/copy-dylibs can copy only beside the profile root when Windows
       # symlinks are unavailable (cache and checkout live on different drives).
@@ -420,10 +346,10 @@ jobs:
         run: '"${{ github.workspace }}/target/${{ matrix.target }}/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
 
       - name: Test (GUI)
-        run: cargo test --locked --features gui,qwen-gguf-vulkan --target ${{ matrix.target }}
+        run: cargo test --locked --features gui --target ${{ matrix.target }}
 
       - name: Build release (GUI)
-        run: cargo build --release --locked --features gui,qwen-gguf-vulkan --target ${{ matrix.target }}
+        run: cargo build --release --locked --features gui --target ${{ matrix.target }}
 
       - name: Package release binary (case-sensitive existence check)
         run: python scripts/release/package.py --target ${{ matrix.target }}
@@ -438,12 +364,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
@@ -474,12 +399,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
@@ -510,17 +434,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
-      # Static CUDA wiring only: features, Docker stages, pinned base images,
-      # native CMake/NCCL policy and runtime packaging. Never invokes NVCC.
+      # Static CUDA wiring only: features, Docker stages, pinned base images
+      # and runtime packaging. Never invokes NVCC.
       - name: CUDA configuration check (static, no NVCC/Docker)
         run: python3 scripts/ci/cuda_structure.py
 
@@ -531,12 +454,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 
@@ -605,12 +527,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Verify pinned native sources and manifests
+      - name: Verify Cargo manifests and Docker inputs
         shell: bash
         run: python3 scripts/ci/preflight.py
 

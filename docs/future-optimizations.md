@@ -1,9 +1,15 @@
 # Future optimization backlog
 
+> **Retired providers.** Qwen3-TTS (GGUF/ONNX and Candle) and Pocket TTS were
+> removed; only Supertonic and Reverb-TTS remain. The Qwen and Pocket sections
+> below are archived measurements and tuning notes for code that no longer
+> exists (their environment variables, examples and flags are gone). They are
+> kept for historical reference only.
+
 Current state (validated 2026-11-18, AMD BC-250 / RADV, Supertonic 3, voice F1):
 
 - ONNX inference uses ORT's WebGPU EP by default — Vulkan on Linux — with automatic CPU fallback (`SONICBOOM_EP=cpu` forces CPU).
-- Supertonic and Pocket TTS share this policy; the int8 Qwen ONNX codecs run on CPU (see *Startup optimizations*); Qwen GGUF uses llama.cpp Vulkan.
+- Supertonic and Reverb-TTS share this policy (archived: Pocket TTS and Qwen, see the note above).
 - Measured Supertonic latency, 5 denoising steps: CPU ~1.6 s vs Vulkan ~0.36–0.44 s (~3.7–4.4×). CPU/Vulkan waveform difference: `max 7.4e-5`, `mean 1e-6` with a fixed seed.
 - Manual end-to-end RTF across all models is acceptable, so the items below are
   **improvements, not blockers**. Benchmark each one before enabling it.

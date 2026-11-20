@@ -1,7 +1,7 @@
 # Android implementation audit
 
 - `Cargo.toml`: desktop defaults previously included server, GUI, rodio playback,
-  Pocket and Qwen/Vulkan. `server` itself did not activate these. Added `web-ui`
+  Pocket and Qwen/Vulkan (Qwen was later removed). `server` itself did not activate these. Added `web-ui`
   to desktop defaults, moved frontend build behind it, and added `android-ort`.
   Android target dependencies select ORT API 24/dynamic loading and Rustls HTTP
   TLS; desktop dependency defaults remain intact. TikTools still selects neither
@@ -20,11 +20,8 @@
   pending). Android Supertonic sessions default to two CPU threads, configurable
   without changing diffusion steps/output quality. Playback capability already
   reports compile-time exclusion correctly.
-- `src/tts/providers`: Supertonic/Pocket/Qwen ONNX paths now explicitly initialize
+- `src/tts/providers`: Supertonic/Pocket ONNX paths now explicitly initialize
   the runtime before session construction. No provider is reimplemented.
-- `native/qwen-llama`: CPU CMake already disables OpenMP, GPU backends by default
-  and host CPU tuning. Android now links `c++_shared`, avoiding GNU `stdc++` and
-  a separate pthread library. Vendor sources remain pinned by submodule.
 - Existing SIGINT/SIGTERM shutdown and atomic downloads/configuration are retained.
 - Native execution evidence belongs in the results file; an NDK check alone does
   not establish model/runtime compatibility or Android GPU acceleration.

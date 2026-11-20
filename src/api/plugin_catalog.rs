@@ -35,7 +35,6 @@ pub async fn providers(
                 "supertonic" => "Supertonic",
                 "pocket-tts" => "Pocket TTS",
                 "reverb-tts" => "Reverb-TTS",
-                "qwen3-gguf" => "Qwen3-TTS GGUF",
                 _ => "Unknown provider",
             };
             let ready = s.state == ProviderStatusState::Ready;

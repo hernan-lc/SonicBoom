@@ -306,8 +306,8 @@ mod tests {
     fn input() -> NewVoiceProfile {
         NewVoiceProfile {
             name: "mine".to_string(),
-            provider: "qwen3-gguf".to_string(),
-            model: "qwen3-tts-1.7b-base".to_string(),
+            provider: "reverb-tts".to_string(),
+            model: "reverb-tts".to_string(),
             model_revision: "rev".to_string(),
             language: "ja".to_string(),
             clone_mode: "icl".to_string(),
@@ -335,6 +335,53 @@ mod tests {
         assert_eq!(store.list().len(), 1);
         assert!(store.delete(&profile.id).unwrap());
         assert!(store.get(&profile.id).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn manifests_with_retired_providers_still_load_list_and_delete() {
+        // Exactly what older servers persisted for engines that were removed:
+        // free-form provider/model/mode strings that must keep deserializing.
+        let dir = std::env::temp_dir().join(format!("voices-retired-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut manifest = serde_json::Map::new();
+        let mut ids = Vec::new();
+        for (provider, model, mode) in [
+            ("qwen3-candle", "qwen3-tts-0.6b-base", "x_vector"),
+            ("qwen3-gguf", "qwen3-tts-1.7b-base", "icl"),
+            ("gpt-sovits", "gpt-sovits-v2pro-onnx", "icl"),
+            ("some-future-provider", "any-model", "any_mode"),
+        ] {
+            let id = uuid::Uuid::new_v4().to_string();
+            manifest.insert(
+                id.clone(),
+                serde_json::json!({
+                    "id": id, "name": provider, "provider": provider, "model": model,
+                    "model_revision": "old", "language": "es", "clone_mode": mode,
+                    "reference_hash": "h", "reference_sample_rate": 24000,
+                    "reference_duration_secs": 3.0, "transcript": null,
+                    "owner_token_hash": "owner",
+                    "consent": {"basis": "owner", "note": "", "created_at": now},
+                    "created_at": now, "updated_at": now
+                }),
+            );
+            ids.push(id);
+        }
+        std::fs::write(
+            VoiceProfileStore::manifest_path(&dir),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let mut store = VoiceProfileStore::open(dir.clone()).unwrap();
+        assert_eq!(store.list().len(), ids.len());
+        assert_eq!(store.get(&ids[0]).unwrap().clone_mode, "x_vector");
+        assert!(store.delete(&ids[0]).unwrap());
+        // The deletion is persisted and the other old profiles survive it.
+        let reopened = VoiceProfileStore::open(dir.clone()).unwrap();
+        assert_eq!(reopened.list().len(), ids.len() - 1);
+        assert!(reopened.get(&ids[0]).is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -10,16 +10,15 @@ import zipfile
 
 import package
 
-BUILD_INFO = {'features': ['gui', 'qwen-gguf', 'qwen-gguf-vulkan'],
-              'native_backends': ['cpu', 'vulkan'], 'runtime_backends': 'cpu'}
+BUILD_INFO = {'features': ['gui', 'pocket-tts', 'reverb-tts', 'webgpu']}
 
 
 class PackagingTests(unittest.TestCase):
-    def test_rejects_cpu_only_or_unregistered_executables(self):
+    def test_rejects_executables_missing_release_features(self):
         package.validate_build_info(BUILD_INFO)
         for invalid in [{**BUILD_INFO, 'features': ['gui']},
-                        {**BUILD_INFO, 'native_backends': ['cpu']},
-                        {**BUILD_INFO, 'runtime_backends': ''}]:
+                        {**BUILD_INFO, 'features': ['gui', 'pocket-tts', 'reverb-tts']},
+                        {}]:
             with self.assertRaises(RuntimeError):
                 package.validate_build_info(invalid)
 
@@ -81,9 +80,6 @@ class PackagingTests(unittest.TestCase):
             (root / 'docs').mkdir()
             for path in ('LICENSE', 'README.md', 'docs/RELEASING.md', 'models.sha256.json'):
                 (root / path).write_text('documentation')
-            (root / 'vendor/llama.cpp/ggml').mkdir(parents=True)
-            (root / 'vendor/llama.cpp/LICENSE').write_text('llama license fixture')
-            (root / 'vendor/llama.cpp/ggml/LICENSE').write_text('ggml license fixture')
             (root / 'tokens.json').write_text('must never ship')
             for target, name, asset in [
                 ('x86_64-unknown-linux-gnu', 'SonicBoom', package.ASSETS[0]),
@@ -127,8 +123,6 @@ class PackagingTests(unittest.TestCase):
                         self.assertIn(b'exec "$APP_DIR/SonicBoom" "$@"', archive.extractfile('sonicboom').read())
                 self.assertNotIn('tokens.json', names)
                 self.assertIn('LICENSE', names)
-                self.assertIn('licenses/llama.cpp/LICENSE', names)
-                self.assertIn('licenses/llama.cpp/ggml/LICENSE', names)
                 self.assertIn('docs/RELEASING.md', names)
 
 

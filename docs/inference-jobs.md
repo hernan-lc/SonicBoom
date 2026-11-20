@@ -19,7 +19,7 @@ no-store`; completed audio additionally uses `private, no-store`.
 | --- | --- |
 | `POST /api/tts/jobs?voice=F1&lang=en&format=wav` | `text/plain`; regular Supertonic synthesis; returns `202` with job ID/status |
 | `POST /api/tts/jobs?profile={owned-profile-id}&lang=en&format=wav` | `text/plain`; uses the authorized profile's provider, model, mode and reference |
-| `POST /api/tts/jobs?...&provider={id}` | Routes synthesis to that engine (`supertonic`, `pocket-tts`, `qwen3-gguf`), like `/api/tts/play` |
+| `POST /api/tts/jobs?...&provider={id}` | Routes synthesis to that engine (`supertonic`, `pocket-tts`, `reverb-tts`), like `/api/tts/play` |
 | `POST /api/tts/jobs?...&playback=enqueue[&play_now=true]` | Also admits the completed audio to the server playback queue; `play_now` interrupts current audio |
 | `POST /api/tts/jobs` + `Idempotency-Key: <key>` header | A repeat returns the original job (`200`); reuse for a different request is `409` |
 | `GET /api/tts/jobs/{id}` | Current status, timestamps, measured frame count, elapsed time, stage durations and actual execution context |
@@ -113,7 +113,7 @@ Jobs begin `queued`, progress through observable `preparing`, `generating`,
 Backend stages without an available hook remain within the enclosing measured
 native stage: Pocket TTS reports sentence-level generation, including its
 Mimi decoding, rather than inventing fine-grained progress. Frame counts refer to
-Qwen codec frames; Supertonic denoising iterations are not labeled frames.
+codec frames; Supertonic denoising iterations are not labeled frames.
 
 Long-form requests are segmented after exactly-once normalization through the
 shared policy interface (`src/tts/segmentation.rs`; Supertonic uses the
@@ -161,9 +161,8 @@ Jobs and their outputs are process-local. Restart/shutdown/retention expiry
 makes old IDs unavailable (`404`); jobs do not resume after restart. Shutdown
 requests cancellation of active jobs. Graceful shutdown and resource ownership
 wait for native work to return. Native kernels cannot be forcibly interrupted;
-Qwen checks between frames, acoustic predictions and preparation layers;
 Supertonic checks between denoising steps/chunks; Pocket TTS checks between
-autoregressive frames and sentences. A blocked native kernel must
+autoregressive frames and sentences; Reverb-TTS checks between sampler passes. A blocked native kernel must
 be diagnosed through elapsed state and worker warnings, never killed unsafely.
 
 ## Progress and streaming
@@ -176,9 +175,8 @@ terminal errors, restores controls, preserves Cancel/Resume monitoring after
 connection failures, and fetches playable/downloadable audio
 only after completion.
 
-This is progress streaming, not incremental cloned audio streaming. The pinned
-Qwen streaming sessions do not expose a safe reference-cloning API equivalent
-to full ICL decoding with reference context. Audio remains a completed artifact.
+This is progress streaming, not incremental cloned audio streaming. Audio
+remains a completed artifact.
 
 Completed status includes measured `audio_secs` and `rtf` when available.
 Job RTF uses total elapsed wall time, including queue and preparation, divided

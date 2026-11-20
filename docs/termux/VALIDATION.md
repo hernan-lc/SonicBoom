@@ -10,7 +10,6 @@ audio, proot, Docker or Python inference runtime was involved.
 | Official Android ORT 1.24.3 / API 24 | Load, initialize, run/destroy/recreate real ONNX sessions, normal exit: passed |
 | Supertonic 3 | Both HTTP synthesis APIs, audible 44.1 kHz mono PCM16 WAV: passed |
 | Pocket English | Real reference-conditioned synthesis, audible 24 kHz mono WAV: passed |
-| Qwen CPU | Compile, link `libc++_shared.so`, discover CPU backend, reject missing/corrupt GGUF: passed |
 | Core Rust tests | 359 passed, four tests explicitly ignored |
 | Android Clippy | All targets with `-D warnings`: passed (upstream ORT API-24 dependency warnings remain) |
 | Optional-provider and TikTools builds | `cargo check --all-targets`: passed |
@@ -82,9 +81,8 @@ optimization comparison or a performance guarantee.
 Additional evidence:
 
 - [Pocket English synthesis](results/android16-pocket-en.json).
-- [Qwen CPU linking/backend/error checks](results/android16-qwen-backend.json).
 
-Qwen real-model speech synthesis, physical disk-full testing and Android Vulkan
+Physical disk-full testing and Android Vulkan
 execution remain unvalidated. No Android GPU acceleration is claimed.
 
 ## PR review follow-up (2026-10-22)

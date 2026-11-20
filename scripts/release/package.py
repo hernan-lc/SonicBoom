@@ -23,11 +23,9 @@ def digest(path):
 
 
 def validate_build_info(info):
-    required = {'gui', 'qwen-gguf', 'qwen-gguf-vulkan'}
-    if not required.issubset(info.get('features', [])) or info.get('native_backends') != ['cpu', 'vulkan']:
-        raise RuntimeError('Official releases require gui,qwen-gguf-vulkan and native CPU + Vulkan')
-    if 'cpu' not in info.get('runtime_backends', '').splitlines():
-        raise RuntimeError('Native CPU backend registration failed')
+    required = {'gui', 'pocket-tts', 'reverb-tts', 'webgpu'}
+    if not required.issubset(info.get('features', [])):
+        raise RuntimeError('Official releases require the gui, pocket-tts, reverb-tts and webgpu features')
 
 
 def package(target, output):
@@ -62,21 +60,12 @@ def package(target, output):
         # Carry upstream license/notice files for resolved target dependencies.
         metadata = json.loads(subprocess.check_output([
             'cargo', 'metadata', '--locked', '--format-version', '1',
-            '--features', 'gui,qwen-gguf-vulkan', '--filter-platform', target], cwd=ROOT))
+            '--features', 'gui', '--filter-platform', target], cwd=ROOT))
         notices = stage / 'licenses'
         notices.mkdir()
         native_notices = ROOT / 'licenses/onnxruntime'
         if native_notices.is_dir():
             shutil.copytree(native_notices, notices / 'onnxruntime')
-        # The native wrapper builds pinned llama.cpp/ggml outside Cargo's
-        # package graph. Carry those upstream notices explicitly.
-        llama = ROOT / 'vendor/llama.cpp'
-        for source in sorted(llama.glob('LICENSE*')) + sorted((llama / 'ggml').rglob('LICENSE*')):
-            if not source.is_file():
-                continue
-            destination = notices / 'llama.cpp' / source.relative_to(llama)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
         inventory = []
         for pkg in sorted(metadata['packages'], key=lambda p: p['id']):
             home = Path(pkg['manifest_path']).parent

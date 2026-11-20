@@ -1,7 +1,7 @@
 //! Native TTS provider framework.
 //!
 //! Object-safe provider contract shared by Supertonic 3 (default),
-//! Qwen3-TTS 1.7B GGUF/ONNX (opt-in) and Pocket TTS (ONNX, opt-in). All inference runs in the SonicBoom
+//! Pocket TTS (ONNX, opt-in) and Reverb-TTS (ONNX, opt-in). All inference runs in the SonicBoom
 //! process: non-`Send` model internals are encapsulated in dedicated
 //! in-process worker threads with bounded channels, never subprocesses.
 
@@ -9,11 +9,9 @@ pub mod assets;
 pub mod catalog;
 pub mod error;
 pub mod pocket_tts;
-pub mod reverb_tts;
 pub mod pool;
-#[cfg(feature = "qwen-gguf")]
-pub mod qwen_gguf;
 pub mod registry;
+pub mod reverb_tts;
 pub mod supertonic;
 pub mod types;
 pub mod worker;
@@ -33,7 +31,7 @@ pub use types::{
 /// inside the provider behind a worker/mutex so concurrent callers can
 /// never observe or corrupt each other's reference data.
 pub trait TtsProvider: Send + Sync {
-    /// Stable provider identifier, e.g. `supertonic`, `qwen3-gguf`, `pocket-tts`.
+    /// Stable provider identifier, e.g. `supertonic`, `pocket-tts`, `reverb-tts`.
     fn id(&self) -> &'static str;
     /// Static capability metadata (models, languages, modes, devices).
     fn capabilities(&self) -> ProviderCapabilities;

@@ -155,11 +155,11 @@ mod tests {
     #[test]
     fn model_invalidation_drops_only_that_revision() {
         let mut cache = ConditioningCache::new(8);
-        let k1 = ConditioningCache::cache_key("qwen3", "rev1", "h", None, "x_vector");
-        let k2 = ConditioningCache::cache_key("qwen3", "rev2", "h", None, "x_vector");
+        let k1 = ConditioningCache::cache_key("other", "rev1", "h", None, "icl");
+        let k2 = ConditioningCache::cache_key("other", "rev2", "h", None, "icl");
         cache.insert(k1.clone(), vec![1]);
         cache.insert(k2.clone(), vec![2]);
-        cache.invalidate_model("qwen3", "rev1");
+        cache.invalidate_model("other", "rev1");
         assert!(cache.get(&k1).is_none());
         assert_eq!(cache.get(&k2), Some(vec![2]));
     }

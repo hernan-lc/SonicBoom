@@ -1,11 +1,9 @@
 # Native inference ownership and cache policy
 
-SonicBoom remains Rust-native: Qwen 1.7B uses GGUF (llama.cpp) plus ONNX
-Runtime, Pocket TTS and Supertonic use ONNX Runtime. No Python/PyTorch
-runtime or model subprocess is introduced. The llama.cpp dependency is a
-pinned submodule; the GGUF/ONNX bundle revision is recorded in
-`src/tts/providers/qwen_gguf/models.rs`. (The former Candle Qwen backend
-and its vendored dependency were removed.)
+SonicBoom remains Rust-native: Supertonic, Pocket TTS and Reverb-TTS use ONNX
+Runtime. No Python/PyTorch runtime or model subprocess is introduced. (The
+former Qwen3-TTS backends, Candle and GGUF/llama.cpp, were removed together with
+their vendored dependencies.)
 
 ## Ownership and lock ordering
 
@@ -16,15 +14,12 @@ native work. Admission/reference preparation permits are shared leases retained
 by actual blocking preparation and encoding, so dropping an HTTP future cannot
 release capacity while that work continues.
 
-Qwen owns its model and prompts on one dedicated thread, with a two-command
-bounded channel and one-message bounded replies. Worker reply waits are off
-Tokio executors, emit a watchdog warning after 30 seconds during controlled
-API inference, and retain permits
-until acknowledged computation ends. Cancellation/deadlines reach the vendored
-generation loop, including individual acoustic predictions. Panics in synthesis
-retire the damaged model; lost workers can be replaced. Release builds unwind
-panics so the job owner can report terminal failure. Normal inference errors and
-cancellation preserve healthy shared weights.
+Pocket TTS owns its model and prompts on one serialized model transaction, and
+Reverb-TTS on its own ONNX sessions. Worker reply waits are off Tokio executors
+and retain permits until acknowledged computation ends. Cancellation/deadlines
+reach the generation loops. Panics in synthesis retire the damaged model. Release
+builds unwind panics so the job owner can report terminal failure. Normal
+inference errors and cancellation preserve healthy shared weights.
 
 Provider lock order is lifecycle -> heavyweight construction resource ->
 model/worker -> short state/config locks. Conditioning and synthesis are one
@@ -33,8 +28,8 @@ are acquired only on blocking threads; a bounded two-second advisory file lock
 serializes manifest mutations across server instances.
 
 Large optional model construction is serialized across providers. Each provider
-loads once, and retired Qwen workers are joined before replacement. A failed
-Qwen load does not poison construction for Pocket TTS. Keep sufficient free RAM
+loads once. A failed load of one provider does not poison construction for
+another. Keep sufficient free RAM
 for every enabled resident model; this is not an automatic offloading policy.
 
 ## Configuration versions and reloads
@@ -44,11 +39,10 @@ older versions, preventing an old request from reverting a newer model choice.
 Busy reconfiguration is recorded and retried by one coordinator; active model
 work finishes before retirement. Background loaders compare model identity
 (model directory, model ID/revision, enablement and device), reject obsolete
-candidates, and do not discard a compatible load for a sampling/cache-only
-change. Maximum-frame/cache/sampling changes preserve loaded weights.
+candidates, and do not discard a compatible load for a cache-only
+change. Cache changes preserve loaded weights.
 
-Providers are serialized: `providers.qwen3.max_concurrent` and
-`providers.pocket_tts.max_concurrent` must be **1**. Older values that implied
+Providers are serialized: `providers.pocket_tts.max_concurrent` must be **1**. Older values that implied
 parallel model execution were never effective; set them to 1 before upgrading.
 Global admission can still allow distinct providers to run concurrently.
 
@@ -73,16 +67,7 @@ written into these records. Native offline loads use the same integrity pins.
 
 ## Voice caches
 
-The GGUF/ONNX backend (`qwen3-gguf`, opt-in build) mirrors the same ownership
-shape: one native worker thread owns the GGUF contexts, ONNX sessions,
-embeddings and tokenizer; requests cross as plain data; `Drop` joins the
-owner thread so cancellation never releases the model mid-computation. Its
-reference cache keys on backend id, pinned model revision, voice identity,
-reference hash, transcript and cloning mode, and is cleared at safe
-boundaries on voice invalidation. GPU initialization failures fall back to
-CPU before any synthesis, and the fallback reason travels in provider status.
-
-Each native worker promotes conditioning on preparation/synthesis access and
+Each native provider promotes conditioning on preparation/synthesis access and
 evicts least recently used entries. Entries are bounded by configured count (1..=1024)
 and 64 MiB. Identity includes provider, reviewed implementation/model revision,
 model ID, decoded reference hash, sample-rate handling, transcript and cloning
@@ -90,12 +75,6 @@ mode. Profile-scoped keys isolate voices; ownership is checked before cache
 retrieval. An eagerly prepared identical prompt can be rebound without encoding
 again. Deletion logically invalidates the profile and retires artifacts at a
 safe worker boundary.
-
-The Qwen GGUF reference cache is additionally bounded by measured heap bytes
-(256 MiB default hard cap alongside the entry-count bound), with hit/miss,
-resident-byte and eviction counters. A single oversized entry is retained so
-synthesis can proceed, with the overshoot visible in stats; clones already
-handed to in-flight requests stay valid across eviction.
 
 The server caches one manifest plus a decoded-reference LRU (16 entries/64 MiB).
 Manifest and WAV identities detect changes, and create/delete operations keep
@@ -136,7 +115,7 @@ never blocks the next inference.
 ## Instrumentation and profiling
 
 Authenticated `/api/providers` includes actual selected device, model residency,
-load count and Qwen conditioning counters. Jobs expose measured stage durations (`generating`/`decoding`/`encoding` plus
+load count and conditioning counters. Jobs expose measured stage durations (`generating`/`decoding`/`encoding` plus
 `normalization` at enqueue and `queue_wait` until the executor starts),
 fragment progress (`fragments_total`/`fragments_done` in original order),
 frames, elapsed time, timestamps and actual provider/model/voice/device context.
@@ -144,25 +123,21 @@ Logs identify request paths and job IDs, not request bodies, query transcripts,
 credentials or recordings. No provider logs raw reference audio or transcripts
 independently of configured verbosity.
 
-Qwen logs prefill, acoustic prediction, talker, sampling and tokenizer decoding
-costs, generated frames, mean frame latency, EOS/max-frame reason, audio duration
-and RTF. Audio encoding executes off the async executor. Reproducible Rust
-benchmark tools and measurements are in `benchmarks/providers.md`; ordinary CI
-never needs multi-GB model downloads. The generation loop has EOS and frame
-limits; slowness is not an infinite loop. A max-frame result is explicitly
-withheld, with an actionable error, instead of silently truncating speech.
+Providers log generated frames, EOS/max-frame reason, audio duration and RTF.
+Audio encoding executes off the async executor. Reproducible Rust benchmark
+tools and measurements are in `benchmarks/providers.md`; ordinary CI never needs
+multi-GB model downloads. The generation loops have EOS and frame limits;
+slowness is not an infinite loop. A max-frame result is explicitly withheld,
+with an actionable error, instead of silently truncating speech.
 
 
 ### Reproducible profiling commands
 
 ```sh
-cargo run --release --no-default-features --features qwen --example cache_benchmark -- streaming models/qwen3-tts/model.safetensors
-# The cache example checks the pinned 0.6B model digest.
-QWEN_MODEL_DIR=./models/qwen3-tts \
-  /usr/bin/time -v cargo run --release --no-default-features \
-  --features qwen-gguf,pocket-tts --example tts_benchmark -- all
+# Offline per-provider audit (see benchmarks/tts-quality/README.md):
+cargo run --release --bin tts-quality-audit -- --help
 # Linux perf needs host permission and symbols; profile the built binary:
-perf record -g target/release/examples/tts_benchmark all
+perf record -g target/release/SonicBoom
 perf report
 ```
 
@@ -173,36 +148,13 @@ Do not compare the historical two-CPU audit numbers with this machine as if
 only software changed.
 
 
-## Baseline revalidation
+## Quality detection (offline tooling)
 
-Latest main at inspection was `0a350b162249f9e8d5973e8471b8ac3fcbf54124`,
-the same revision as the audit. The default 120-second response timeout,
-absence of native Qwen cancellation/progress, blocking worker replies,
-whole-file optional-model hashing, insertion-order worker prompt eviction,
-repeated reference decoding, optional-provider reload races, CPU-only Auto,
-ignored hardware tests, and misleading provider concurrency knobs were
-present. The shared HTTP gate already retained its permit in blocking work;
-this refactor preserves that ownership and adds true cooperative stopping.
-The generic `ConditioningCache` already implemented LRU, but Qwen's actual
-worker prompt cache did not use its access promotion. Supertonic already had
-a versioned manager; optional providers needed corresponding safeguards.
-Qwen already stopped on EOS or a maximum frame count; it was not an infinite
-loop. Real-model tests remain opt-in to keep ordinary CI independent of weights.
-
-## Quality detection cost and ownership (2026-10-17)
-
-Deterministic quality detection (`src/tts/quality/`) runs on the owning worker
-thread, after decode, before the response is published. It is two O(n) passes
-over the already-resident PCM buffer (health measurements plus a first-difference
-scan for impulses and chunk seams) and adds no allocation of PCM. Reference-echo
-detection is text-only in the request path and makes no claim without an offline
-ASR transcript; ASR is a benchmark/offline dependency and is never run during
-generation. Detection is off by default (`[providers.qwen3_gguf.quality]
-enabled=false`), so the default latency profile is unchanged.
-
-The report travels through `InferenceControl::set_quality` into `JobStatus.quality`
-— the same per-request control object that already carries seed, device and stage
-progress. No audio is copied across the boundary, no detector state leaks between
-requests, and a bounded (≤1) regeneration attempt reuses the cached conditioning
-so it does not re-run speaker/codec preparation. Checks complete before audio is
-queued for playback; a cancelled or deadline-exceeded request is never retried.
+Deterministic quality detection (`src/tts/quality/`) is two O(n) passes over
+already-resident PCM (health measurements plus a first-difference scan for
+impulses and chunk seams). It no longer runs in the request path: the server
+uses only the audio-health analysis for the non-destructive reference-health
+report returned when a voice profile is created, and `tts-quality-audit` runs
+the full pass (including reference-echo detection when an offline ASR transcript
+is supplied) over directly synthesized audio. ASR is a benchmark/offline
+dependency and is never run during generation.

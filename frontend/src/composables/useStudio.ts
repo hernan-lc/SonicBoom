@@ -1,5 +1,4 @@
 import { computed, inject, onMounted, onUnmounted, ref, shallowRef, watch, type InjectionKey } from 'vue';
-import { samplingQuery, samplingErrors } from '../features/speech/generationSchemas';
 import { isCancelledError } from '@tanstack/vue-query';
 import { createResourceCache } from '../app/queryClient';
 import { createHttpClient } from '../services/http';
@@ -17,12 +16,6 @@ import type {
   AudioDevice,
 } from '../services/contracts';
 import { errorMessage, type Message } from '../i18n';
-import {
-  DEFAULT_SAMPLING,
-  loadSampling,
-  persistSampling,
-  type SamplingState,
-} from '../features/speech/samplingStorage';
 import { STUDIO_FAST_MS, slowRefreshDue } from './studioRefresh';
 import { useModelCatalog } from './useModelCatalog';
 import { useSettingsActions } from './useSettingsActions';
@@ -31,8 +24,6 @@ import { usePronunciation } from './usePronunciation';
 // Re-exported so existing consumers keep a single studio entry point.
 export { getPath, nestedChange } from '../services/configPaths';
 export { STUDIO_FAST_MS, STUDIO_SLOW_EVERY, slowRefreshDue } from './studioRefresh';
-export { DEFAULT_SAMPLING, type SamplingState } from '../features/speech/samplingStorage';
-export { samplingQuery } from '../features/speech/generationSchemas';
 
 export function createStudio(data: HomeData, overrides?: { api?: Api }) {
   const token = ref('');
@@ -54,13 +45,6 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
   const language = ref('en');
   const text = ref('');
   const preview = ref(0);
-  const sampling = ref<SamplingState>(loadSampling());
-  watch(sampling, (value) => persistSampling({ ...value }), { deep: true });
-  const samplingIssues = computed(() => samplingErrors(sampling.value, info.value?.synthesis?.sampling));
-  const samplingParams = computed(() => samplingQuery(sampling.value, info.value?.synthesis?.sampling));
-  function resetSampling() {
-    sampling.value = { ...DEFAULT_SAMPLING };
-  }
   const {
     normalizationAvailable,
     normalizationMode,
@@ -295,10 +279,6 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
     language,
     text,
     preview,
-    sampling,
-    samplingIssues,
-    samplingParams,
-    resetSampling,
     normalizationAvailable,
     normalizationMode,
     pronunciationLocale,
