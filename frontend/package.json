@@ -14,7 +14,7 @@
     "lint:fix": "biome lint --write src",
     "check": "biome check src",
     "check:fix": "biome check --write src",
-    "typecheck": "node scripts/check-i18n.mjs && node --experimental-strip-types scripts/check-guides.mjs && vue-tsc --noEmit",
+    "typecheck": "node scripts/check-i18n.mjs && node --experimental-strip-types scripts/check-guides.mjs && node scripts/check-ui-text.mjs && vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "test": "node --experimental-strip-types --import ./tests/register-resolver.mjs --import ./tests/setup-dom.mjs --test tests/cloneValidation.test.ts tests/studioRefresh.test.ts tests/synthesisIsolation.test.ts tests/guidesProgress.test.ts tests/guidesRegistry.test.ts tests/guidesRunner.test.ts && node --test tests/engineCard.test.mjs",
     "test:unit": "vitest run",

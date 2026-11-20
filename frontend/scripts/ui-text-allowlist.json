@@ -1,0 +1,13 @@
+[
+  "API authentication mode: local (no auth, loopback only), token (bearer required), none (development only)",
+  "Devices are enumerated from this machine. Select\n    \"System Default\" to follow the OS default.",
+  "Devices are enumerated from this machine. Select \"System Default\" to follow the OS default.",
+  "Local mode always requires loopback. Insecure remote mode\n    requires an explicit security.allow_insecure_remote option.",
+  "Local mode always requires loopback. Insecure remote mode requires an explicit security.allow_insecure_remote option.",
+  "Voice deletion cannot be undone. Its stored reference audio is deleted. Existing generated files remain available; future requests using this profile will fail.",
+  "Settings changed on the server. Your draft is preserved. Review the current value before saving again.",
+  "Review the transcript to match the trimmed recording. The transcript has not been rewritten.",
+  "This voice belongs to an incompatible model revision or mode. Recreate it from a supported reference.",
+  "The server could not prepare this text. It may be too long, or its spoken form may exceed the allowed length. Shorten the text and try again.",
+  "The day and month can be read in either order, so the date was left as written. Choose a regional pronunciation to resolve it."
+]
