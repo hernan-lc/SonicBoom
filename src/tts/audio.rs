@@ -63,8 +63,8 @@ pub fn encode_audio(samples: &[f32], sample_rate: u32, format: AudioFormat) -> R
 }
 
 pub fn encode_opus(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>> {
-    // Upsample to 48000Hz (linear interpolation)
-    let resampled = resample_pcm_linear(samples, sample_rate, OUTPUT_SAMPLE_RATE);
+    // Upsample to 48000Hz (band-limited for low source rates, see below).
+    let resampled = resample_for_output(samples, sample_rate, OUTPUT_SAMPLE_RATE);
 
     let mut encoder = Encoder::new(OUTPUT_SAMPLE_RATE, Channels::Mono, Application::Audio)?;
 
@@ -109,6 +109,22 @@ pub fn resample_pcm_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec
         out.push(a + (b - a) * frac);
     }
     out
+}
+
+/// Resampling for the delivery stage (decoded PCM -> 48 kHz Opus).
+///
+/// Linear interpolation is acceptable when the source rate is close to the
+/// target (Supertonic, 44.1 -> 48 kHz), and stays exactly as before there. For
+/// sources at or below 36 kHz (Qwen and Pocket TTS, 24 kHz) a 2x linear
+/// upsample leaves spectral images at about -33 dB in 12-20 kHz, heard as hiss
+/// and harshness. Band-limited (windowed-sinc) interpolation pushes them below
+/// -100 dB without touching the passband.
+pub fn resample_for_output(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    if u64::from(from_rate) * 4 <= u64::from(to_rate) * 3 {
+        resample_reference(samples, from_rate, to_rate)
+    } else {
+        resample_pcm_linear(samples, from_rate, to_rate)
+    }
 }
 
 /// Conditioning identity includes the algorithm and filter parameters.
@@ -382,7 +398,7 @@ mod tests {
         use ogg::writing::PacketWriteEndInfo;
         use std::io::Cursor;
 
-        let resampled = resample_pcm_linear(samples, sample_rate, OUTPUT_SAMPLE_RATE);
+        let resampled = resample_for_output(samples, sample_rate, OUTPUT_SAMPLE_RATE);
         let mut encoder =
             Encoder::new(OUTPUT_SAMPLE_RATE, Channels::Mono, Application::Audio).unwrap();
         encoder.set_bitrate(opus::Bitrate::Bits(128000)).unwrap();
@@ -624,5 +640,61 @@ mod reference_resampling_tests {
         let input = tone(24000, 7000.0);
         assert_eq!(resample_reference(&input, 24000, 24000), input);
         assert!(resample_reference(&input, 0, 24000).is_empty());
+    }
+
+    /// Energy at `freq` via the Goertzel algorithm (relative units).
+    fn tone_energy(samples: &[f32], rate: f64, freq: f64) -> f64 {
+        let w = 2.0 * std::f64::consts::PI * freq / rate;
+        let coeff = 2.0 * w.cos();
+        let (mut s1, mut s2) = (0.0f64, 0.0f64);
+        for &x in samples {
+            let s0 = f64::from(x) + coeff * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+        (s1 * s1 + s2 * s2 - coeff * s1 * s2) / samples.len() as f64
+    }
+
+    #[test]
+    fn output_upsampling_of_24k_audio_has_no_spectral_images() {
+        // 24 kHz "voice": tones at 2, 5, 8 and 10 kHz. A 2x upsample must not
+        // create images at 24 kHz minus each tone (22, 19, 16, 14 kHz).
+        let input: Vec<f32> = (0..24_000)
+            .map(|i| {
+                [2000.0f64, 5000.0, 8000.0, 10_000.0]
+                    .iter()
+                    .map(|f| (2.0 * std::f64::consts::PI * f * i as f64 / 24_000.0).sin() * 0.1)
+                    .sum::<f64>() as f32
+            })
+            .collect();
+        let linear = resample_pcm_linear(&input, 24_000, 48_000);
+        let output = resample_for_output(&input, 24_000, 48_000);
+        assert_eq!(output.len(), linear.len());
+        let passband = tone_energy(&output, 48_000.0, 5000.0);
+        for image in [22_000.0, 19_000.0, 16_000.0, 14_000.0] {
+            let linear_db = 10.0 * (tone_energy(&linear, 48_000.0, image) / passband).log10();
+            let output_db = 10.0 * (tone_energy(&output, 48_000.0, image) / passband).log10();
+            assert!(
+                linear_db > -45.0,
+                "linear should show the image at {image}: {linear_db}"
+            );
+            assert!(
+                output_db < -70.0,
+                "image at {image} Hz only {output_db} dB down"
+            );
+        }
+        // The passband tone keeps its level.
+        let linear_pass = tone_energy(&linear, 48_000.0, 2000.0);
+        let output_pass = tone_energy(&output, 48_000.0, 2000.0);
+        assert!((output_pass / linear_pass - 1.0).abs() < 0.25);
+    }
+
+    #[test]
+    fn output_resampling_keeps_linear_path_for_supertonic_rate() {
+        let input: Vec<f32> = (0..4410).map(|i| (i as f32 * 0.01).sin() * 0.3).collect();
+        assert_eq!(
+            resample_for_output(&input, 44_100, 48_000),
+            resample_pcm_linear(&input, 44_100, 48_000)
+        );
     }
 }

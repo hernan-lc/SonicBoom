@@ -64,7 +64,7 @@ Performance work planned after this Vulkan rollout is tracked in
 | Feature | Effect |
 |---|---|
 | (default) | Supertonic 3 + Pocket TTS compiled with Vulkan-first ONNX inference (`webgpu`); no weights fetched |
-| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic, Pocket TTS and Qwen ONNX codecs; CPU is the automatic fallback. Set `SONICBOOM_EP=cpu` to force CPU only. Ships in `default` |
+| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic and Pocket TTS; CPU is the automatic fallback. The int8 Qwen ONNX codecs run on CPU by default (the int8 graphs produce wrong audio on the WebGPU EP; `SONICBOOM_QWEN_CODEC_EP=gpu` exists only to reproduce that; `SONICBOOM_QWEN_CODEC_THREADS` and `SONICBOOM_QWEN_DECODER_CHUNK` tune decode speed, see `docs/future-optimizations.md`). Set `SONICBOOM_EP=cpu` to force CPU only; `SONICBOOM_WARMUP=0` skips the post-load GPU warm-up. Ships in `default` |
 | `qwen-gguf` | Qwen3-TTS 1.7B GGUF/ONNX provider, CPU (`device=cpu\|auto`) |
 | `qwen-gguf-vulkan` | Allow GGUF `device=vulkan` on Vulkan-capable GPUs (implies `qwen-gguf`; ships in `default`) |
 | `qwen-gguf-cuda` | Additionally allow GGUF `device=cuda` (NVIDIA only; implies `qwen-gguf`) |
