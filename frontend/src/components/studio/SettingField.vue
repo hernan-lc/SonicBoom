@@ -35,7 +35,7 @@ async function save() { if (conflict.value || localError.value) return; await ta
 </script>
 <template>
   <form class="setting" :class="{ dirty }" :data-path="meta.path" :aria-busy="pending" @submit.prevent="save">
-    <div class="setting-head"><div><label :for="controlId" class="setting-title">{{ label }}</label><p class="setting-path">{{ meta.path }}</p></div><span class="apply" :class="`apply-${meta.apply}`">{{ t(applyLabels[meta.apply]) }}</span></div>
+    <div class="setting-head"><div><label :for="controlId" class="setting-title">{{ label }}</label><p class="setting-path">{{ meta.path }}</p></div><span class="apply" data-guide="key-settings-badge" :class="`apply-${meta.apply}`">{{ t(applyLabels[meta.apply]) }}</span></div>
     <p :id="`${controlId}-description`" class="setting-desc">{{ t(meta.description) }}</p>
     <div class="setting-control">
       <label v-if="meta.type === 'boolean' && !meta.nullable" class="switch"><input :id="controlId" v-model="draft" type="checkbox" :aria-describedby="describedBy" :aria-invalid="!!localError || undefined" :disabled="pending"><span>{{ t(draft ? 'On' : 'Off') }}</span></label>
@@ -44,7 +44,7 @@ async function save() { if (conflict.value || localError.value) return; await ta
       <select v-else-if="meta.allowed_values_source === 'audio_devices'" :id="controlId" v-model="draft" :disabled="pending" :aria-describedby="describedBy" :aria-invalid="!!localError || undefined"><option v-if="!deviceOptions.some(option => option.id === draft)" :value="draft">{{ draft }}</option><option v-for="device in deviceOptions" :key="device.id" :value="device.id">{{ device.name }}</option></select>
       <div v-else-if="meta.path === 'audio.volume'" class="range-wrap"><input :id="controlId" v-model="draft" type="range" min="0" max="1" step="0.01" :disabled="pending" :aria-describedby="describedBy" :aria-invalid="!!localError || undefined"><output :for="controlId">{{ Number(draft).toFixed(2) }}</output></div>
       <input v-else :id="controlId" v-model="draft" :type="meta.type === 'integer' || meta.type === 'number' ? 'number' : 'text'" :min="meta.min" :max="meta.max" :step="meta.type === 'integer' ? 1 : 'any'" :disabled="pending" :aria-describedby="describedBy" :aria-invalid="!!localError || undefined">
-      <button :disabled="pending || !dirty || conflict || !!localError">{{ t(pending ? 'Saving…' : 'Save') }}</button>
+      <button data-guide="key-settings-save" :disabled="pending || !dirty || conflict || !!localError">{{ t(pending ? 'Saving…' : 'Save') }}</button>
     </div>
     <p v-if="localError" :id="`${controlId}-error`" role="alert" class="field-error">{{ renderMessage(localError) }}</p>
     <p v-if="applyFailure" role="alert" class="field-error">{{ t('Apply failed: {error}', { error: applyFailure.error }) }}</p><p v-else-if="applying" role="status">{{ t('Applying…') }}</p><p v-else-if="needsRestart" role="status">{{ t('Restart required') }}</p>

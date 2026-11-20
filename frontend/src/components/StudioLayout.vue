@@ -2,13 +2,14 @@
 import { computed, nextTick } from 'vue';
 import { t } from '../i18n';
 import AppIcon, { type IconName } from './ui/AppIcon.vue';
-export type StudioTab = 'create' | 'voices' | 'engines' | 'settings';
+export type StudioTab = 'create' | 'voices' | 'engines' | 'settings' | 'guides';
 const active = defineModel<StudioTab>({ required: true });
 const sections: { id: StudioTab; label: string; description: string; icon: IconName }[] = [
   { id: 'create', label: 'Create speech', description: 'Turn your ideas into natural speech.', icon: 'create' },
   { id: 'voices', label: 'Voice library', description: 'Create a voice that sounds like you.', icon: 'voices' },
   { id: 'engines', label: 'Engines', description: 'Choose what powers your voice.', icon: 'engines' },
   { id: 'settings', label: 'Settings', description: 'Make SonicBoom work your way.', icon: 'settings' },
+  { id: 'guides', label: 'Guides', description: 'Short interactive walkthroughs.', icon: 'info' },
 ];
 const current = computed(() => sections.find(section => section.id === active.value)!);
 async function navigate(event: KeyboardEvent) {
