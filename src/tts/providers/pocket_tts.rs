@@ -113,8 +113,8 @@ pub const POCKET_TTS_REQUIRED_FILES: &[&str] = &[
     "text_conditioner.onnx",
     "mimi_encoder.onnx",
     "flow_lm_main_int8.onnx",
-    "flow_lm_flow_int8.onnx",
-    "mimi_decoder_int8.onnx",
+    "flow_lm_flow.onnx",
+    "mimi_decoder.onnx",
 ];
 
 /// Validated English bundle manifest: (relative path, SHA-256 hex, bytes).
@@ -131,9 +131,9 @@ pub const POCKET_TTS_EN_MANIFEST: &[(&str, &str, u64)] = &[
         24381,
     ),
     (
-        "onnx/english_2026-04/flow_lm_flow_int8.onnx",
-        "3dd781ee5abee9e195320bf0106bebd6372a852b3b36352524ee78b40554635d",
-        9962530,
+        "onnx/english_2026-04/flow_lm_flow.onnx",
+        "085d239f68897e28fb06e95c743738ad8b8c092ee6dc55f5491313e81ff08062",
+        39097095,
     ),
     (
         "onnx/english_2026-04/flow_lm_main_int8.onnx",
@@ -141,9 +141,9 @@ pub const POCKET_TTS_EN_MANIFEST: &[(&str, &str, u64)] = &[
         76341079,
     ),
     (
-        "onnx/english_2026-04/mimi_decoder_int8.onnx",
-        "3630450a3297a101792a6ac66619ebc70ab916b265e6220c2afaef8b1673f925",
-        22684077,
+        "onnx/english_2026-04/mimi_decoder.onnx",
+        "86f038caa02a96a0ff9c25526a0ff43a4906c418197ed72d3e30f720ac7ce802",
+        41471926,
     ),
     (
         "onnx/english_2026-04/mimi_encoder.onnx",
@@ -175,9 +175,9 @@ pub const POCKET_TTS_ES_MANIFEST: &[(&str, &str, u64)] = &[
         24365,
     ),
     (
-        "onnx/spanish/flow_lm_flow_int8.onnx",
-        "4cc630a8fc1d28e3b432349e492f5f81696aab88b1067b5282b15427fde19efe",
-        9962530,
+        "onnx/spanish/flow_lm_flow.onnx",
+        "2f6300c6a07ee637213c142505ade9af5b257035fef0dd2561bcdbb022d68842",
+        39097095,
     ),
     (
         "onnx/spanish/flow_lm_main_int8.onnx",
@@ -185,9 +185,9 @@ pub const POCKET_TTS_ES_MANIFEST: &[(&str, &str, u64)] = &[
         76341079,
     ),
     (
-        "onnx/spanish/mimi_decoder_int8.onnx",
-        "309efd11b65c58cd176e554d09241f3e2c9aaabd8cbf74b8f01bdd3ec8f7d8e5",
-        22684077,
+        "onnx/spanish/mimi_decoder.onnx",
+        "ee9684cd12e6bf6b466515da47742e6016335a20ad5cb57e2946bbf4ff669ec2",
+        41471926,
     ),
     (
         "onnx/spanish/mimi_encoder.onnx",
@@ -262,7 +262,9 @@ impl Default for PocketTtsConfig {
             revision: POCKET_TTS_UPSTREAM_REVISION.to_string(),
             device: DevicePreference::Auto,
             cache_capacity: 16,
-            temperature: 0.7,
+            // Upstream Kyutai DEFAULT_TEMPERATURE (human evals preferred it
+            // over the ONNX wrapper's 0.7, which added audible noise).
+            temperature: 0.3,
             lsd_steps: 1,
             cpu_threads: 4,
         }
@@ -551,6 +553,9 @@ pub mod tokenizer {
 /// Parsed `bundle.json` metadata driving shapes, prompts and state init.
 #[derive(Debug, Clone)]
 pub struct BundleMeta {
+    /// `bundle.json` `bundle_name` (e.g. `spanish`), selecting the upstream
+    /// character-replacement table.
+    pub bundle_name: String,
     pub sample_rate: u32,
     pub frame_rate: f32,
     pub samples_per_frame: usize,
@@ -648,6 +653,12 @@ impl BundleMeta {
                 .map(|n| n as u32)
         };
         Ok(Self {
+            bundle_name: v
+                .get("bundle_name")
+                .or_else(|| v.get("language"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string(),
             sample_rate: u32f("sample_rate")?,
             frame_rate: get("frame_rate")?
                 .as_f64()
@@ -691,17 +702,145 @@ impl BundleMeta {
                 .map_err(ProviderError::model_missing)?,
         })
     }
+
+    /// Prepare a prompt with this bundle's upstream text rules.
+    pub fn prepare_text(&self, text: &str) -> Result<(String, usize), ProviderError> {
+        let (common, extra) = replace_characters_for(&self.bundle_name);
+        prepare_text_prompt_with(
+            text,
+            self.remove_semicolons,
+            self.pad_with_spaces_for_short_inputs,
+            &[common, extra],
+        )
+    }
 }
 
-/// Prepare text exactly like the upstream runtime: strip, single-space
-/// newlines, optional semicolon rewrite, capitalize the first letter and
-/// terminate with a period when the text ends alphanumerically.
+/// Characters absent from the training data, rewritten before tokenizing.
+/// Copied from upstream Kyutai `pocket_tts/config/<language>.yaml`
+/// (`replace_characters`); the pinned ONNX export dropped these tables, so
+/// e.g. Spanish `¿`/`¡`, quotes and brackets reached the model verbatim.
+/// A character-replacement table: `(from, to)` pairs.
+pub type CharTable = &'static [(char, &'static str)];
+
+const REPLACE_COMMON: &[(char, &str)] = &[
+    ('"', ""),
+    ('\u{201C}', ""),
+    ('\u{201D}', ""),
+    ('\u{201E}', ""),
+    ('\u{00AB}', ""),
+    ('\u{00BB}', ""),
+    ('\u{2019}', "'"),
+    ('\u{2018}', "'"),
+    ('(', ""),
+    (')', ""),
+    ('[', ""),
+    (']', ""),
+    ('\u{2013}', ","),
+];
+const REPLACE_ENGLISH: &[(char, &str)] = &[('\u{2019}', "'"), ('\u{2018}', "'")];
+const REPLACE_SPANISH_EXTRA: &[(char, &str)] = &[('\u{00A1}', ""), ('\u{00BF}', "")];
+const REPLACE_GERMAN_EXTRA: &[(char, &str)] = &[('\u{2014}', ",")];
+const REPLACE_FRENCH_EXTRA: &[(char, &str)] = &[(':', ",")];
+
+/// Upstream character rewrites for a bundle (`bundle.json` `bundle_name`).
+/// Returns `(common, extra)` tables; English uses only the apostrophe table.
+pub fn replace_characters_for(bundle_name: &str) -> (CharTable, CharTable) {
+    match bundle_name {
+        "spanish" | "spanish_24l" => (REPLACE_COMMON, REPLACE_SPANISH_EXTRA),
+        "german" | "german_24l" => (REPLACE_COMMON, REPLACE_GERMAN_EXTRA),
+        "french" | "french_24l" => (REPLACE_COMMON, REPLACE_FRENCH_EXTRA),
+        "portuguese" | "portuguese_24l" | "italian" | "italian_24l" => (REPLACE_COMMON, &[]),
+        _ => (REPLACE_ENGLISH, &[]),
+    }
+}
+
+const TERMINAL_PUNCTUATION: &[char] = &['.', '!', '?', '\u{2026}'];
+const WEAK_PUNCTUATION: &[char] = &[',', ';', ':', '-', '\u{2013}', '\u{2014}'];
+const CLOSERS: &[char] = &['"', '\'', '\u{201D}', '\u{2019}', ')', ']', '\u{00BB}'];
+const OPENERS: &[char] = &['"', '\'', '\u{201C}', '\u{2018}', '(', '[', '\u{00AB}'];
+/// Abbreviations that precede a name or an example and never end a sentence.
+const TITLES: &[&str] = &[
+    "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Rev.", "vs.", "e.g.", "i.e.",
+];
+
+/// Apply the replacement tables, collapse whitespace, and drop a comma,
+/// semicolon or colon left right after a sentence mark (`"Hi?", she said`
+/// becomes `Hi? she said`), like upstream's
+/// `re.sub(r"([.!?…])\s*[,;:]", r"\1", text)`.
+fn apply_replacements(text: &str, tables: &[&[(char, &str)]]) -> String {
+    let mut replaced = String::with_capacity(text.len());
+    for c in text.chars() {
+        match tables
+            .iter()
+            .flat_map(|table| table.iter())
+            .find(|(from, _)| *from == c)
+        {
+            Some((_, to)) => replaced.push_str(to),
+            None => replaced.push(c),
+        }
+    }
+    let collapsed = replaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars: Vec<char> = collapsed.chars().collect();
+    let mut out = String::with_capacity(collapsed.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        out.push(c);
+        i += 1;
+        if TERMINAL_PUNCTUATION.contains(&c) {
+            let mut j = i;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < chars.len() && matches!(chars[j], ',' | ';' | ':') {
+                i = j + 1;
+            }
+        }
+    }
+    out
+}
+
+/// Make sure the prompt ends with sentence-final punctuation (upstream
+/// `_ensure_terminal_punctuation`): a trailing comma, colon or dash becomes a
+/// period; anything else that is not already terminal gets a period.
+fn ensure_terminal_punctuation(text: &str) -> String {
+    let core = text.trim_end_matches(|c: char| CLOSERS.contains(&c) || c == ' ');
+    let closers = text[core.len()..].trim();
+    match core.chars().last() {
+        None => text.to_string(),
+        Some(c) if TERMINAL_PUNCTUATION.contains(&c) => text.to_string(),
+        Some(c) if WEAK_PUNCTUATION.contains(&c) => {
+            let stem = core.trim_end_matches(|c: char| WEAK_PUNCTUATION.contains(&c) || c == ' ');
+            format!("{stem}.{closers}")
+        }
+        Some(_) => format!("{text}."),
+    }
+}
+
+/// Prepare text like the pinned ONNX exporter (no character tables). Kept
+/// for exporter-parity fixtures; synthesis uses [`prepare_text_prompt_with`].
 pub fn prepare_text_prompt(
     text: &str,
     remove_semicolons: bool,
     pad_with_spaces: bool,
 ) -> Result<(String, usize), ProviderError> {
+    prepare_text_prompt_with(text, remove_semicolons, pad_with_spaces, &[])
+}
+
+/// Prepare text exactly like upstream Kyutai `prepare_text_prompt`: apply
+/// the language's character rewrites, single-space newlines, optional
+/// semicolon rewrite, capitalize the first letter after any opening quote
+/// or bracket, and end on sentence-final punctuation.
+pub fn prepare_text_prompt_with(
+    text: &str,
+    remove_semicolons: bool,
+    pad_with_spaces: bool,
+    replace: &[&[(char, &str)]],
+) -> Result<(String, usize), ProviderError> {
     let mut text = text.trim().to_string();
+    if replace.iter().any(|table| !table.is_empty()) {
+        text = apply_replacements(&text, replace);
+    }
     if text.is_empty() {
         return Err(ProviderError::invalid_voice("text cannot be empty"));
     }
@@ -712,26 +851,95 @@ pub fn prepare_text_prompt(
     }
     let word_count = text.split_whitespace().count();
     let guess = if word_count <= 4 { 3 } else { 1 };
-    let mut chars: Vec<char> = text.chars().collect();
-    if let Some(first) = chars.first_mut()
+    let opener_bytes = text.len() - text.trim_start_matches(OPENERS).len();
+    if let Some(first) = text[opener_bytes..].chars().next()
         && first.is_lowercase()
     {
         // `to_uppercase` may yield several chars (e.g. ß -> SS).
         let upper: String = first.to_uppercase().collect();
-        let mut expanded: Vec<char> = upper.chars().collect();
-        expanded.extend(chars.into_iter().skip(1));
-        chars = expanded;
+        text = format!(
+            "{}{upper}{}",
+            &text[..opener_bytes],
+            &text[opener_bytes + first.len_utf8()..]
+        );
     }
-    if let Some(last) = chars.last()
-        && last.is_alphanumeric()
-    {
-        chars.push('.');
-    }
-    text = chars.into_iter().collect();
+    text = ensure_terminal_punctuation(&text);
     if pad_with_spaces && text.split_whitespace().count() < 5 {
         text = format!("        {text}");
     }
     Ok((text, guess))
+}
+
+/// Whether `text` ends on a decimal number such as `822.95,` or `3,14 €`
+/// (upstream `_ENDS_WITH_DECIMAL_NUMBER = r"\d[.,]\d+\W*$"`). Such a segment
+/// must not end a chunk: the model reads the decimal point as a sentence end.
+fn ends_with_decimal_number(text: &str) -> bool {
+    let core = text.trim_end_matches(|c: char| !(c.is_alphanumeric() || c == '_'));
+    let chars: Vec<char> = core.chars().collect();
+    let mut i = chars.len();
+    while i > 0 && chars[i - 1].is_numeric() {
+        i -= 1;
+    }
+    i < chars.len() && i >= 2 && matches!(chars[i - 1], '.' | ',') && chars[i - 2].is_numeric()
+}
+
+/// Version tag of the voice-prompt preprocessing, part of the conditioning
+/// cache key so embeddings encoded before `end_on_pause` are not reused.
+pub const POCKET_PROMPT_PREP_VERSION: &str = "end-on-pause-v1";
+
+/// Upstream Kyutai `end_on_pause`: end a voice prompt on exactly 80 ms of
+/// silence. Training prompts end inside a pause between words; a prompt
+/// that stops on speech makes the model continue that utterance (a burst or
+/// a wrong first word at the start of every chunk), and a long trailing
+/// silence delays the onset. Trailing 20 ms frames more than 35 dB below the
+/// loudest one are cut, the last 20 ms is faded out, and 80 ms of zeros is
+/// appended.
+pub fn end_on_pause(pcm: &[f32], sample_rate: u32) -> Vec<f32> {
+    let frame = ((0.02 * sample_rate as f64) as usize).max(1);
+    let n = pcm.len() / frame;
+    if n == 0 {
+        return pcm.to_vec();
+    }
+    let db: Vec<f64> = pcm[..n * frame]
+        .chunks_exact(frame)
+        .map(|chunk| {
+            let mean = chunk.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / frame as f64;
+            20.0 * (mean.sqrt() + 1e-12).log10()
+        })
+        .collect();
+    let max = db.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let Some(last_loud) = db.iter().rposition(|v| *v > max - 35.0) else {
+        return pcm.to_vec();
+    };
+    let end = (last_loud + 1) * frame;
+    let mut out = pcm[..end].to_vec();
+    let fade = ((0.02 * sample_rate as f64) as usize).min(end);
+    for k in 0..fade {
+        let gain = if fade > 1 {
+            1.0 - k as f32 / (fade - 1) as f32
+        } else {
+            1.0
+        };
+        out[end - fade + k] *= gain;
+    }
+    out.resize(end + (0.08 * sample_rate as f64) as usize, 0.0);
+    out
+}
+
+/// Fade the first 5 ms of a chunk in. A fresh Mimi decoder state puts a
+/// small step (about -41 dBFS) in its first samples, heard as a click at the
+/// start of every chunk (upstream `_decode_audio_worker`).
+pub fn fade_in_chunk_start(pcm: &mut [f32], sample_rate: u32) {
+    let len = (sample_rate / 200) as usize;
+    let n = len.min(pcm.len());
+    for (k, sample) in pcm.iter_mut().take(n).enumerate() {
+        let gain = if len > 1 {
+            k as f32 / (len - 1) as f32
+        } else {
+            1.0
+        };
+        *sample *= gain;
+    }
 }
 
 /// Minimal `.npy` loader for the bundle's `bos_before_voice` vector
@@ -860,7 +1068,7 @@ fn graph_ep_from(mode: &str, list: &str, graph: &str) -> PocketEp {
     match mode.trim().to_ascii_lowercase().as_str() {
         "gpu" | "vulkan" => PocketEp::Gpu,
         "auto" | "hybrid" => {
-            if graph == "mimi_decoder_int8" {
+            if graph == "mimi_decoder" {
                 PocketEp::Cpu
             } else {
                 PocketEp::Gpu
@@ -1131,8 +1339,8 @@ impl PocketNative {
             "text_conditioner",
             "mimi_encoder",
             "flow_lm_main_int8",
-            "flow_lm_flow_int8",
-            "mimi_decoder_int8",
+            "flow_lm_flow",
+            "mimi_decoder",
         ]
         .iter()
         .any(|graph| graph_ep(graph) == PocketEp::Gpu);
@@ -1186,21 +1394,17 @@ impl PocketNative {
             cpu_threads,
             "flow_lm_main_int8",
         )?;
-        let mut lm_flow = ort_session(
-            file("flow_lm_flow_int8.onnx"),
-            cpu_threads,
-            "flow_lm_flow_int8",
-        )?;
-        let decoder_path = file("mimi_decoder_int8.onnx");
+        let mut lm_flow = ort_session(file("flow_lm_flow.onnx"), cpu_threads, "flow_lm_flow")?;
+        let decoder_path = file("mimi_decoder.onnx");
         let mut decoder = ort_session_on(
             decoder_path.clone(),
             cpu_threads,
-            graph_ep("mimi_decoder_int8") == PocketEp::Gpu,
+            graph_ep("mimi_decoder") == PocketEp::Gpu,
         )?;
         // Quality fallback: some WebGPU/RADV drivers run the decoder graph
         // but return near-silent samples. Probe it once with a deterministic
         // latent and rebuild on CPU when the output collapses.
-        if graph_ep("mimi_decoder_int8") == PocketEp::Gpu {
+        if graph_ep("mimi_decoder") == PocketEp::Gpu {
             let rms = decoder_probe(&mut decoder, &meta, true).unwrap_or(0.0);
             if std::env::var("POCKET_GPU_DIAG").is_ok() {
                 let zero = decoder_probe(&mut decoder, &meta, false).unwrap_or(0.0);
@@ -1313,17 +1517,18 @@ impl PocketNative {
         self.conditioner = ort_session_on(file("text_conditioner.onnx"), cpu_threads, false)?;
         self.encoder = ort_session_on(file("mimi_encoder.onnx"), cpu_threads, false)?;
         self.lm_main = ort_session_on(file("flow_lm_main_int8.onnx"), cpu_threads, false)?;
-        self.lm_flow = ort_session_on(file("flow_lm_flow_int8.onnx"), cpu_threads, false)?;
-        self.decoder = ort_session_on(file("mimi_decoder_int8.onnx"), cpu_threads, false)?;
+        self.lm_flow = ort_session_on(file("flow_lm_flow.onnx"), cpu_threads, false)?;
+        self.decoder = ort_session_on(file("mimi_decoder.onnx"), cpu_threads, false)?;
         self.flow_on_gpu = false;
         Ok(())
     }
 
     /// Encode 24 kHz mono reference PCM to voice embeddings (frames x 1024).
     fn encode_voice(&mut self, pcm24: &[f32]) -> Result<(usize, Vec<f32>), ProviderError> {
+        let prompt = end_on_pause(pcm24, POCKET_REFERENCE_RATE);
         let inputs: Vec<(String, Value)> = vec![(
             "audio".to_string(),
-            Tensor::from_array(([1, 1, pcm24.len()], pcm24.to_vec()))
+            Tensor::from_array(([1, 1, prompt.len()], prompt))
                 .map_err(|e| {
                     ProviderError::inference_failed(format!("pocket-tts voice input: {e}"))
                 })?
@@ -1389,14 +1594,10 @@ impl PocketNative {
     }
 
     fn split_sentences(&self, text: &str) -> Result<Vec<String>, ProviderError> {
-        let (prepared, _) = prepare_text_prompt(
-            text,
-            self.meta.remove_semicolons,
-            self.meta.pad_with_spaces_for_short_inputs,
-        )?;
+        let (prepared, _) = self.meta.prepare_text(text)?;
         let prepared = prepared.trim().to_string();
         let tokens = self.tokenizer.encode(&prepared);
-        let boundaries = boundary_indices(&tokens, &self.eos_boundary_ids);
+        let boundaries = self.sentence_boundaries(&tokens, &self.eos_boundary_ids);
         let mut segments: Vec<(usize, String)> = Vec::new();
         for pair in boundaries.windows(2) {
             let text = self.tokenizer.decode(&tokens[pair[0]..pair[1]]);
@@ -1409,7 +1610,7 @@ impl PocketNative {
                 continue;
             }
             let sub_tokens = self.tokenizer.encode(segment.trim());
-            let sub_bounds = boundary_indices(&sub_tokens, &self.fallback_ids);
+            let sub_bounds = self.sentence_boundaries(&sub_tokens, &self.fallback_ids);
             let mut subs: Vec<(usize, String)> = Vec::new();
             for pair in sub_bounds.windows(2) {
                 subs.push((
@@ -1423,6 +1624,19 @@ impl PocketNative {
                 refined.push((count, segment));
             }
         }
+        // Never end a chunk on a decimal number: "... $822.95," would become
+        // the chunk "... $822.95." and the model stops before the decimals.
+        let mut glued: Vec<(usize, String)> = Vec::with_capacity(refined.len());
+        for (count, segment) in refined {
+            match glued.last_mut() {
+                Some((prev_count, prev)) if ends_with_decimal_number(prev) => {
+                    *prev = format!("{} {}", prev.trim_end(), segment.trim());
+                    *prev_count += count;
+                }
+                _ => glued.push((count, segment)),
+            }
+        }
+        let refined = glued;
         let mut chunks: Vec<String> = Vec::new();
         let mut current = String::new();
         let mut current_count = 0usize;
@@ -1445,6 +1659,75 @@ impl PocketNative {
             chunks.push(current.trim().to_string());
         }
         Ok(chunks)
+    }
+
+    /// Upstream `_find_boundary_indices(..., skip_inner_punctuation=True)`:
+    /// split after boundary tokens, except punctuation inside a number, URL
+    /// or abbreviation ("3.14", "1,000", "Dr. Miller"), and keep closing
+    /// quotes/brackets with the sentence they end.
+    fn sentence_boundaries(&self, tokens: &[i64], boundary: &[i64]) -> Vec<usize> {
+        let mut indices = vec![0];
+        let mut previous_was_boundary = false;
+        for (index, token) in tokens.iter().enumerate() {
+            if boundary.contains(token) {
+                previous_was_boundary = true;
+                continue;
+            }
+            if previous_was_boundary {
+                if self.is_inner_punctuation(tokens, index) {
+                    previous_was_boundary = false;
+                    continue;
+                }
+                let start = self.skip_closers(tokens, index);
+                if start < tokens.len() {
+                    indices.push(start);
+                }
+            }
+            previous_was_boundary = false;
+        }
+        indices.push(tokens.len());
+        indices
+    }
+
+    /// Upstream `_is_inner_punctuation`.
+    fn is_inner_punctuation(&self, tokens: &[i64], start: usize) -> bool {
+        let after = self.tokenizer.decode(&tokens[start - 1..=start]);
+        if after.chars().nth(1).is_some_and(char::is_alphanumeric) {
+            return true;
+        }
+        let window_start = start.saturating_sub(6);
+        let window = self.tokenizer.decode(&tokens[window_start..start]);
+        let words: Vec<&str> = window.split_whitespace().collect();
+        words
+            .last()
+            .is_some_and(|word| TITLES.contains(word) && (words.len() > 1 || window_start == 0))
+    }
+
+    /// Upstream `_skip_closers`: move a segment start past closing quotes or
+    /// brackets that directly follow the punctuation (byte-fallback pieces
+    /// decode to U+FFFD until the character is complete).
+    fn skip_closers(&self, tokens: &[i64], start: usize) -> usize {
+        const MAX_CLOSER_TOKENS: usize = 8;
+        let punctuation = self.tokenizer.decode(&tokens[start - 1..start]);
+        let mut best = start;
+        let stop = tokens.len().min(start + MAX_CLOSER_TOKENS);
+        for end in start + 1..=stop {
+            let window = self.tokenizer.decode(&tokens[start - 1..end]);
+            let Some(after) = window.strip_prefix(punctuation.as_str()) else {
+                break;
+            };
+            if after.is_empty()
+                || after
+                    .chars()
+                    .any(|c| !(CLOSERS.contains(&c) || c == '\u{FFFD}'))
+            {
+                break;
+            }
+            if !after.contains('\u{FFFD}') {
+                best = end;
+            }
+        }
+        best
     }
 
     /// Run one text chunk: prefill text conditioning, then the AR latent
@@ -1692,24 +1975,6 @@ struct ChunkOptions<'a> {
 }
 
 /// Sentence-boundary indices mirroring the upstream splitter.
-#[cfg(feature = "pocket-tts")]
-fn boundary_indices(tokens: &[i64], boundary: &[i64]) -> Vec<usize> {
-    let mut indices = vec![0];
-    let mut previous_was_boundary = false;
-    for (index, token) in tokens.iter().enumerate() {
-        if boundary.contains(token) {
-            previous_was_boundary = true;
-        } else {
-            if previous_was_boundary {
-                indices.push(index);
-            }
-            previous_was_boundary = false;
-        }
-    }
-    indices.push(tokens.len());
-    indices
-}
-
 struct PocketState {
     loaded_model: Option<String>,
     load_error: Option<String>,
@@ -1908,8 +2173,8 @@ impl PocketTtsProvider {
             "text_conditioner.onnx",
             "mimi_encoder.onnx",
             "flow_lm_main_int8.onnx",
-            "flow_lm_flow_int8.onnx",
-            "mimi_decoder_int8.onnx",
+            "flow_lm_flow.onnx",
+            "mimi_decoder.onnx",
         ] {
             if !bundle.join(file).is_file() {
                 missing.push(file.to_string());
@@ -1977,10 +2242,11 @@ impl PocketTtsProvider {
         super::worker::ConditioningCache::cache_key(
             POCKET_TTS_PROVIDER_ID,
             &format!(
-                "{}|{}|{}",
+                "{}|{}|{}|{}",
                 self.config_snapshot().revision,
                 model_id,
-                crate::tts::audio::REFERENCE_RESAMPLER_VERSION
+                crate::tts::audio::REFERENCE_RESAMPLER_VERSION,
+                POCKET_PROMPT_PREP_VERSION
             ),
             reference_hash,
             transcript,
@@ -2639,11 +2905,7 @@ impl TtsProvider for PocketTtsProvider {
                     ));
                 }
                 let chunk = &chunks[index];
-                let (prepared, guess) = prepare_text_prompt(
-                    chunk,
-                    native.meta.remove_semicolons,
-                    native.meta.pad_with_spaces_for_short_inputs,
-                )?;
+                let (prepared, guess) = native.meta.prepare_text(chunk)?;
                 let token_ids = native.tokenizer.encode(&prepared);
                 if token_ids.is_empty() {
                     index += 1;
@@ -2683,7 +2945,8 @@ impl TtsProvider for PocketTtsProvider {
                         "inference cancelled or deadline exceeded",
                     ));
                 }
-                let pcm = native.decode_latents(&latents)?;
+                let mut pcm = native.decode_latents(&latents)?;
+                fade_in_chunk_start(&mut pcm, POCKET_TTS_SAMPLE_RATE);
                 audio.extend(pcm);
                 if audio.len() > POCKET_MAX_SAMPLES {
                     return Err(ProviderError::inference_failed(
@@ -3068,6 +3331,80 @@ mod tests {
         assert!(prepare_text_prompt("   ", false, false).is_err());
     }
 
+    #[test]
+    fn language_character_tables_match_upstream_configs() {
+        let (common, extra) = replace_characters_for("spanish");
+        let es = |t: &str| {
+            prepare_text_prompt_with(t, false, false, &[common, extra])
+                .unwrap()
+                .0
+        };
+        assert_eq!(es("¿Qué tal? ¡Muy bien!"), "Qué tal? Muy bien!");
+        assert_eq!(es("«hola» (dijo)"), "Hola dijo.");
+        // Deleted quotes leave "Hi?, she said": keep only the sentence mark.
+        assert_eq!(es("\"¿Vienes?\", preguntó"), "Vienes? preguntó.");
+        assert_eq!(es("uno – dos"), "Uno , dos.");
+        let (common, extra) = replace_characters_for("french_24l");
+        let fr = prepare_text_prompt_with("voici: un test", true, false, &[common, extra]);
+        assert_eq!(fr.unwrap().0, "Voici, un test.");
+        let (common, extra) = replace_characters_for("english_2026-04");
+        let en = prepare_text_prompt_with("it\u{2019}s (fine)", false, false, &[common, extra]);
+        assert_eq!(en.unwrap().0, "It's (fine).");
+        // A trailing weak mark becomes a period, closers are kept after it.
+        assert_eq!(
+            prepare_text_prompt("wait,", false, false).unwrap().0,
+            "Wait."
+        );
+        assert_eq!(
+            prepare_text_prompt("(hello)", false, false).unwrap().0,
+            "(Hello)."
+        );
+        assert_eq!(
+            prepare_text_prompt("done!", false, false).unwrap().0,
+            "Done!"
+        );
+        assert!(
+            prepare_text_prompt_with("¿¡", false, false, &[REPLACE_COMMON, REPLACE_SPANISH_EXTRA])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn decimal_numbers_do_not_end_chunks() {
+        assert!(ends_with_decimal_number("a fee of $822.95,"));
+        assert!(ends_with_decimal_number("de 822,95 €,"));
+        assert!(ends_with_decimal_number("pi is 3.14."));
+        assert!(!ends_with_decimal_number("I counted to 3."));
+        assert!(!ends_with_decimal_number("one, two,"));
+    }
+
+    #[test]
+    fn end_on_pause_trims_trailing_silence_and_appends_pause() {
+        let rate = 24_000u32;
+        let mut pcm: Vec<f32> = (0..rate as usize)
+            .map(|i| (i as f32 * 0.05).sin() * 0.5)
+            .collect();
+        pcm.extend(std::iter::repeat_n(0.0, rate as usize));
+        let out = end_on_pause(&pcm, rate);
+        // One second of speech + 80 ms of zeros; the 1 s of silence is cut.
+        assert_eq!(out.len(), rate as usize + 1920);
+        assert!(out[rate as usize..].iter().all(|v| *v == 0.0));
+        assert_eq!(out[rate as usize - 1], 0.0, "last speech sample faded out");
+        assert!(out[1000].abs() > 0.0);
+        // Too short to frame: unchanged.
+        assert_eq!(end_on_pause(&[0.1; 100], rate), vec![0.1; 100]);
+    }
+
+    #[test]
+    fn chunk_fade_in_covers_five_milliseconds() {
+        let mut pcm = vec![1.0f32; 500];
+        fade_in_chunk_start(&mut pcm, 24_000);
+        assert_eq!(pcm[0], 0.0);
+        assert!((pcm[119] - 1.0).abs() < 1e-6);
+        assert!(pcm[60] > 0.0 && pcm[60] < 1.0);
+        assert_eq!(pcm[200], 1.0);
+    }
+
     /// The pinned exporter omits upstream's early-EOS guard. A real Spanish
     /// request latched EOS at step 2 (logit -3.87) and stopped after 0.4 s;
     /// ignoring the first 6 frames lets the sentence be spoken.
@@ -3094,7 +3431,7 @@ mod tests {
         // Empty env means the default: CPU only, so Pocket never creates a
         // WebGPU session that could overlap Supertonic's Dawn work.
         assert_eq!(graph_ep_from("", "", "flow_lm_main_int8"), PocketEp::Cpu);
-        assert_eq!(graph_ep_from("", "", "mimi_decoder_int8"), PocketEp::Cpu);
+        assert_eq!(graph_ep_from("", "", "mimi_decoder"), PocketEp::Cpu);
         assert_eq!(graph_ep_from("cpu", "", "flow_lm_main_int8"), PocketEp::Cpu);
         assert_eq!(
             graph_ep_from("bogus", "", "flow_lm_main_int8"),
@@ -3105,20 +3442,13 @@ mod tests {
             graph_ep_from("auto", "", "flow_lm_main_int8"),
             PocketEp::Gpu
         );
+        assert_eq!(graph_ep_from("auto", "", "mimi_decoder"), PocketEp::Cpu);
         assert_eq!(
-            graph_ep_from("auto", "", "mimi_decoder_int8"),
-            PocketEp::Cpu
-        );
-        assert_eq!(
-            graph_ep_from(
-                "custom",
-                "mimi_encoder, flow_lm_flow_int8",
-                "flow_lm_flow_int8"
-            ),
+            graph_ep_from("custom", "mimi_encoder, flow_lm_flow", "flow_lm_flow"),
             PocketEp::Gpu
         );
         assert_eq!(
-            graph_ep_from("custom", "mimi_encoder", "flow_lm_flow_int8"),
+            graph_ep_from("custom", "mimi_encoder", "flow_lm_flow"),
             PocketEp::Cpu
         );
     }
@@ -3260,8 +3590,12 @@ mod tests {
 
     /// Independent fixtures are generated by the exact pinned Python exporter.
     /// Temperature zero removes cross-language RNG implementation differences.
+    /// The fixture predates the switch to the fp32 flow head and Mimi decoder
+    /// and to upstream's text rules: the latent and PCM digests (and the
+    /// Spanish `¿`/`¡` chunks) must be regenerated with `precision="fp32"`
+    /// graphs for `flow_lm_flow`/`mimi_decoder` before this passes again.
     #[test]
-    #[ignore = "requires all six verified Pocket ONNX bundles"]
+    #[ignore = "requires all six verified Pocket ONNX bundles; fixture pins the int8 flow/decoder graphs"]
     #[cfg(feature = "pocket-tts")]
     fn real_bundles_match_pinned_exporter_prompts_states_and_decoder() {
         let root = std::env::var("POCKET_TTS_BUNDLE_DIR").expect("set POCKET_TTS_BUNDLE_DIR");

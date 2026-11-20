@@ -252,8 +252,8 @@ speaker/codec/decode INT8 ONNX bundles, embeddings, tokenizer.
 Pocket TTS per-language bundles (`KevinAHM/pocket-tts-onnx`
 `58a6d00cf13d239b6748cb0769f35c580a8f606c`, CC-BY-4.0): `bundle.json`,
 `tokenizer.model`, `bos_before_voice.npy`, `text_conditioner.onnx`,
-`mimi_encoder.onnx`, `flow_lm_main_int8.onnx`, `flow_lm_flow_int8.onnx`,
-`mimi_decoder_int8.onnx` (full hashes in
+`mimi_encoder.onnx`, `flow_lm_main_int8.onnx`, `flow_lm_flow.onnx`,
+`mimi_decoder.onnx` (full hashes in
 `src/tts/providers/pocket_tts.rs` `POCKET_TTS_EN_MANIFEST` /
 `POCKET_TTS_ES_MANIFEST`).
 
@@ -341,7 +341,7 @@ revision = "58a6d00cf13d239b6748cb0769f35c580a8f606c"
 device = "auto"          # cpu | auto only
 max_concurrent = 1
 cache_entries = 16
-temperature = 0.7        # 0.0 disables noise
+temperature = 0.3        # upstream Kyutai default; 0.0 disables noise (a saved legacy 0.7 is migrated to 0.3)
 lsd_steps = 1            # 1-8
 cpu_threads = 4          # 1-32
 
@@ -474,7 +474,7 @@ Prompt preparation, chunk-state cloning and EOS `> -4.0` follow that runtime.
 Its normal sampler continues across chunks. Rust now owns one seeded RNG per
 request rather than restarting the same seed for every chunk. This changes
 seeded multi-chunk outputs intentionally; single-chunk sampling semantics and
-production temperature 0.7 / LSD steps 1 are preserved. No claim of NumPy/Rust
+LSD steps 1 is preserved. The production temperature is now upstream Kyutai's 0.3 (see *Pocket quality alignment* below). No claim of NumPy/Rust
 bit-identical RNG or perceptual improvement follows from that correction.
 
 Only reference conditioning uses the new centered Blackman windowed-sinc
@@ -498,3 +498,24 @@ Python wheel's same CPU library into the Rust opt-in comparison yields zero
 latent error for all six bundles. This is controlled same-runtime pipeline
 validation, not a change to the shipped static runtime. Cross-build speech
 fidelity is still unvalidated; see the audit report and explicit invocation.
+
+## Pocket quality alignment with upstream Kyutai (2026-11-20)
+
+The pinned ONNX wrapper diverged from upstream `kyutai-labs/pocket-tts` in ways
+that degraded speech. SonicBoom now follows upstream:
+
+- **Temperature 0.3** (upstream `DEFAULT_TEMPERATURE`; human evals preferred it).
+  Saved configs holding the old default 0.7 are migrated on load.
+- **fp32 `flow_lm_flow` and `mimi_decoder`** (upstream does not quantize them).
+  The int8 decoder was 11 dB SNR / 3.1 dB log-spectral distance from fp32 on
+  identical latents; fp32 costs about +7 % decode and +0.8 ms per 80 ms frame.
+  `flow_lm_main` stays int8 (upstream reports unchanged WER for int8 transformer).
+- **Voice prompt `end_on_pause`**: trailing silence is cut and the prompt ends
+  on exactly 80 ms of silence, so chunks do not start with a burst or a wrong word.
+- **Per-language `replace_characters`** (Spanish `¿ ¡`, quotes, brackets, dashes,
+  French `:`), terminal-punctuation rules, decimals/titles not splitting
+  sentences, closers kept with their sentence, 5 ms fade-in per chunk.
+
+Measured (Spanish, the 2.4 s `miku_test` reference, 4 texts x 6 seeds, Whisper
+small WER): old pipeline 0.682, new pipeline 0.588. Very short or stylized
+references remain the dominant quality limit: use 5-15 s of clean speech.

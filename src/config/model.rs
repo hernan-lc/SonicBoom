@@ -527,7 +527,8 @@ pub struct PocketTtsConfig {
     /// Voice-embedding cache entries.
     #[serde(default = "default_provider_cache")]
     pub cache_entries: usize,
-    /// Sampling temperature (`0.0` disables noise, upstream default `0.7`).
+    /// Sampling temperature (`0.0` disables noise). Upstream Kyutai default
+    /// `0.3` (human evals preferred it); `0.7` was the ONNX wrapper's value.
     #[serde(default = "default_pocket_temperature")]
     pub temperature: f32,
     /// Flow-matching integration steps (upstream default `1`).
@@ -784,8 +785,10 @@ fn default_pocket_model_id() -> String {
 fn default_pocket_revision() -> String {
     "58a6d00cf13d239b6748cb0769f35c580a8f606c".to_string()
 }
+/// Former default, written into saved configs before 0.3 became the default.
+pub const LEGACY_POCKET_TEMPERATURE: f32 = 0.7;
 fn default_pocket_temperature() -> f32 {
-    0.7
+    0.3
 }
 fn default_pocket_lsd_steps() -> usize {
     1
