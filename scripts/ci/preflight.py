@@ -116,9 +116,9 @@ def validate(root=ROOT):
                 raise ValueError(f'{stage}: missing explicit features')
             selected = set(features[1].split(','))
             expected = {
-                'builder': {'server', 'pocket-tts', 'reverb-tts', 'web-ui', 'webgpu'},
-                'builder-playback': {'server', 'playback', 'pocket-tts', 'reverb-tts', 'web-ui'},
-                'builder-cuda': {'server', 'cuda', 'pocket-tts', 'reverb-tts', 'web-ui'},
+                'builder': {'server', 'reverb-tts', 'web-ui', 'webgpu'},
+                'builder-playback': {'server', 'playback', 'reverb-tts', 'web-ui'},
+                'builder-cuda': {'server', 'cuda', 'reverb-tts', 'web-ui'},
             }
             for feature in features[1].split(','):
                 if feature not in manifest['features']:

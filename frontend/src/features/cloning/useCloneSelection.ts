@@ -1,6 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue';
-import { modelLanguages } from '../../services/providerLanguages';
-import { isModelReady, isProviderReady } from '../../services/providerReadiness';
+import { isProviderReady } from '../../services/providerReadiness';
 import type { Capabilities, ProviderStatus, VoiceConstraints } from '../../services/contracts';
 
 /**
@@ -23,7 +22,7 @@ export function useCloneSelection(
     choices.value.filter((choice) => isProviderReady(providers.value, choice.provider_id)),
   );
   const cap = computed(() => choices.value.find((item) => item.provider_id === provider.value));
-  const languages = computed(() => modelLanguages(cap.value, model.value));
+  const languages = computed(() => cap.value?.languages ?? []);
 
   watch(languages, (value) => {
     if (!value.includes(language.value)) language.value = value[0] || 'en';
@@ -53,8 +52,7 @@ export function useCloneSelection(
     cap,
     (value) => {
       if (!value?.models.includes(model.value)) {
-        const readyModel = value?.models.find((id) => isModelReady(providers.value, value.provider_id, id));
-        model.value = readyModel ?? value?.models[0] ?? '';
+        model.value = value?.models[0] ?? '';
       }
       if (!value?.languages.includes(language.value)) language.value = value?.languages[0] || 'en';
       if (!value?.clone_modes.includes(mode.value)) mode.value = value?.clone_modes[0] || 'icl';

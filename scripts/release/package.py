@@ -23,9 +23,9 @@ def digest(path):
 
 
 def validate_build_info(info):
-    required = {'gui', 'pocket-tts', 'reverb-tts', 'webgpu'}
+    required = {'gui', 'reverb-tts', 'webgpu'}
     if not required.issubset(info.get('features', [])):
-        raise RuntimeError('Official releases require the gui, pocket-tts, reverb-tts and webgpu features')
+        raise RuntimeError('Official releases require the gui, reverb-tts and webgpu features')
 
 
 def package(target, output):

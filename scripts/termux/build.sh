@@ -16,9 +16,8 @@ cd "$ROOT"
 features=server,android-ort
 case "${SONICBOOM_TERMUX_PROVIDER:-supertonic}" in
     supertonic) ;;
-    pocket) features=$features,pocket-tts ;;
     reverb) features=$features,reverb-tts ;;
-    *) fail 'Provider must be supertonic, pocket, or reverb' ;;
+    *) fail 'Provider must be supertonic or reverb' ;;
 esac
 cargo build --release --locked --no-default-features --features "$features" --bin SonicBoom
 env -u LD_LIBRARY_PATH "$ROOT/target/release/SonicBoom" --onnx-self-test

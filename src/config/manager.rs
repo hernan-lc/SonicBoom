@@ -147,6 +147,7 @@ impl ConfigManager {
         for (section, present) in [
             ("qwen3", config.providers.qwen3.is_some()),
             ("qwen3_gguf", config.providers.qwen3_gguf.is_some()),
+            ("pocket_tts", config.providers.pocket_tts.is_some()),
             ("gpt_sovits", config.providers.gpt_sovits.is_some()),
         ] {
             if present {

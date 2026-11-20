@@ -44,6 +44,7 @@ test('cloning upload, retained report and keyboard delete dialog', async ({ page
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'test.wav', mimeType: 'audio/wav', buffer: wav() });
   await expect(page.getByText('1.00 s · 8000 Hz', { exact: false })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Exact transcript', exact: false }).fill('Exact words spoken');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Browser voice');
   await page.getByRole('textbox', { name: 'Consent basis', exact: true }).fill('private consent');
@@ -67,7 +68,7 @@ test('settings preserve conflicting draft and engines expose readiness', async (
   const fixture = await studioFixtures(page);
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Engines', exact: true }).click();
-  await expect(page.locator('.provider')).toContainText('pocket-tts');
+  await expect(page.locator('.provider')).toContainText('reverb-tts');
   await expect(page.locator('.provider')).toContainText('ready');
   await page.getByRole('tab', { name: 'Settings', exact: true }).click();
   const setting = page.locator('[data-path="model.inference_steps"]');

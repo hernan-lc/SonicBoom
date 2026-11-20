@@ -99,25 +99,13 @@ pub fn parse_toml(text: &str) -> Result<AppConfig, ConfigError> {
             }
         }
     }
-    let mut config: AppConfig = toml::from_str(text).map_err(|e| {
+    let config: AppConfig = toml::from_str(text).map_err(|e| {
         ConfigError::invalid(
             "config.toml",
             format!("invalid configuration: {}", e.message()),
         )
     })?;
-    migrate_legacy_defaults(&mut config);
     Ok(config)
-}
-
-/// Replace values that earlier releases persisted as defaults and that are
-/// now known to be wrong. Every settings save writes the whole config, so a
-/// stored `0.7` Pocket temperature is almost always the old default, not a
-/// choice: it made speech noisier than upstream Kyutai's `0.3`.
-fn migrate_legacy_defaults(config: &mut AppConfig) {
-    let pocket = &mut config.providers.pocket_tts;
-    if (pocket.temperature - crate::config::model::LEGACY_POCKET_TEMPERATURE).abs() < 1e-4 {
-        pocket.temperature = AppConfig::default().providers.pocket_tts.temperature;
-    }
 }
 
 fn record_default_sources(sources: &mut HashMap<String, ConfigSource>) {
@@ -175,16 +163,6 @@ pub const ALL_CONFIG_PATHS: &[&str] = &[
     "security.cookie_secure",
     "security.enable_hsts",
     "security.allow_insecure_remote",
-    "providers.pocket_tts.enabled",
-    "providers.pocket_tts.model_dir",
-    "providers.pocket_tts.model_id",
-    "providers.pocket_tts.revision",
-    "providers.pocket_tts.device",
-    "providers.pocket_tts.max_concurrent",
-    "providers.pocket_tts.cache_entries",
-    "providers.pocket_tts.temperature",
-    "providers.pocket_tts.lsd_steps",
-    "providers.pocket_tts.cpu_threads",
     "providers.reverb_tts.enabled",
     "providers.reverb_tts.model_dir",
     "providers.reverb_tts.model_id",
@@ -954,35 +932,20 @@ strictness = 3
              gpu_layers = -1\n[providers.qwen3_gguf.sampling]\nseed = 7\n\
              [providers.qwen3_gguf.sampling.talker]\ntemperature = 0.9\n\
              [providers.qwen3_gguf.quality]\nenabled = true\npolicy = \"report\"\n\
+             [providers.pocket_tts]\nenabled = true\nmodel_id = \"pocket-tts-es\"\ntemperature = 0.3\n\
              [providers.gpt_sovits]\nenabled = true\n",
         )
         .unwrap();
         assert!(config.providers.qwen3.is_some());
         assert!(config.providers.qwen3_gguf.is_some());
+        assert!(config.providers.pocket_tts.is_some());
         assert!(config.providers.gpt_sovits.is_some());
         assert!(parse_toml("").unwrap().providers.qwen3_gguf.is_none());
         // Retired sections never reappear when the configuration is saved.
         let rendered = toml::to_string(&config).unwrap();
         assert!(!rendered.contains("qwen3"), "{rendered}");
+        assert!(!rendered.contains("pocket"), "{rendered}");
         assert!(!rendered.contains("gpt_sovits"), "{rendered}");
-    }
-
-    #[test]
-    fn legacy_pocket_temperature_default_migrates_to_upstream() {
-        let legacy = "[providers.pocket_tts]\ntemperature = 0.699999988079071\n";
-        assert_eq!(
-            parse_toml(legacy).unwrap().providers.pocket_tts.temperature,
-            0.3
-        );
-        let chosen = "[providers.pocket_tts]\ntemperature = 0.5\n";
-        assert_eq!(
-            parse_toml(chosen).unwrap().providers.pocket_tts.temperature,
-            0.5
-        );
-        assert_eq!(
-            parse_toml("").unwrap().providers.pocket_tts.temperature,
-            0.3
-        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! In-process worker-thread helper for non-`Send` model internals.
 //!
-//! Some model handles (notably Pocket TTS mutable KV-cache states)
+//! Some model handles (for example mutable KV-cache states)
 //! cannot be shared across threads. This helper encapsulates such state in
 //! a dedicated Rust thread with a bounded channel — in-process, never a
 //! subprocess — and serializes `(prepare_reference + synthesize)` atomically
@@ -166,8 +166,8 @@ mod tests {
 
     #[test]
     fn distinct_references_have_distinct_keys() {
-        let a = ConditioningCache::cache_key("pocket-tts", "r", "hash-a", None, "audio_prompt");
-        let b = ConditioningCache::cache_key("pocket-tts", "r", "hash-b", None, "audio_prompt");
+        let a = ConditioningCache::cache_key("reverb-tts", "r", "hash-a", None, "icl");
+        let b = ConditioningCache::cache_key("reverb-tts", "r", "hash-b", None, "icl");
         assert_ne!(a, b);
     }
 

@@ -364,7 +364,7 @@ pub struct PathsConfig {
 }
 
 /// A provider section of an engine that was removed (`[providers.qwen3]`,
-/// `[providers.qwen3_gguf]`, `[providers.gpt_sovits]`), kept only so old
+/// `[providers.qwen3_gguf]`, `[providers.pocket_tts]`, `[providers.gpt_sovits]`), kept only so old
 /// configuration files still boot. Every key is accepted and ignored; the
 /// server logs a warning naming the section. Do not add fields here and do
 /// not read this anywhere: it carries no runtime meaning. Stored voice
@@ -373,47 +373,6 @@ pub struct PathsConfig {
 /// recreation as `reverb-tts` profiles.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RetiredProviderSection {}
-
-/// Native Pocket TTS ONNX provider settings (`[providers.pocket_tts]`).
-/// Additive: older configuration files without this section keep working
-/// via `#[serde(default)]`. Disabled by default; weights download only
-/// after `enabled = true`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PocketTtsConfig {
-    /// Enable the Pocket TTS provider (default `false`).
-    #[serde(default)]
-    pub enabled: bool,
-    /// Directory holding the verified per-language ONNX bundles
-    /// (English, Spanish, Portuguese, German, Italian, French 24-layer preview).
-    #[serde(default = "default_pocket_model_dir")]
-    pub model_dir: PathBuf,
-    /// Model identifier (`pocket-tts-en/es/pt/de/it`, `pocket-tts-fr-24l`).
-    #[serde(default = "default_pocket_model_id")]
-    pub model_id: String,
-    /// Pinned export revision.
-    #[serde(default = "default_pocket_revision")]
-    pub revision: String,
-    /// CPU only: `cpu` or `auto`. GPU values are rejected explicitly.
-    #[serde(default = "default_provider_device")]
-    pub device: String,
-    /// Maximum concurrent Pocket TTS syntheses (serialized per model).
-    #[serde(default = "default_provider_concurrency")]
-    pub max_concurrent: usize,
-    /// Voice-embedding cache entries.
-    #[serde(default = "default_provider_cache")]
-    pub cache_entries: usize,
-    /// Sampling temperature (`0.0` disables noise). Upstream Kyutai default
-    /// `0.3` (human evals preferred it); `0.7` was the ONNX wrapper's value.
-    #[serde(default = "default_pocket_temperature")]
-    pub temperature: f32,
-    /// Flow-matching integration steps (upstream default `1`).
-    #[serde(default = "default_pocket_lsd_steps")]
-    pub lsd_steps: usize,
-    /// ORT intra-op threads (clamped to 1..=32).
-    #[serde(default = "default_pocket_cpu_threads")]
-    pub cpu_threads: usize,
-}
 
 /// Native Reverb-TTS ONNX provider settings (`[providers.reverb_tts]`).
 ///
@@ -446,26 +405,26 @@ pub struct ReverbTtsConfig {
     #[serde(default = "default_reverb_steps")]
     pub steps: usize,
     /// ORT intra-op threads (clamped to 1..=32).
-    #[serde(default = "default_pocket_cpu_threads")]
+    #[serde(default = "default_reverb_cpu_threads")]
     pub cpu_threads: usize,
 }
 
-/// Provider section grouping (`[providers.pocket_tts]`,
-/// `[providers.reverb_tts]`). Leftover sections of removed engines
-/// (`[providers.qwen3]`, `[providers.qwen3_gguf]`, `[providers.gpt_sovits]`)
+/// Provider section grouping (`[providers.reverb_tts]`). Leftover sections of
+/// removed engines (`[providers.qwen3]`, `[providers.qwen3_gguf]`,
+/// `[providers.pocket_tts]`, `[providers.gpt_sovits]`)
 /// are tolerated for boot compatibility but ignored (see
 /// [`RetiredProviderSection`]): delete them from old configuration files.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProvidersConfig {
     #[serde(default)]
-    pub pocket_tts: PocketTtsConfig,
-    #[serde(default)]
     pub reverb_tts: ReverbTtsConfig,
     #[serde(default, skip_serializing)]
     pub qwen3: Option<RetiredProviderSection>,
     #[serde(default, skip_serializing)]
     pub qwen3_gguf: Option<RetiredProviderSection>,
+    #[serde(default, skip_serializing)]
+    pub pocket_tts: Option<RetiredProviderSection>,
     #[serde(default, skip_serializing)]
     pub gpt_sovits: Option<RetiredProviderSection>,
 }
@@ -661,23 +620,8 @@ fn default_temp_audio_dir() -> String {
 fn default_token_store_path() -> String {
     "./tokens.json".to_string()
 }
-fn default_provider_device() -> String {
-    "auto".to_string()
-}
-fn default_provider_concurrency() -> usize {
-    1
-}
 fn default_provider_cache() -> usize {
     16
-}
-fn default_pocket_model_dir() -> PathBuf {
-    PathBuf::from("./models/pocket-tts")
-}
-fn default_pocket_model_id() -> String {
-    "pocket-tts-en".to_string()
-}
-fn default_pocket_revision() -> String {
-    "58a6d00cf13d239b6748cb0769f35c580a8f606c".to_string()
 }
 fn default_reverb_model_dir() -> PathBuf {
     PathBuf::from("./models/reverb-tts")
@@ -705,38 +649,13 @@ impl Default for ReverbTtsConfig {
             device: default_reverb_device(),
             cache_entries: default_provider_cache(),
             steps: default_reverb_steps(),
-            cpu_threads: default_pocket_cpu_threads(),
+            cpu_threads: default_reverb_cpu_threads(),
         }
     }
 }
 
-/// Former default, written into saved configs before 0.3 became the default.
-pub const LEGACY_POCKET_TEMPERATURE: f32 = 0.7;
-fn default_pocket_temperature() -> f32 {
-    0.3
-}
-fn default_pocket_lsd_steps() -> usize {
-    1
-}
-fn default_pocket_cpu_threads() -> usize {
+fn default_reverb_cpu_threads() -> usize {
     4
-}
-
-impl Default for PocketTtsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            model_dir: default_pocket_model_dir(),
-            model_id: default_pocket_model_id(),
-            revision: default_pocket_revision(),
-            device: default_provider_device(),
-            max_concurrent: default_provider_concurrency(),
-            cache_entries: default_provider_cache(),
-            temperature: default_pocket_temperature(),
-            lsd_steps: default_pocket_lsd_steps(),
-            cpu_threads: default_pocket_cpu_threads(),
-        }
-    }
 }
 
 fn default_max_voice_profiles() -> usize {

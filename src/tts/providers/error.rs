@@ -154,7 +154,7 @@ mod tests {
                 "unsupported_model",
             ),
             (
-                ProviderError::unsupported_language("pocket-tts", "fr", &["en", "es"]),
+                ProviderError::unsupported_language("reverb-tts", "ja", &["en", "es"]),
                 400,
                 "unsupported_language",
             ),
@@ -188,9 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn french_rejection_names_supported_languages() {
-        let error = ProviderError::unsupported_language("pocket-tts", "fr", &["en", "es"]);
-        assert!(error.message().contains("fr"));
+    fn unsupported_language_rejection_names_the_language_and_alternatives() {
+        let error = ProviderError::unsupported_language("reverb-tts", "ja", &["en", "es"]);
+        assert!(error.message().contains("ja"));
         assert!(error.message().contains("en"));
     }
 }

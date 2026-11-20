@@ -96,7 +96,7 @@ platform packages. The implementation deliberately refuses a partial set.
   release compilation, native DLL resolution and ZIP startup/shutdown remain
   unverified. No successful hosted Ubuntu result is claimed.
 * Model-dependent tests remain explicitly ignored by the existing suite.
-  Real Supertonic/Pocket TTS/Reverb-TTS inference, GPU execution, physical playback
+  Real Supertonic/Reverb-TTS inference, GPU execution, physical playback
   and interactive tray behavior were not certified by a model-free probe.
 * No merge, new tag, release upload or published-asset API validation has
   occurred. Existing tags/releases remain unchanged. Published-asset checks

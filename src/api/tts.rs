@@ -615,7 +615,7 @@ fn plugin_identity<'a>(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or("supertonic");
-    if !matches!(provider, "supertonic" | "pocket-tts" | "reverb-tts") {
+    if !matches!(provider, "supertonic" | "reverb-tts") {
         return Err(AppError::BadRequest("unknown provider".into()));
     }
     let voice = voice
@@ -641,11 +641,14 @@ mod plugin_identity_tests {
             ("supertonic", "F1")
         );
         assert_eq!(
-            plugin_identity(Some("pocket-tts"), Some("pocket-tts:id")).unwrap(),
-            ("pocket-tts", "id")
+            plugin_identity(Some("reverb-tts"), Some("reverb-tts:id")).unwrap(),
+            ("reverb-tts", "id")
         );
-        assert!(plugin_identity(Some("pocket-tts"), Some("reverb-tts:id")).is_err());
-        assert!(plugin_identity(Some("qwen3-gguf"), Some("id")).is_err());
+        assert!(plugin_identity(Some("reverb-tts"), Some("supertonic:id")).is_err());
+        // Retired providers are unknown identities.
+        for retired in ["pocket-tts", "qwen3-gguf"] {
+            assert!(plugin_identity(Some(retired), Some("id")).is_err());
+        }
         assert!(plugin_identity(Some("unknown"), None).is_err());
     }
 }
@@ -728,11 +731,6 @@ fn plugin_clone_request(
         ));
     }
     let language = language.unwrap_or(profile.language.clone());
-    if provider_id == "pocket-tts" && language != profile.language {
-        return Err(AppError::BadRequest(
-            "language must match the voice profile".into(),
-        ));
-    }
     let capabilities = provider.capabilities();
     if !capabilities.models.contains(&profile.model)
         || !capabilities.languages.contains(&language)
@@ -768,26 +766,12 @@ mod plugin_play_tests {
         fn capabilities(&self) -> ProviderCapabilities {
             ProviderCapabilities {
                 provider_id: self.0.into(),
-                models: vec![
-                    if self.0 == "pocket-tts" {
-                        "pocket-tts-en"
-                    } else {
-                        "reverb-tts"
-                    }
-                    .into(),
-                ],
+                models: vec!["reverb-tts".into()],
                 languages: vec!["en".into(), "es".into()],
-                clone_modes: vec![
-                    if self.0 == "pocket-tts" {
-                        "audio_prompt"
-                    } else {
-                        "icl"
-                    }
-                    .into(),
-                ],
+                clone_modes: vec!["icl".into()],
                 devices: vec!["cpu".into()],
                 requires_reference_audio: true,
-                requires_reference_transcript: self.0 == "reverb-tts",
+                requires_reference_transcript: true,
                 sample_rate: Some(24_000),
             }
         }
@@ -836,7 +820,7 @@ mod plugin_play_tests {
             reference_hash: "synthetic-fixture".into(),
             reference_sample_rate: 24_000,
             reference_duration_secs: 3.0,
-            transcript: (provider.id() == "reverb-tts").then(|| "different reference words".into()),
+            transcript: Some("different reference words".into()),
             owner_token_hash: Some("test-owner".into()),
             consent: sonicboom::tts::voices::VoiceConsent {
                 basis: "owner".into(),
@@ -872,7 +856,7 @@ mod plugin_play_tests {
             Arc::new(tokens),
             Arc::new(Some(AudioManager::for_test(tx))),
         );
-        for id in ["pocket-tts", "reverb-tts"] {
+        for id in ["reverb-tts"] {
             let provider = Arc::new(Stub(id, ProviderStatusState::Ready));
             let profile = profile(&config, &provider);
             let request = plugin_clone_request(
@@ -949,12 +933,12 @@ mod plugin_play_tests {
             ProviderStatusState::NotInstalled,
             ProviderStatusState::Error,
         ] {
-            let provider = Stub("pocket-tts", status);
+            let provider = Stub("reverb-tts", status);
             assert!(matches!(
                 plugin_clone_request(
                     &config,
                     &provider,
-                    "pocket-tts",
+                    "reverb-tts",
                     profile(&config, &provider),
                     reference(),
                     "test",
@@ -964,17 +948,17 @@ mod plugin_play_tests {
                 Err(AppError::ServiceUnavailable(_))
             ));
         }
-        let provider = Stub("pocket-tts", ProviderStatusState::Ready);
+        let provider = Stub("reverb-tts", ProviderStatusState::Ready);
         let p = profile(&config, &provider);
         assert!(matches!(
             plugin_clone_request(
                 &config,
                 &provider,
-                "pocket-tts",
+                "reverb-tts",
                 p.clone(),
                 reference(),
                 "test",
-                Some("es".into()),
+                Some("ja".into()),
                 &SpeechOptions::default()
             ),
             Err(AppError::BadRequest(_))
@@ -983,7 +967,7 @@ mod plugin_play_tests {
             plugin_clone_request(
                 &config,
                 &provider,
-                "reverb-tts",
+                "supertonic",
                 p.clone(),
                 reference(),
                 "test",
@@ -998,7 +982,7 @@ mod plugin_play_tests {
             plugin_clone_request(
                 &config,
                 &provider,
-                "pocket-tts",
+                "reverb-tts",
                 stale,
                 reference(),
                 "test",

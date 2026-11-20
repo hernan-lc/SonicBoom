@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn diagnostic_seed_preserves_full_u64_precision() {
         let control = InferenceControl::new(Duration::from_secs(1));
-        control.set_context("pocket-tts", "pocket-tts-en", "voice", "cpu");
+        control.set_context("reverb-tts", "reverb-tts", "voice", "cpu");
         control.set_seed(u64::MAX);
         let value = serde_json::to_value(control.snapshot()).unwrap();
         assert_eq!(value["context"]["seed"], "18446744073709551615");

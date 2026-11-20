@@ -16,19 +16,19 @@ export function wav(seconds = 1) {
 export async function studioFixtures(page: Page) {
   const voices: any[] = [];
   let revision = 1, jobs = 0, patches = 0;
-  const config = { model: { inference_steps: 5 }, voices: { max_upload_bytes: 8388608 }, providers: { pocket_tts: { enabled: true, model_id: 'pocket-tts-en' } } };
+  const config = { model: { inference_steps: 5 }, voices: { max_upload_bytes: 8388608 }, providers: { reverb_tts: { enabled: true, model_id: 'reverb-tts' } } };
   const schema = [
     { path: 'model.inference_steps', description: 'Inference steps', type: 'integer', apply: 'hot', min: 1, max: 50, nullable: false, secret: false },
     { path: 'voices.max_upload_bytes', description: 'Maximum voice reference upload size in bytes', type: 'integer', apply: 'hot', min: 1024, max: 67108864, nullable: false, secret: false },
-    { path: 'providers.pocket_tts.enabled', description: 'Enabled', type: 'boolean', apply: 'restart_subsystem', nullable: false, secret: false },
-    { path: 'providers.pocket_tts.model_id', description: 'Model', type: 'string', apply: 'reload_model', allowed_values: ['pocket-tts-en'], nullable: false, secret: false },
+    { path: 'providers.reverb_tts.enabled', description: 'Enabled', type: 'boolean', apply: 'restart_subsystem', nullable: false, secret: false },
+    { path: 'providers.reverb_tts.model_id', description: 'Model', type: 'string', apply: 'reload_model', allowed_values: ['reverb-tts'], nullable: false, secret: false },
   ];
   const requests: { url: string; body?: string }[] = [];
   await page.route(/\/(api|v1)\//, async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
     if (path === '/api/info') return json({ version: 'test', mode: 'server', setup_complete: true, auth: { mode: 'local', required: false }, features: { playback: false, audio_devices: false, hot_reload: true }, config_revision: revision, model: { status: 'ready' }, synthesis: { max_text_chars: 1000, max_body_bytes: 10000, seed_max: '18446744073709551615' } });
-    if (path === '/api/providers') return json({ providers: [{ provider_id: 'pocket-tts', enabled: true, state: 'ready', active_model: 'pocket-tts-en', effective_device: 'cpu', detail: null }], capabilities: [{ provider_id: 'pocket-tts', models: ['pocket-tts-en'], languages: ['en'], devices: ['cpu'], clone_modes: ['audio_prompt'], requires_reference_audio: true, requires_reference_transcript: false, sample_rate: 24000 }] });
+    if (path === '/api/providers') return json({ providers: [{ provider_id: 'reverb-tts', enabled: true, state: 'ready', active_model: 'reverb-tts', effective_device: 'cpu', detail: null }], capabilities: [{ provider_id: 'reverb-tts', models: ['reverb-tts'], languages: ['en'], devices: ['cpu'], clone_modes: ['icl'], requires_reference_audio: true, requires_reference_transcript: true, sample_rate: 24000 }] });
     if (path === '/v1/voices') return json({ data: [{ id: 'builtin', name: 'Built-in speaker' }] });
     if (path === '/api/audio/devices') return json({ devices: [] });
     if (path === '/api/config/status') return json({ revision, config_path: '/test/config.toml', watcher: 'active', last_reload: null, last_error: null, pending_applies: [], apply_failures: [] });
@@ -39,7 +39,7 @@ export async function studioFixtures(page: Page) {
       config.model.inference_steps = 7; revision++;
       return json({ error: 'conflict', message: 'Revision changed', status: 409, request_id: 'test-config-conflict' }, 409);
     }
-    if (path === '/api/voices/constraints') return json({ version: 1, max_upload_bytes: config.voices.max_upload_bytes, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'pocket-tts': { duration_seconds: [1, 30], clone_modes: ['audio_prompt'], models: ['pocket-tts-en'], languages: ['en'], transcript_required_for: [] } } });
+    if (path === '/api/voices/constraints') return json({ version: 1, max_upload_bytes: config.voices.max_upload_bytes, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'reverb-tts': { duration_seconds: [1, 30], clone_modes: ['icl'], models: ['reverb-tts'], languages: ['en'], transcript_required_for: ['icl'] } } });
     if (path === '/api/voices') return json({ data: voices });
     if (path === '/api/voices/clones') {
       const body = request.postDataBuffer()?.toString('utf8') || '';

@@ -17,12 +17,12 @@ path = "src/lib.rs"
 # The Reverb-TTS cloning backend ships in default builds so every engine works
 # without a rebuild; it stays disabled by default, so only the Supertonic
 # weights download until it is enabled.
-# ONNX inference (Supertonic, Pocket TTS) uses ORT's WebGPU EP by
+# ONNX inference (Supertonic, Reverb-TTS) uses ORT's WebGPU EP by
 # default — Vulkan on Linux — with automatic CPU fallback when the GPU or
 # Dawn library is unavailable. Force CPU with `SONICBOOM_EP=cpu`. Vendor EPs
 # (`cuda`/`rocm`) need `--no-default-features` since no prebuilt ORT combines
 # them with WebGPU on Linux.
-default = ["web-ui", "server", "playback", "pocket-tts", "reverb-tts", "gui", "webgpu"]
+default = ["web-ui", "server", "playback", "reverb-tts", "gui", "webgpu"]
 web-ui = ["server"]
 # Android uses a separately installed, verified Bionic runtime (no binary download).
 android-ort = ["ort/load-dynamic"]
@@ -62,15 +62,6 @@ webgpu = ["ort/webgpu"]
 # NOTE: `coreml`, `cuda`, and `rocm` are mutually exclusive per platform, and
 # `webgpu` conflicts with `cuda`/`rocm` on Linux (no combined ORT binary).
 # Vendor EPs need `--no-default-features --features cuda` (or `rocm`).
-# Optional native voice-cloning providers. Pocket TTS compiles into default
-# builds but stays disabled by default; Supertonic 3 is the default provider.
-# Both run in-process with no Python/PyTorch.
-# `pocket-tts` enables the Pocket TTS ONNX provider (CPU by default;
-# SONICBOOM_POCKET_EP=auto opts into Vulkan-first, which can crash while
-# Supertonic also uses WebGPU; pure-Rust unigram tokenizer, no new native
-# dependencies). It ships in default builds but stays disabled by default;
-# weights download only after `[providers.pocket_tts] enabled=true`.
-pocket-tts = []
 # Reverb-TTS (masked-diffusion cloning TTS, ONNX; weights CC BY-NC 4.0, so
 # non-commercial). Disabled by default; weights download only after
 # `[providers.reverb_tts] enabled=true`. Uses the HF `tokenizers` crate.
@@ -226,7 +217,3 @@ reqwest = { version = "0.12", features = ["stream"] }
 [target.'cfg(target_os = "android")'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "half", "tracing", "api-24", "load-dynamic"] }
-
-[[example]]
-name = "pocket_smoke"
-required-features = ["pocket-tts"]

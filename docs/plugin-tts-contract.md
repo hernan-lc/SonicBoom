@@ -13,8 +13,7 @@ ready providers are selectable. Voice IDs are provider-qualified; playback strip
 prefix only after verifying it agrees with the explicit provider. Omitted/empty
 provider retains legacy Supertonic routing. Explicit Supertonic rejects unknown styles;
 cloning requires a token-owned, current-revision profile for the resident model.
-Pocket language models are separate; a profile for a different resident model is not
-listed. Profiles of retired providers are never listed.
+A profile for a different resident model is not listed. Profiles of retired providers are never listed.
 
 Profiles are read through the existing manifest/cache-stamp and ownership functions.
 Decoded references use the existing memory admission path. All provider synthesis
@@ -29,7 +28,7 @@ No weights/downloads are required for the new contract tests:
 
 ```bash
 cargo test --bin SonicBoom plugin_ -- --nocapture
-cargo test --no-default-features --features server,playback,pocket-tts --bin SonicBoom plugin_
+cargo test --no-default-features --features server,playback,reverb-tts --bin SonicBoom plugin_
 cargo check --no-default-features --features server
 cargo fmt --all -- --check
 cargo test --workspace

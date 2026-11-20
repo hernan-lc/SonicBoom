@@ -176,7 +176,7 @@ test('token change clears scoped state immediately and aborts late voice reads',
   const base = countingApi(counts);
   const api = { ...base, voices: async (signal?: AbortSignal) => {
     if (owner === 'old') { oldSignal = signal; return oldResult; }
-    return [{ id: 'new-owner', name: 'New', provider: 'pocket-tts', model: 'pocket-tts-en', language: 'en', clone_mode: 'audio_prompt' }];
+    return [{ id: 'new-owner', name: 'New', provider: 'engine-a', model: 'model-a1', language: 'en', clone_mode: 'speaker_only' }];
   } } as unknown as Api;
   const studio = createStudio(data, { api });
   try {
@@ -195,10 +195,10 @@ test('token change clears scoped state immediately and aborts late voice reads',
 test('incompatible profile revisions are excluded from generation options', () => {
   const studio = createStudio(data, { api: countingApi({}) });
   try {
-    studio.providers.value = [{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en', model_revision: 'new-revision' }];
-    studio.capabilities.value = [{ provider_id: 'pocket-tts', models: ['pocket-tts-en'], languages: ['en'], devices: ['cpu'], clone_modes: ['audio_prompt'], requires_reference_audio: true, requires_reference_transcript: false }];
-    const profile = { id: 'old-profile', name: 'Old', provider: 'pocket-tts', model: 'pocket-tts-en', language: 'en', clone_mode: 'audio_prompt', model_revision: 'old-revision' };
-    studio.voices.value = [profile]; studio.model.value = 'pocket-tts-en';
+    studio.providers.value = [{ provider_id: 'engine-a', state: 'ready', enabled: true, active_model: 'model-a1', model_revision: 'new-revision' }];
+    studio.capabilities.value = [{ provider_id: 'engine-a', models: ['model-a1'], languages: ['en'], devices: ['cpu'], clone_modes: ['speaker_only'], requires_reference_audio: true, requires_reference_transcript: false }];
+    const profile = { id: 'old-profile', name: 'Old', provider: 'engine-a', model: 'model-a1', language: 'en', clone_mode: 'speaker_only', model_revision: 'old-revision' };
+    studio.voices.value = [profile]; studio.model.value = 'model-a1';
     assert.equal(studio.profileCompatible(profile), false);
     assert.equal(studio.availableVoices.value.length, 0);
     studio.voices.value = [{ ...profile, model_revision: 'new-revision' }];
@@ -209,7 +209,7 @@ test('incompatible profile revisions are excluded from generation options', () =
 test('hot authentication-mode changes invalidate cached owner-scoped resources', async () => {
   let mode = 'none';
   const base = countingApi({});
-  const api = { ...base, info: async () => ({ ...readyInfo(), auth: { mode, required: mode === 'token' } }), voices: async () => mode === 'none' ? [{ id: 'local-owner', name: 'Local', provider: 'pocket-tts', model: 'pocket-tts-en', language: 'en', clone_mode: 'audio_prompt' }] : [] } as unknown as Api;
+  const api = { ...base, info: async () => ({ ...readyInfo(), auth: { mode, required: mode === 'token' } }), voices: async () => mode === 'none' ? [{ id: 'local-owner', name: 'Local', provider: 'engine-a', model: 'model-a1', language: 'en', clone_mode: 'speaker_only' }] : [] } as unknown as Api;
   const studio = createStudio(data, { api });
   try {
     await studio.refresh();

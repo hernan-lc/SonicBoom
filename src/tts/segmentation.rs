@@ -9,11 +9,9 @@
 //! reusable engine use the character-bounded sentence policy
 //! ([`SegmentPolicy::supertonic`], built on
 //! [`TextProcessor::split_sentences_with_limit`](crate::tts::text::TextProcessor::split_sentences_with_limit)),
-//! while Pocket TTS keeps its tokenizer-aware sentence splitter (token
-//! budget per chunk, autoregressive state per request). Those providers
-//! express their own policy;
-//! this module guarantees the shared contract for the fragments they do
-//! emit: original order, no empty fragments, no cut inside a Unicode
+//! while a provider with its own constraints (token budget per chunk,
+//! autoregressive state per request) expresses its own policy. This module
+//! guarantees the shared contract for the fragments they do emit: original order, no empty fragments, no cut inside a Unicode
 //! grapheme cluster, and per-fragment [`Fragment`] metadata (index, total)
 //! so every fragment can be tracked, cancelled, and stitched independently.
 
@@ -21,7 +19,7 @@ use serde::Serialize;
 
 /// Default inter-fragment silence, in seconds. Matches the Supertonic
 /// inference stitching (`INTER_CHUNK_SILENCE_SECS`); providers that manage
-/// their own continuity (Pocket TTS autoregressive state) use their own
+/// their own continuity (autoregressive state) use their own
 /// value.
 pub const DEFAULT_INTER_FRAGMENT_SILENCE_SECS: f64 = 0.2;
 

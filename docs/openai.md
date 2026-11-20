@@ -41,12 +41,12 @@ Synthesizes text to speech using OpenAI-compatible request format.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `model` | string | No | `tts-1` | Model ID: `tts-1`, `tts-1-hd`, `supertonic-3` (Supertonic), `reverb-tts` (Reverb-TTS), `pocket-tts-en`, `pocket-tts-es` (Pocket TTS). Anything else → `400` (retired GPT-SoVITS and Qwen3-TTS IDs → explicit retired-model `400` suggesting `reverb-tts`) |
+| `model` | string | No | `tts-1` | Model ID: `tts-1`, `tts-1-hd`, `supertonic-3` (Supertonic), `reverb-tts` (Reverb-TTS). Anything else → `400` (retired GPT-SoVITS, Qwen3-TTS and Pocket TTS IDs → explicit retired-model `400` suggesting `reverb-tts`) |
 | `input` | string | Yes | - | Text to synthesize |
 | `voice` | string | No | `alloy` | Supertonic voice name/alias, or (for cloning models) an authorized voice-profile ID from `POST /api/voices/clones` (unknown → `400`, never a silent fallback) |
 | `response_format` | string | No | `opus` | Output format: `opus`, `mp3`, `wav`, `flac` (unknown → `400`) |
 | `speed` | number | No | `1.0` | Only `1.0` (or omitted) is accepted; anything else → `400` (speed adjustment is not implemented) |
-| `language` | string | No | profile language (`en` for legacy) | Synthesis language for cloning models; validated per provider (Pocket TTS supports `en`/`es`; anything else → `400`). Legacy Supertonic requests always synthesize English |
+| `language` | string | No | profile language (`en` for legacy) | Synthesis language for cloning models; validated per provider (Reverb-TTS supports `de`/`en`/`es`/`fr`/`it`/`pl`/`pt`; anything else → `400`). Legacy Supertonic requests always synthesize English |
 | `seed` | integer | No | - | Deterministic seed for cloning providers, when supported |
 | `normalization` | string | No | server default (`auto`) | SonicBoom extension: text normalization `auto` or `off` (anything else → `400`) |
 | `locale` | string | No | language default | SonicBoom extension: pronunciation locale such as `es-PE`, or `auto`. Must belong to the synthesis language (legacy Supertonic aliases synthesize English, so only `en-US`/`en-GB` apply there); unsupported or mismatched → `400` |

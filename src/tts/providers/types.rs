@@ -36,28 +36,21 @@ impl PcmAudio {
 #[serde(rename_all = "snake_case")]
 pub enum CloneMode {
     /// In-context learning: reference WAV plus the exact reference transcript.
+    /// The only supported mode; the removed `x_vector` and `audio_prompt`
+    /// modes survive only as strings in old stored voice profiles.
     Icl,
-    /// Audio-prompt conditioning: reference WAV without a transcript,
-    /// encoded to voice embeddings (Pocket TTS only).
-    AudioPrompt,
 }
 
 impl CloneMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Icl => "icl",
-            Self::AudioPrompt => "audio_prompt",
         }
-    }
-
-    pub fn requires_transcript(self) -> bool {
-        self == Self::Icl
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "icl" => Some(Self::Icl),
-            "audio_prompt" | "audioprompt" => Some(Self::AudioPrompt),
             _ => None,
         }
     }
@@ -124,7 +117,7 @@ pub struct ReferenceAudio {
 /// Extensible per-request synthesis input.
 ///
 /// `voice` is either a built-in style name (Supertonic `F1`–`F5`/`M1`–`M5`,
-/// OpenAI aliases) or an authorized voice-profile ID (Pocket TTS/Reverb-TTS).
+/// OpenAI aliases) or an authorized voice-profile ID (Reverb-TTS).
 /// Provider-specific options stay out of the global Supertonic constraints:
 /// each provider validates its own voice names, languages and options.
 #[derive(Debug, Clone)]
@@ -135,7 +128,7 @@ pub struct ProviderRequest {
     pub language: String,
     pub device: DevicePreference,
     pub clone_mode: Option<CloneMode>,
-    /// Exact reference transcript (required for ICL; unused by Pocket TTS).
+    /// Exact reference transcript (required for ICL).
     pub reference_transcript: Option<String>,
     /// Decoded reference PCM for cloning providers (`None` for Supertonic).
     pub reference_audio: Option<ReferenceAudio>,

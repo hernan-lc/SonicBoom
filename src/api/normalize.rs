@@ -183,7 +183,7 @@ fn json_error(error: serde_json::Error) -> AppError {
 
 /// The language check synthesis applies for `model`, from static provider
 /// metadata (no provider is started or loaded): the provider's advertised
-/// languages, plus Pocket's per-model language binding.
+/// languages.
 fn validate_model_language(model: &str, language: &str) -> Result<(), AppError> {
     use sonicboom::tts::providers::catalog::{ModelProvider, model_provider};
     let unsupported = || {
@@ -201,12 +201,6 @@ fn validate_model_language(model: &str, language: &str) -> Result<(), AppError> 
             } else {
                 Err(unsupported())
             }
-        }
-        Some(ModelProvider::PocketTts) => {
-            sonicboom::tts::providers::pocket_tts::PocketTtsProvider::check_model_language(
-                model, language,
-            )
-            .map_err(|_| unsupported())
         }
         Some(ModelProvider::ReverbTts) => {
             sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
@@ -277,7 +271,7 @@ mod tests {
         let (status, headers, body) = post(
             &app,
             Some(&token),
-            r#"{"text":"  La reunión es el 26/10/2026.  ","language":"es","locale":"es-PE","mode":"auto","model":"pocket-tts-es"}"#,
+            r#"{"text":"  La reunión es el 26/10/2026.  ","language":"es","locale":"es-PE","mode":"auto","model":"reverb-tts"}"#,
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
@@ -467,7 +461,7 @@ mod tests {
             r#"{"text":"secreto 5","language":"es","reading_style":"loud"}"#,
             r#"{"text":"secreto 5","language":"es","reading_style":5}"#,
             r#"{"text":"secreto 5","language":"e$"}"#,
-            r#"{"text":"secreto 5","language":"ja","model":"pocket-tts-es"}"#,
+            r#"{"text":"secreto 5","language":"ja","model":"reverb-tts"}"#,
             r#"{"text":"secreto 5","language":"es","model":"no-such-model"}"#,
             r#"{"text":"secreto 5","language":"es","dictionary":"x"}"#,
             r#"{"text":5,"language":"es"}"#,
@@ -484,8 +478,7 @@ mod tests {
 
     #[test]
     fn model_language_check_matches_provider_metadata() {
-        assert!(validate_model_language("pocket-tts-es", "es").is_ok());
-        assert!(validate_model_language("pocket-tts-es", "en").is_err());
+        assert!(validate_model_language("pocket-tts-es", "es").is_err());
         assert!(validate_model_language("tts-1", "es").is_ok());
         assert!(validate_model_language("reverb-tts", "en").is_ok());
         assert!(validate_model_language("reverb-tts", "ar").is_err());

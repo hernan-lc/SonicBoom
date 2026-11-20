@@ -13,7 +13,7 @@ FROM nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:aaaa AS builder-cuda
 COPY Cargo.toml Cargo.lock ./
 COPY examples ./examples
 COPY vendor ./vendor
-RUN cargo build --release --locked --no-default-features --features server,cuda,pocket-tts,reverb-tts
+RUN cargo build --release --locked --no-default-features --features server,cuda,reverb-tts
 FROM nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04@sha256:bbbb AS runtime-cuda
 COPY --from=builder-cuda /build/target/release/SonicBoom /app/sonicboom
 ENV LD_LIBRARY_PATH=/app/ort-lib:/app

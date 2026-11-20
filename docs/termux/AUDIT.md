@@ -1,7 +1,7 @@
 # Android implementation audit
 
 - `Cargo.toml`: desktop defaults previously included server, GUI, rodio playback,
-  Pocket and Qwen/Vulkan (Qwen was later removed). `server` itself did not activate these. Added `web-ui`
+  Pocket and Qwen/Vulkan (both were later removed). `server` itself did not activate these. Added `web-ui`
   to desktop defaults, moved frontend build behind it, and added `android-ort`.
   Android target dependencies select ORT API 24/dynamic loading and Rustls HTTP
   TLS; desktop dependency defaults remain intact. TikTools still selects neither
@@ -20,7 +20,7 @@
   pending). Android Supertonic sessions default to two CPU threads, configurable
   without changing diffusion steps/output quality. Playback capability already
   reports compile-time exclusion correctly.
-- `src/tts/providers`: Supertonic/Pocket ONNX paths now explicitly initialize
+- `src/tts/providers`: Supertonic ONNX paths now explicitly initialize
   the runtime before session construction. No provider is reimplemented.
 - Existing SIGINT/SIGTERM shutdown and atomic downloads/configuration are retained.
 - Native execution evidence belongs in the results file; an NDK check alone does

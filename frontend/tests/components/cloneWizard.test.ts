@@ -8,7 +8,7 @@ import FileDropzone from '../../src/components/ui/FileDropzone.vue';
 Element.prototype.scrollIntoView ??= () => {};
 const mock = vi.hoisted(() => ({ studio: null as any }));
 vi.mock('../../src/composables/useStudio', () => ({ useStudio: () => mock.studio }));
-const constraints = { version: 1, max_upload_bytes: 1_000_000, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'pocket-tts': { duration_seconds: [1, 30], models: ['pocket-tts-en'], languages: ['en'], clone_modes: ['audio_prompt'], transcript_required_for: [] } } };
+const constraints = { version: 1, max_upload_bytes: 1_000_000, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'engine-a': { duration_seconds: [1, 30], models: ['model-a1'], languages: ['en'], clone_modes: ['speaker_only'], transcript_required_for: [] } } };
 function wav(duration = 1) {
   const bytes = new ArrayBuffer(44 + duration * 8000 * 2), view = new DataView(bytes);
   const tag = (i: number, value: string) => [...value].forEach((c, n) => view.setUint8(i + n, c.charCodeAt(0)));
@@ -20,8 +20,8 @@ function wav(duration = 1) {
 let wrapper: ReturnType<typeof mount>;
 beforeEach(() => {
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:reference'), revokeObjectURL: vi.fn() }));
-  mock.studio = { capabilities: ref([{ provider_id: 'pocket-tts', requires_reference_audio: true, requires_reference_transcript: false, models: ['pocket-tts-en'], languages: ['en'], clone_modes: ['audio_prompt'] }]), providers: ref([{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en' }]),
-    api: { voiceConstraints: vi.fn(async () => constraints), createVoice: vi.fn(async () => ({ id: 'saved', name: 'My voice', model: 'pocket-tts-en', provider: 'pocket-tts', language: 'en', clone_mode: 'audio_prompt', warnings: ['reference_nearly_silent'], defects: [], guidance: [], reference_health: { peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1 } })) },
+  mock.studio = { capabilities: ref([{ provider_id: 'engine-a', requires_reference_audio: true, requires_reference_transcript: false, models: ['model-a1'], languages: ['en'], clone_modes: ['speaker_only'] }]), providers: ref([{ provider_id: 'engine-a', state: 'ready', enabled: true, active_model: 'model-a1' }]),
+    api: { voiceConstraints: vi.fn(async () => constraints), createVoice: vi.fn(async () => ({ id: 'saved', name: 'My voice', model: 'model-a1', provider: 'engine-a', language: 'en', clone_mode: 'speaker_only', warnings: ['reference_nearly_silent'], defects: [], guidance: [], reference_health: { peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1 } })) },
     refreshVoices: vi.fn(async () => {}), selectProfile: vi.fn() };
   wrapper = mount(CloneWizard, { attachTo: document.body });
 });
@@ -58,10 +58,12 @@ describe('cloning wizard', () => {
     expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
   });
   it('describes the mode in plain words and reports the recording details', async () => {
+    mock.studio.capabilities.value[0].clone_modes = ['icl'];
+    await flushPromises();
     await reference(wav(5));
     const mode = wrapper.get('.mode-option');
-    expect(mode.text()).toContain('Audio prompt');
-    expect(mode.text()).toContain('No transcript is needed');
+    expect(mode.text()).toContain('ICL');
+    expect(mode.text()).toContain('exact transcript');
     expect(wrapper.get('.file-name').text()).toBe('ref.wav');
     expect(wrapper.get('.file-meta').text()).toContain('5.00 s · 8000 Hz');
     await vi.waitFor(() => expect(wrapper.get('.status-pill').text()).toContain('Good length'));
@@ -124,7 +126,7 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   mock.studio.providers.value.push({ provider_id: 'reverb-tts', state: 'ready', enabled: true, active_model: 'reverb-tts' });
   mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, providers: { ...constraints.providers, 'reverb-tts': { duration_seconds: [1, 30], models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'], transcript_required_for: ['icl'] } } });
   await reference(wav());
-  // Return to engine selection after choosing a Pocket recording.
+  // Return to engine selection after choosing a engine-a recording.
   await wrapper.findAll('button').find(button => button.text() === 'Back')!.trigger('click');
   await choose('#cloneProvider', 'reverb-tts');
   expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('reverb-tts');
@@ -140,36 +142,26 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
 });
 
-it('shows only ready engines and models until unavailable choices are revealed', async () => {
-  mock.studio.capabilities.value[0].models = ['pocket-tts-en', 'pocket-tts-es'];
+it('shows only ready engines until unavailable ones are revealed', async () => {
+  mock.studio.capabilities.value[0].models = ['model-a1', 'model-a2'];
   mock.studio.capabilities.value[0].languages = ['en', 'es'];
   mock.studio.capabilities.value.push({ provider_id: 'reverb-tts', requires_reference_audio: true, requires_reference_transcript: true, models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'] });
-  mock.studio.providers.value = [{ provider_id: 'pocket-tts', state: 'ready', enabled: true, active_model: 'pocket-tts-en' }];
+  mock.studio.providers.value = [{ provider_id: 'engine-a', state: 'ready', enabled: true, active_model: 'model-a1' }];
   await flushPromises();
-  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('pocket-tts');
-  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('pocket-tts-en');
+  expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('engine-a');
+  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('model-a1');
 
+  // Every model of a ready engine is selectable: readiness belongs to the engine.
   await wrapper.get('#cloneModel').trigger('click');
   await flushPromises();
   let options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
-  expect(options.some((text) => text.includes('pocket-tts-en'))).toBe(true);
-  expect(options.some((text) => text.includes('pocket-tts-es'))).toBe(false);
-  clickButton('Show unavailable models');
-  await flushPromises();
-  options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
-  const unavailableModel = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
-    item.textContent?.includes('pocket-tts-es'),
-  );
-  expect(options.some((text) => text.includes('pocket-tts-es'))).toBe(true);
-  unavailableModel!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  await flushPromises();
-  expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('pocket-tts-es');
-  expect(wrapper.text()).toContain('Switch to an active model');
+  expect(options.some((text) => text.includes('model-a1'))).toBe(true);
+  expect(options.some((text) => text.includes('model-a2'))).toBe(true);
 
   await wrapper.get('#cloneProvider').trigger('click');
   await flushPromises();
   options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent ?? '');
-  expect(options.some((text) => text.includes('pocket-tts'))).toBe(true);
+  expect(options.some((text) => text.includes('engine-a'))).toBe(true);
   expect(options.some((text) => text.includes('reverb-tts'))).toBe(false);
   clickButton('Show unavailable engines');
   await flushPromises();
@@ -234,7 +226,7 @@ it('submits only one upload while repeated save events are pending', async () =>
   await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('form').trigger('submit'); await flushPromises();
   expect(mock.studio.api.createVoice).toHaveBeenCalledTimes(1);
-  release({ id: 'saved', name: 'Draft', model: 'pocket-tts-en', provider: 'pocket-tts', language: 'en', clone_mode: 'audio_prompt', reference_health: { peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1 } });
+  release({ id: 'saved', name: 'Draft', model: 'model-a1', provider: 'engine-a', language: 'en', clone_mode: 'speaker_only', reference_health: { peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1 } });
   await flushPromises();
   expect(wrapper.get('#cloneResult').text()).toContain('saved');
 });

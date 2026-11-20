@@ -30,10 +30,7 @@ use sonicboom::tts::providers::catalog::{ModelProvider, is_retired_model, model_
 /// Whether `model` selects a voice-cloning provider (voice must be an
 /// authorized profile ID) rather than Supertonic built-in voices.
 pub fn is_cloning_model(model: &str) -> bool {
-    matches!(
-        model_provider(model),
-        Some(ModelProvider::PocketTts | ModelProvider::ReverbTts)
-    )
+    matches!(model_provider(model), Some(ModelProvider::ReverbTts))
 }
 
 /// Recognized identifiers remain stable across feature combinations. Check
@@ -408,7 +405,6 @@ pub async fn get_models() -> impl IntoResponse {
         .iter()
         .map(|id| {
             let owned_by = match model_provider(id) {
-                Some(ModelProvider::PocketTts) => "local:pocket-tts",
                 Some(ModelProvider::ReverbTts) => "local:reverb-tts",
                 _ => "local",
             };
@@ -479,12 +475,10 @@ mod tests {
         for model in ["tts-1", "tts-1-hd", "supertonic-3"] {
             assert!(!is_cloning_model(model), "{model} must stay supertonic");
         }
-        for model in ["pocket-tts-en", "pocket-tts-es", "reverb-tts"] {
-            assert!(
-                is_cloning_model(model),
-                "{model} must route to a cloning provider"
-            );
-        }
+        assert!(
+            is_cloning_model("reverb-tts"),
+            "reverb-tts must route to a cloning provider"
+        );
         // Retired IDs are rejected with an explicit error, never rerouted.
         for model in RETIRED_MODELS {
             assert!(!is_cloning_model(model), "{model} must stay retired");
@@ -501,8 +495,6 @@ mod tests {
         for (model, provider) in [
             ("tts-1", ModelProvider::Supertonic),
             ("reverb-tts", ModelProvider::ReverbTts),
-            ("pocket-tts-en", ModelProvider::PocketTts),
-            ("pocket-tts-es", ModelProvider::PocketTts),
         ] {
             assert_eq!(model_provider(model), Some(provider));
             let result = require_compiled_provider(model);

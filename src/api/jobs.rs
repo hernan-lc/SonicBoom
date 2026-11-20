@@ -2264,12 +2264,8 @@ mod normalization_tests {
         .unwrap();
         let openai = openai.speech(&config, "es").unwrap();
         for speech in [tts, preview, openai] {
-            let mut request = super::super::speech_prep::provider_request(
-                "reverb-tts",
-                "profile",
-                speech,
-                "es",
-            );
+            let mut request =
+                super::super::speech_prep::provider_request("reverb-tts", "profile", speech, "es");
             request.reference_transcript = Some(TRANSCRIPT.to_string());
             super::super::tts::synthesize_provider_bounded(&state, recorder.clone(), request)
                 .await

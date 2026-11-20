@@ -52,8 +52,7 @@ stats while health advice collapses into `Recording health notes`.
 
 Three status dots (enabled / model loaded / ready) plus one `?` tooltip
 replace the diagnostic dump; engine-specific notes and the Vulkan/CPU solution
-live behind disclosures. Pocket's six per-model Activate buttons collapsed
-into one model picker with a single Activate action.
+live behind disclosures.
 
 ## Settings — one line per setting
 

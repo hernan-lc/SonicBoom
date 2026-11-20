@@ -104,8 +104,8 @@ impl NewVoiceProfile {
         if self.reference_pcm.iter().any(|s| !s.is_finite()) {
             return Err("reference samples must be finite".into());
         }
-        if super::providers::types::CloneMode::parse(&self.clone_mode)
-            .is_some_and(super::providers::types::CloneMode::requires_transcript)
+        // ICL is the only supported mode and always needs its transcript.
+        if super::providers::types::CloneMode::parse(&self.clone_mode).is_some()
             && self
                 .transcript
                 .as_deref()
@@ -350,6 +350,7 @@ mod tests {
         for (provider, model, mode) in [
             ("qwen3-candle", "qwen3-tts-0.6b-base", "x_vector"),
             ("qwen3-gguf", "qwen3-tts-1.7b-base", "icl"),
+            ("pocket-tts", "pocket-tts-en", "audio_prompt"),
             ("gpt-sovits", "gpt-sovits-v2pro-onnx", "icl"),
             ("some-future-provider", "any-model", "any_mode"),
         ] {

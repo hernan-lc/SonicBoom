@@ -27,7 +27,7 @@ describe('accessible shared fields', () => {
 it('select fields associate errors and loading buttons prevent duplicate actions', async () => {
   const { default: BaseSelect } = await import('../../src/components/ui/BaseSelect.vue');
   const { default: BaseButton } = await import('../../src/components/ui/BaseButton.vue');
-  const select = mount(BaseSelect, { props: { id: 'engine', label: 'Engine', options: [{ value: 'pocket', label: 'Pocket' }], error: 'Unavailable' } });
+  const select = mount(BaseSelect, { props: { id: 'engine', label: 'Engine', options: [{ value: 'engine', label: 'Engine A' }], error: 'Unavailable' } });
   expect(select.get('select').attributes('aria-describedby')).toBe('engine-error');
   expect(select.get('select').attributes('aria-invalid')).toBe('true');
   const button = mount(BaseButton, { props: { loading: true, type: 'submit' }, slots: { default: 'Save' } });

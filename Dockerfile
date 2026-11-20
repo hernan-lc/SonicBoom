@@ -70,7 +70,7 @@ COPY models.sha256.json ./models.sha256.json
 
 # Cloning backends ride along so every engine works out of the box.
 # Providers stay disabled by default: only Supertonic weights download.
-RUN cargo build --release --locked --no-default-features --features server,pocket-tts,reverb-tts,web-ui,webgpu
+RUN cargo build --release --locked --no-default-features --features server,reverb-tts,web-ui,webgpu
 
 # Stage the ONNX Runtime shared library (if dynamically linked) at a known
 # path for the runtime image. Fail the build if it is needed but missing.
@@ -106,7 +106,7 @@ RUN set -eu; \
 FROM builder AS builder-playback
 RUN apt-get update && apt-get install -y --no-install-recommends libasound2-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN cargo build --release --locked --no-default-features --features server,playback,pocket-tts,reverb-tts,web-ui
+RUN cargo build --release --locked --no-default-features --features server,playback,reverb-tts,web-ui
 
 # ============================================================================
 # Builder: CUDA-enabled headless server
@@ -149,7 +149,7 @@ ENV SONICBOOM_FRONTEND_PREBUILT=1
 COPY models.sha256.json ./models.sha256.json
 
 # The `cuda` feature enables the ONNX Runtime CUDA execution provider.
-RUN cargo build --release --locked --no-default-features --features server,cuda,pocket-tts,reverb-tts,web-ui
+RUN cargo build --release --locked --no-default-features --features server,cuda,reverb-tts,web-ui
 
 RUN set -eu; \
     mkdir -p /build/ort-dist; \

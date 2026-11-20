@@ -714,15 +714,9 @@ impl TtsProvider for ReverbTtsProvider {
         reference_pcm: &[f32],
         reference_rate: u32,
         transcript: Option<&str>,
-        mode: CloneMode,
+        _mode: CloneMode,
     ) -> Result<String, ProviderError> {
         Self::check_model(model_id)?;
-        if mode != CloneMode::Icl {
-            return Err(ProviderError::invalid_voice(format!(
-                "reverb-tts uses icl conditioning (reference audio plus its exact transcript), not '{}'",
-                mode.as_str()
-            )));
-        }
         Self::validate_reference(reference_pcm, reference_rate)?;
         Self::prepare_transcript(transcript.unwrap_or(""))?;
         Ok(self.conditioning_key(&Self::reference_hash(reference_pcm, reference_rate)))
@@ -737,15 +731,6 @@ impl TtsProvider for ReverbTtsProvider {
             return Err(ProviderError::device_unavailable(
                 "provider 'reverb-tts' runs on 'cpu' or 'auto' (Vulkan); CUDA is unsupported",
             ));
-        }
-        match request.clone_mode {
-            None | Some(CloneMode::Icl) => {}
-            Some(mode) => {
-                return Err(ProviderError::invalid_voice(format!(
-                    "reverb-tts uses icl conditioning, not '{}'",
-                    mode.as_str()
-                )));
-            }
         }
         if request.text.trim().is_empty() {
             return Err(ProviderError::invalid_voice("text cannot be empty"));
@@ -984,7 +969,7 @@ mod tests {
                 .code(),
             "unsupported_language"
         );
-        assert!(ReverbTtsProvider::check_model_language("pocket-tts-es", "es").is_err());
+        assert!(ReverbTtsProvider::check_model_language("other-model", "es").is_err());
     }
 
     #[test]
@@ -1050,17 +1035,7 @@ mod tests {
                 .is_err()
         );
         assert!(
-            p.prepare_reference(
-                "reverb-tts",
-                &pcm,
-                24_000,
-                Some("x"),
-                CloneMode::AudioPrompt
-            )
-            .is_err()
-        );
-        assert!(
-            p.prepare_reference("pocket-tts-en", &pcm, 24_000, Some("x"), CloneMode::Icl)
+            p.prepare_reference("other-model", &pcm, 24_000, Some("x"), CloneMode::Icl)
                 .is_err()
         );
     }
@@ -1099,7 +1074,7 @@ mod tests {
         assert_eq!(status.active_model.as_deref(), Some("reverb-tts"));
         assert!(status.detail.unwrap().contains("not installed"));
         assert_eq!(p.load("reverb-tts").unwrap_err().code(), "model_missing");
-        assert!(p.load("pocket-tts-en").is_err());
+        assert!(p.load("other-model").is_err());
     }
 
     #[test]

@@ -456,8 +456,6 @@ Spanish text loses no characters.
 - **No dictionary API.** `dictionary.rs` is not wired into `normalize`, ships no
   entries, and has no storage or authorization. `ChangeKind` has no dictionary
   variant yet.
-- **Pocket splitter untouched.** Only the text that Pocket receives changes. Pocket
-  parity with real ONNX models is a follow-up.
 - pt, fr, de, it, ru, zh, ja and ko have partial rules (see the
   multilingual table). Their expectations have not been reviewed by fluent
   speakers.

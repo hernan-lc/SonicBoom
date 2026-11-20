@@ -33,7 +33,6 @@ pub async fn providers(
         .map(|s| {
             let label = match s.provider_id.as_str() {
                 "supertonic" => "Supertonic",
-                "pocket-tts" => "Pocket TTS",
                 "reverb-tts" => "Reverb-TTS",
                 _ => "Unknown provider",
             };

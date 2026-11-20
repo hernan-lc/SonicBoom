@@ -224,7 +224,7 @@ impl SonicBoomPlugin {
             return Err(PluginError::invalid_request(format!(
                 "unsupported provider '{provider}' in this plugin build \
                  (only 'supertonic' is embedded; configure the SonicBoom server \
-                 with [providers.pocket_tts]/[providers.reverb_tts] for voice cloning)"
+                 with [providers.reverb_tts] for voice cloning)"
             )));
         }
         if let Some(model) = optional_string(config, "model")

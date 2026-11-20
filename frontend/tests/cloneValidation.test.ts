@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { validateReference } from '../src/features/cloning/validateReference.ts';
 import { createApi } from '../src/services/api.ts';
 import { createHttpClient, ApiError } from '../src/services/http.ts';
-const limits = { version: 1, max_upload_bytes: 1000000, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { pocket: { duration_seconds: [1, 30] as [number, number], clone_modes: ['audio_prompt'], models: ['pocket'], languages: ['en'], transcript_required_for: [] } } };
+const limits = { version: 1, max_upload_bytes: 1000000, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { engine: { duration_seconds: [1, 30] as [number, number], clone_modes: ['speaker_only'], models: ['engine'], languages: ['en'], transcript_required_for: [] } } };
 function wav(seconds: number, channels = 1, rate = 8000) {
   const bytes = new ArrayBuffer(44 + seconds * rate * channels * 2);
   const view = new DataView(bytes);
@@ -15,11 +15,11 @@ function wav(seconds: number, channels = 1, rate = 8000) {
   return new File([bytes], 'test.wav');
 }
 test('reference duration, rate, channel and byte boundaries', async () => {
-  for (const duration of [1, 5, 30]) assert.equal((await validateReference(wav(duration), limits, 'pocket')).duration, duration);
-  for (const file of [wav(0.5), wav(31), wav(1, 3), wav(1, 1, 4000), new File(['RIFF'], 'bad.wav')]) await assert.rejects(validateReference(file, limits, 'pocket'));
+  for (const duration of [1, 5, 30]) assert.equal((await validateReference(wav(duration), limits, 'engine')).duration, duration);
+  for (const file of [wav(0.5), wav(31), wav(1, 3), wav(1, 1, 4000), new File(['RIFF'], 'bad.wav')]) await assert.rejects(validateReference(file, limits, 'engine'));
   const file = wav(1);
-  await validateReference(file, { ...limits, max_upload_bytes: file.size }, 'pocket');
-  await assert.rejects(validateReference(file, { ...limits, max_upload_bytes: file.size - 1 }, 'pocket'));
+  await validateReference(file, { ...limits, max_upload_bytes: file.size }, 'engine');
+  await assert.rejects(validateReference(file, { ...limits, max_upload_bytes: file.size - 1 }, 'engine'));
 });
 test('clone sends private metadata only in multipart body', async () => {
   const original = globalThis.fetch;
@@ -29,10 +29,10 @@ test('clone sends private metadata only in multipart body', async () => {
     assert.equal(new Headers(options?.headers).has('Content-Type'), false);
     const part = options.body.get('metadata') as Blob;
     assert.equal(JSON.parse(await part.text()).transcript, 'private words');
-    return Response.json({ id: 'voice', name: 'test', provider: 'pocket', model: 'pocket', language: 'en', clone_mode: 'audio_prompt', warnings: [], defects: [], guidance: [], reference_health: { duration_secs: 1, source_channels: 1, source_sample_rate: 8000, peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1, non_finite_samples: 0 } });
+    return Response.json({ id: 'voice', name: 'test', provider: 'engine', model: 'engine', language: 'en', clone_mode: 'speaker_only', warnings: [], defects: [], guidance: [], reference_health: { duration_secs: 1, source_channels: 1, source_sample_rate: 8000, peak: 0, rms: 0, clipping_fraction: 0, low_amplitude_fraction: 1, non_finite_samples: 0 } });
   };
   try {
-    await createApi(createHttpClient()).createVoice({ name: 'test', provider: 'pocket', model: 'pocket', language: 'en', mode: 'audio_prompt', consent_basis: 'owner', transcript: 'private words' }, wav(1));
+    await createApi(createHttpClient()).createVoice({ name: 'test', provider: 'engine', model: 'engine', language: 'en', mode: 'speaker_only', consent_basis: 'owner', transcript: 'private words' }, wav(1));
   } finally { globalThis.fetch = original; }
 });
 test('structured errors retain correlation and retry advice', async () => {
@@ -46,5 +46,5 @@ test('structured errors retain correlation and retry advice', async () => {
 test('constraints boundary rejects unknown versions and invalid values', async () => {
   const { parseConstraints } = await import('../src/features/cloning/constraints.ts');
   assert.deepEqual(parseConstraints(limits), limits);
-  for (const value of [null, {}, { ...limits, version: 2 }, { ...limits, max_upload_bytes: -1 }, { ...limits, providers: { pocket: {} } }]) assert.throws(() => parseConstraints(value));
+  for (const value of [null, {}, { ...limits, version: 2 }, { ...limits, max_upload_bytes: -1 }, { ...limits, providers: { engine: {} } }]) assert.throws(() => parseConstraints(value));
 });

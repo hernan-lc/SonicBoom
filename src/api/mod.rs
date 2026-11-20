@@ -469,19 +469,19 @@ mod tests {
         let (token, raw) = tokens.create(None).await.unwrap();
         let mut config = test_config();
         config.voices.store_dir = dir.join("voices").to_string_lossy().into_owned();
-        let revision = voices::config_revision_for(&config, "pocket-tts");
+        let revision = voices::config_revision_for(&config, "reverb-tts");
         let mut store = VoiceProfileStore::open(config.voices.store_dir.clone().into()).unwrap();
         let profile = store
             .create(NewVoiceProfile {
                 name: "Synthetic test reference".into(),
-                provider: "pocket-tts".into(),
-                model: "pocket-tts-en".into(),
+                provider: "reverb-tts".into(),
+                model: "reverb-tts".into(),
                 model_revision: revision,
                 language: "en".into(),
-                clone_mode: "audio_prompt".into(),
+                clone_mode: "icl".into(),
                 reference_pcm: vec![0.1; 72_000],
                 reference_sample_rate: 24_000,
-                transcript: None,
+                transcript: Some("hello there".into()),
                 owner_token_hash: Some(token.token_hash.clone()),
                 consent_basis: "owner".into(),
                 consent_note: String::new(),
@@ -991,14 +991,14 @@ mod tests {
             ("GET", "/api/providers", "application/json", ""),
             (
                 "GET",
-                "/api/providers/pocket-tts/status",
+                "/api/providers/reverb-tts/status",
                 "application/json",
                 "",
             ),
             ("GET", "/api/voices", "application/json", ""),
             (
                 "POST",
-                "/api/voices/clones?name=t&provider=pocket-tts&model=pocket-tts-en&language=en&mode=audio_prompt&consent_basis=owner",
+                "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner&transcript=hello%20there",
                 "audio/wav",
                 "",
             ),
@@ -1052,10 +1052,9 @@ mod tests {
             .iter()
             .map(|p| p["provider_id"].as_str().unwrap().to_string())
             .collect();
-        for retired in ["qwen3", "qwen3-gguf", "gpt-sovits"] {
+        for retired in ["qwen3", "qwen3-gguf", "pocket-tts", "gpt-sovits"] {
             assert!(!ids.contains(&retired.to_string()), "{retired} listed");
         }
-        assert!(ids.contains(&"pocket-tts".to_string()));
         assert!(ids.contains(&"reverb-tts".to_string()));
         assert!(ids.contains(&"supertonic".to_string()));
         let _ = std::fs::remove_dir_all(&store_dir);
@@ -1077,11 +1076,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pocket_voice_upload_rejects_cross_language_profiles() {
+    async fn reverb_voice_upload_rejects_unsupported_languages_and_models() {
         let (app, valid, store_dir) = voices_test_app().await;
         let request = raw_request(
             "POST",
-            "/api/voices/clones?name=t&provider=pocket-tts&model=pocket-tts-pt&language=ja&mode=audio_prompt&consent_basis=owner",
+            "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=ja&mode=icl&consent_basis=owner&transcript=hello",
             Some(&valid),
             "audio/wav",
             b"not-needed-for-language-validation",
@@ -1094,10 +1093,10 @@ mod tests {
         assert!(String::from_utf8_lossy(&bytes).contains("language"));
         let request = raw_request(
             "POST",
-            "/api/voices/clones?name=t&provider=pocket-tts&model=pocket-tts-pt&language=de&mode=audio_prompt&consent_basis=owner",
+            "/api/voices/clones?name=t&provider=reverb-tts&model=pocket-tts-es&language=es&mode=icl&consent_basis=owner&transcript=hello",
             Some(&valid),
             "audio/wav",
-            b"not-needed-for-language-validation",
+            b"not-needed-for-model-validation",
         );
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -1105,7 +1104,26 @@ mod tests {
             .await
             .unwrap();
         let body = String::from_utf8_lossy(&bytes);
-        assert!(body.contains("language") && body.contains("pt"), "{body}");
+        assert!(
+            body.contains("model") && body.contains("reverb-tts"),
+            "{body}"
+        );
+        let _ = std::fs::remove_dir_all(&store_dir);
+    }
+
+    #[tokio::test]
+    async fn icl_profiles_require_the_exact_transcript() {
+        let (app, valid, store_dir) = voices_test_app().await;
+        let request = raw_request(
+            "POST",
+            "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner",
+            Some(&valid),
+            "audio/wav",
+            b"not-needed-for-transcript-validation",
+        );
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(body_json(response).await.to_string().contains("transcript"));
         let _ = std::fs::remove_dir_all(&store_dir);
     }
 
@@ -1120,12 +1138,12 @@ mod tests {
     async fn legacy_upload_still_tolerates_unknown_query_parameters() {
         let (app, token, dir) = voices_test_app().await;
         let wav = sonicboom::tts::audio::encode_audio(
-            &vec![0.1; 8000],
+            &vec![0.1; 24000],
             8000,
             sonicboom::tts::audio::AudioFormat::Wav,
         )
         .unwrap();
-        let response = app.oneshot(raw_request("POST", "/api/voices/clones?name=legacy&provider=pocket-tts&model=pocket-tts-en&language=en&mode=audio_prompt&consent_basis=owner&client_hint=legacy", Some(&token), "audio/wav", &wav)).await.unwrap();
+        let response = app.oneshot(raw_request("POST", "/api/voices/clones?name=legacy&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner&transcript=hello%20there&client_hint=legacy", Some(&token), "audio/wav", &wav)).await.unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1158,7 +1176,7 @@ mod tests {
     #[tokio::test]
     async fn multipart_rejects_stale_constraint_revision_without_storing_audio() {
         let (app, token, dir) = voices_test_app().await;
-        let metadata = serde_json::json!({"name":"test","provider":"pocket-tts","model":"pocket-tts-en","language":"en","mode":"audio_prompt","consent_basis":"owner","expected_revision":0}).to_string();
+        let metadata = serde_json::json!({"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"hello there","expected_revision":0}).to_string();
         let body = multipart_body(&metadata, b"invalid", "audio/wav", "");
         let response = app
             .clone()
@@ -1189,7 +1207,7 @@ mod tests {
     #[tokio::test]
     async fn multipart_rejects_malformed_duplicate_and_unknown_metadata() {
         let (app, token, _) = voices_test_app().await;
-        let valid = r#"{"name":"test","provider":"pocket-tts","model":"pocket-tts-en","language":"en","mode":"audio_prompt","consent_basis":"owner"}"#;
+        let valid = r#"{"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"hello there"}"#;
         let wav = sonicboom::tts::audio::encode_audio(
             &vec![0.1; 8000],
             8000,
@@ -1224,13 +1242,13 @@ mod tests {
     async fn multipart_limit_updates_without_recreating_router_and_counts_unicode_scalars() {
         let (app, token, dir, state) = voices_test_app_with_state().await;
         let wav = sonicboom::tts::audio::encode_audio(
-            &vec![0.1; 8000],
+            &vec![0.1; 24000],
             8000,
             sonicboom::tts::audio::AudioFormat::Wav,
         )
         .unwrap();
         let metadata = |transcript: String| {
-            serde_json::json!({"name":"test","provider":"pocket-tts","model":"pocket-tts-en","language":"en","mode":"audio_prompt","consent_basis":"owner","transcript":transcript}).to_string()
+            serde_json::json!({"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":transcript}).to_string()
         };
         state
             .config
@@ -1305,16 +1323,16 @@ mod tests {
         let limits = body_json(limits).await;
         assert_eq!(limits["max_upload_bytes"], 8_388_608);
         assert_eq!(
-            limits["providers"]["pocket-tts"]["transcript_required_for"],
-            serde_json::json!([])
+            limits["providers"]["reverb-tts"]["transcript_required_for"],
+            serde_json::json!(["icl"])
         );
         let wav = sonicboom::tts::audio::encode_audio(
-            &vec![0.1; 24000],
+            &vec![0.1; 72000],
             24000,
             sonicboom::tts::audio::AudioFormat::Wav,
         )
         .unwrap();
-        let metadata = r#"{"name":"multipart","provider":"pocket-tts","model":"pocket-tts-en","language":"en","mode":"audio_prompt","consent_basis":"owner","transcript":"private words"}"#;
+        let metadata = r#"{"name":"multipart","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"private words"}"#;
         let mut body = format!("--testboundary\r\nContent-Disposition: form-data; name=\"metadata\"\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--testboundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"ref.wav\"\r\nContent-Type: audio/wav\r\n\r\n").into_bytes();
         body.extend(wav);
         body.extend(b"\r\n--testboundary--\r\n");
@@ -1359,17 +1377,17 @@ mod tests {
     async fn voice_upload_returns_non_destructive_reference_health_warnings() {
         let (app, valid, store_dir) = voices_test_app().await;
         let wav = sonicboom::tts::audio::encode_audio(
-            &vec![0.0; 24000],
+            &vec![0.0; 72000],
             24000,
             sonicboom::tts::audio::AudioFormat::Wav,
         )
         .unwrap();
-        let response = app.oneshot(raw_request("POST", "/api/voices/clones?name=synthetic-silence&provider=pocket-tts&model=pocket-tts-en&language=en&mode=audio_prompt&consent_basis=owner", Some(&valid), "audio/wav", &wav)).await.unwrap();
+        let response = app.oneshot(raw_request("POST", "/api/voices/clones?name=synthetic-silence&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner&transcript=hello%20there", Some(&valid), "audio/wav", &wav)).await.unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
         let result = body_json(response).await;
         assert_eq!(result["reference_health"]["source_channels"], 1);
         assert_eq!(result["reference_health"]["source_sample_rate"], 24000);
-        assert_eq!(result["reference_health"]["duration_secs"], 1.0);
+        assert_eq!(result["reference_health"]["duration_secs"], 3.0);
         assert_eq!(result["reference_health"]["peak"], 0.0);
         assert!(
             result["warnings"]
@@ -1387,7 +1405,7 @@ mod tests {
         let (app, valid, store_dir) = voices_test_app().await;
         let request = raw_request(
             "POST",
-            "/api/voices/clones?name=t&provider=pocket-tts&model=pocket-tts-en&language=en&mode=audio_prompt&consent_basis=owner",
+            "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner&transcript=hello%20there",
             Some(&valid),
             "application/json",
             b"{}",
@@ -1402,7 +1420,7 @@ mod tests {
         let (app, valid, store_dir) = voices_test_app().await;
         let request = raw_request(
             "POST",
-            "/api/voices/clones?name=t&provider=pocket-tts&model=pocket-tts-en&language=en&mode=audio_prompt&consent_basis=owner",
+            "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=en&mode=icl&consent_basis=owner&transcript=hello%20there",
             Some(&valid),
             "audio/wav",
             b"not-a-wav-file",
@@ -1436,6 +1454,7 @@ mod tests {
     const RETIRED_PROFILES: &[(&str, &str, &str)] = &[
         ("qwen3-candle", "qwen3-tts-0.6b-base", "x_vector"),
         ("qwen3-gguf", "qwen3-tts-1.7b-base", "icl"),
+        ("pocket-tts", "pocket-tts-en", "audio_prompt"),
         ("gpt-sovits", "gpt-sovits-v2pro-onnx", "icl"),
     ];
 
@@ -1560,17 +1579,21 @@ mod tests {
         assert_eq!(clone.status(), StatusCode::BAD_REQUEST);
         assert!(body_json(clone).await.to_string().contains("retired"));
         // Removed conditioning modes are rejected at creation with a clear message.
-        let clone = send(
-            "POST",
-            "/api/voices/clones?name=n&provider=reverb-tts&model=reverb-tts&language=es\
-             &consent_basis=owner&mode=x_vector",
-            "audio/wav",
-            "",
-        )
-        .await
-        .unwrap();
-        assert_eq!(clone.status(), StatusCode::BAD_REQUEST);
-        assert!(body_json(clone).await.to_string().contains("icl"));
+        for mode in ["x_vector", "audio_prompt"] {
+            let clone = send(
+                "POST",
+                &format!(
+                    "/api/voices/clones?name=n&provider=reverb-tts&model=reverb-tts&language=es\
+                     &consent_basis=owner&mode={mode}"
+                ),
+                "audio/wav",
+                "",
+            )
+            .await
+            .unwrap();
+            assert_eq!(clone.status(), StatusCode::BAD_REQUEST, "{mode}");
+            assert!(body_json(clone).await.to_string().contains("only icl"));
+        }
 
         // They can be deleted, and only the deleted one disappears.
         let deleted = send(
@@ -1611,14 +1634,7 @@ mod tests {
             .iter()
             .map(|m| m["id"].as_str().unwrap().to_string())
             .collect();
-        for expected in [
-            "tts-1",
-            "tts-1-hd",
-            "supertonic-3",
-            "reverb-tts",
-            "pocket-tts-en",
-            "pocket-tts-es",
-        ] {
+        for expected in ["tts-1", "tts-1-hd", "supertonic-3", "reverb-tts"] {
             assert!(
                 ids.contains(&expected.to_string()),
                 "models list missing {expected}"
@@ -1689,12 +1705,12 @@ mod tests {
         for (query, status) in [
             ("provider=unknown&voice=M1", StatusCode::BAD_REQUEST),
             (
-                "provider=pocket-tts&voice=qwen3-gguf:any",
+                "provider=reverb-tts&voice=supertonic:any",
                 StatusCode::BAD_REQUEST,
             ),
-            ("provider=pocket-tts&voice=", StatusCode::BAD_REQUEST),
+            ("provider=reverb-tts&voice=", StatusCode::BAD_REQUEST),
             (
-                "provider=pocket-tts&voice=123e4567-e89b-12d3-a456-426614174000",
+                "provider=reverb-tts&voice=123e4567-e89b-12d3-a456-426614174000",
                 StatusCode::NOT_FOUND,
             ),
             (
@@ -1717,7 +1733,7 @@ mod tests {
             );
         }
         assert_eq!(
-            post_status(app, "/api/tts/play?provider=pocket-tts", Some(&raw), "").await,
+            post_status(app, "/api/tts/play?provider=reverb-tts", Some(&raw), "").await,
             StatusCode::BAD_REQUEST
         );
     }
@@ -1733,20 +1749,20 @@ mod tests {
         let (token, raw) = tokens.create(None).await.unwrap();
         let mut config = test_config();
         config.voices.store_dir = dir.join("voices").to_string_lossy().into_owned();
-        let revision = voices::config_revision_for(&config, "pocket-tts");
+        let revision = voices::config_revision_for(&config, "reverb-tts");
         let mut store = VoiceProfileStore::open(config.voices.store_dir.clone().into()).unwrap();
         let mut create = |owner: &str, revision: &str| {
             store
                 .create(NewVoiceProfile {
                     name: "Synthetic test reference".into(),
-                    provider: "pocket-tts".into(),
-                    model: "pocket-tts-en".into(),
+                    provider: "reverb-tts".into(),
+                    model: "reverb-tts".into(),
                     model_revision: revision.into(),
                     language: "en".into(),
-                    clone_mode: "audio_prompt".into(),
+                    clone_mode: "icl".into(),
                     reference_pcm: vec![0.1; 72_000],
                     reference_sample_rate: 24_000,
-                    transcript: None,
+                    transcript: Some("hello there".into()),
                     owner_token_hash: Some(owner.into()),
                     consent_basis: "owner".into(),
                     consent_note: String::new(),
@@ -1759,12 +1775,14 @@ mod tests {
         let app = router(test_state(config, Arc::new(tokens), Arc::new(None))).await;
         for (provider, id, status) in [
             (
-                "pocket-tts",
+                "reverb-tts",
                 owned.id.as_str(),
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
-            ("pocket-tts", stale.id.as_str(), StatusCode::BAD_REQUEST),
-            ("pocket-tts", foreign.id.as_str(), StatusCode::NOT_FOUND),
+            ("reverb-tts", stale.id.as_str(), StatusCode::BAD_REQUEST),
+            ("reverb-tts", foreign.id.as_str(), StatusCode::NOT_FOUND),
+            // Retired providers are unknown identities, never rerouted.
+            ("pocket-tts", owned.id.as_str(), StatusCode::BAD_REQUEST),
             ("qwen3-gguf", owned.id.as_str(), StatusCode::BAD_REQUEST),
         ] {
             assert_eq!(
@@ -1793,7 +1811,7 @@ mod tests {
         assert_eq!(
             post_status(
                 app,
-                &format!("/api/tts/play?provider=pocket-tts&voice={}", owned.id),
+                &format!("/api/tts/play?provider=reverb-tts&voice={}", owned.id),
                 Some(&raw),
                 "hello"
             )

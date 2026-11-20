@@ -1,7 +1,6 @@
 import { computed, watch, type Ref } from 'vue';
 import type { BuiltinVoice, Capabilities, ProviderStatus, ServerInfo, Voice } from '../services/contracts';
-import { modelLanguages } from '../services/providerLanguages';
-import { isModelReady } from '../services/providerReadiness';
+import { isProviderReady } from '../services/providerReadiness';
 
 type ModelCatalogInput = {
   model: Ref<string>;
@@ -37,8 +36,8 @@ export function useModelCatalog(input: ModelCatalogInput) {
           id,
           provider: cap.provider_id,
           cloned: true,
-          languages: modelLanguages(cap, id),
-          ready: isModelReady(providers.value, cap.provider_id, id),
+          languages: cap.languages,
+          ready: isProviderReady(providers.value, cap.provider_id),
         })),
       ),
   ]);

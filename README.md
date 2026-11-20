@@ -32,8 +32,8 @@ requires Node.js 22.12+ and npm; deployed binaries need neither.
 git clone https://github.com/nglmercer/SonicBoom.git
 cd SonicBoom
 
-# Default build: Supertonic 3 + Pocket TTS + Reverb-TTS (cloning providers are
-# disabled until enabled in the configuration). ONNX inference uses the
+# Default build: Supertonic 3 + Reverb-TTS (the cloning provider is disabled
+# until enabled in the configuration). ONNX inference uses the
 # WebGPU execution provider (Vulkan on Linux) with automatic CPU fallback.
 cargo build --release
 
@@ -54,8 +54,8 @@ because no prebuilt ONNX Runtime combines them. Enable at most ONE per
 platform:
 
 ```bash
-cargo build --release --no-default-features --features server,web-ui,pocket-tts,reverb-tts,cuda    # NVIDIA CUDA (Linux/Windows)
-cargo build --release --no-default-features --features server,web-ui,pocket-tts,reverb-tts,rocm    # AMD ROCm (Linux)
+cargo build --release --no-default-features --features server,web-ui,reverb-tts,cuda    # NVIDIA CUDA (Linux/Windows)
+cargo build --release --no-default-features --features server,web-ui,reverb-tts,rocm    # AMD ROCm (Linux)
 cargo build --release --features coreml                                                            # Apple Silicon CoreML (macOS)
 ```
 
@@ -166,11 +166,11 @@ The server will:
 | `DELETE` | `/api/voices/{id}`            | Delete a profile and its reference audio |
 | `POST`   | `/api/voices/{id}/preview`    | Synthesize text with a profile           |
 
-See [docs/providers.md](docs/providers.md) for Pocket TTS and Reverb-TTS (7
-languages, ICL cloning, non-commercial CC BY-NC weights) setup (both disabled
-by default; CPU works without GPU). Qwen3-TTS and GPT-SoVITS were removed;
-their stored voice profiles stay listed but cannot synthesize (recreate them
-as `reverb-tts` profiles).
+See [docs/providers.md](docs/providers.md) for Reverb-TTS (7 languages, ICL
+cloning, non-commercial CC BY-NC weights) setup (disabled by default; CPU works
+without GPU). Qwen3-TTS, Pocket TTS and GPT-SoVITS were removed; their stored
+voice profiles stay listed but cannot synthesize (recreate them as
+`reverb-tts` profiles).
 
 ### Admin Panel
 

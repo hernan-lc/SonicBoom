@@ -684,18 +684,6 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
     });
 
     add(SettingSchema {
-        path: "providers.pocket_tts.enabled".to_string(),
-        description: "Enable the Pocket TTS voice-cloning provider (default false)".to_string(),
-        type_name: "boolean",
-        apply: ApplyStrategy::Hot,
-        min: None,
-        max: None,
-        allowed_values: None,
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
-    add(SettingSchema {
         path: "providers.reverb_tts.enabled".to_string(),
         description: "Enable the Reverb-TTS voice-cloning provider (default false). Weights are \
             CC BY-NC 4.0: non-commercial use only"
@@ -710,18 +698,6 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         allowed_values_source: None,
     });
     for (path, desc) in [
-        (
-            "providers.pocket_tts.model_dir",
-            "Directory holding the verified Pocket TTS ONNX bundles",
-        ),
-        (
-            "providers.pocket_tts.model_id",
-            "Pocket TTS model identifier (pocket-tts-en/es/pt/de/it, pocket-tts-fr-24l)",
-        ),
-        (
-            "providers.pocket_tts.revision",
-            "Pinned Pocket TTS export revision",
-        ),
         (
             "providers.reverb_tts.model_dir",
             "Directory holding the verified Reverb-TTS ONNX files",
@@ -746,14 +722,7 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
             apply: ApplyStrategy::Hot,
             min: None,
             max: None,
-            allowed_values: if path == "providers.pocket_tts.model_id" {
-                Some(
-                    sonicboom::tts::providers::pocket_tts::POCKET_TTS_MODELS
-                        .iter()
-                        .map(|s| (*s).to_string())
-                        .collect(),
-                )
-            } else if path == "providers.reverb_tts.model_id" {
+            allowed_values: if path == "providers.reverb_tts.model_id" {
                 Some(
                     sonicboom::tts::providers::catalog::REVERB_TTS_MODELS
                         .iter()
@@ -782,45 +751,8 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         secret: false,
         allowed_values_source: None,
     });
-    add(SettingSchema {
-        path: "providers.pocket_tts.device".to_string(),
-        description: "Pocket TTS device: cpu or auto (GPU is unsupported for this provider)"
-            .to_string(),
-        type_name: "string",
-        apply: ApplyStrategy::Hot,
-        min: None,
-        max: None,
-        allowed_values: Some(vec!["cpu".to_string(), "auto".to_string()]),
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
 
     for (path, desc, min, max) in [
-        (
-            "providers.pocket_tts.max_concurrent",
-            "Pocket TTS uses one serialized mutable model",
-            1.0,
-            1.0,
-        ),
-        (
-            "providers.pocket_tts.cache_entries",
-            "Pocket TTS voice-embedding cache entries",
-            1.0,
-            1024.0,
-        ),
-        (
-            "providers.pocket_tts.lsd_steps",
-            "Pocket TTS flow-matching integration steps",
-            1.0,
-            8.0,
-        ),
-        (
-            "providers.pocket_tts.cpu_threads",
-            "Pocket TTS ORT intra-op threads",
-            1.0,
-            32.0,
-        ),
         (
             "providers.reverb_tts.cache_entries",
             "Reverb-TTS reference-code cache entries",
@@ -859,18 +791,6 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
             allowed_values_source: None,
         });
     }
-    add(SettingSchema {
-        path: "providers.pocket_tts.temperature".to_string(),
-        description: "Pocket TTS sampling temperature (0.0 disables noise)".to_string(),
-        type_name: "number",
-        apply: ApplyStrategy::Hot,
-        min: Some(0.0),
-        max: Some(2.0),
-        allowed_values: None,
-        nullable: false,
-        secret: false,
-        allowed_values_source: None,
-    });
 
     // Secrets (stored in the secret store, never in config.toml).
     add(SettingSchema {

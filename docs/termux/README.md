@@ -61,7 +61,7 @@ configuration/download handling are reused.
 
 ## Build profiles
 
-Desktop defaults retain GUI, web assets, playback, Pocket and Reverb-TTS (WebGPU).
+Desktop defaults retain GUI, web assets, playback and Reverb-TTS (WebGPU).
 Other profiles use `--no-default-features`:
 
 | Features | Purpose |
@@ -69,14 +69,12 @@ Other profiles use `--no-default-features`:
 | `server` | API only; no frontend compilation |
 | `server,web-ui` | API plus embedded Vue assets (Node required at build time) |
 | `server,android-ort` | Termux CPU Supertonic |
-| `server,android-ort,pocket-tts` | Optional Pocket CPU provider |
 | `server,android-ort,reverb-tts` | Optional Reverb-TTS CPU provider |
 | `server,playback` | Desktop playback queue |
 
 ```sh
 ./scripts/termux/build.sh
 # Optional builds, never automatically enabled/downloaded:
-SONICBOOM_TERMUX_PROVIDER=pocket ./scripts/termux/build.sh
 SONICBOOM_TERMUX_PROVIDER=reverb ./scripts/termux/build.sh
 ```
 
@@ -179,7 +177,7 @@ The existing inference gate defaults to one running and eight pending requests.
 
 CI's Android NDK job checks compilation, feature dependencies and runtime ELF ABI.
 It does **not** execute Android inference. Native execution and performance results
-must be recorded separately. Pocket and Reverb-TTS cloning require their own
+must be recorded separately. Reverb-TTS cloning requires its own
 explicit models/reference-audio tests; compilation does not establish synthesis
 compatibility. Android Vulkan is not validated or enabled by these scripts.
 
@@ -212,23 +210,6 @@ explicit native fault-injection/hardware tests. Do not treat the short probe as
 coverage of every failure mode.
 
 ## Optional provider diagnostics
-
-After generating a mono PCM16 reference WAV with Supertonic, explicitly test one
-Pocket bundle (English by default) without fetching other languages:
-
-```sh
-unset LD_LIBRARY_PATH
-export POCKET_TTS_BUNDLE_DIR="$HOME/.cache/sonicboom/models/pocket-tts"
-export POCKET_TTS_REF_WAV="$HOME/termux-reference.wav"
-cargo run --release --locked --no-default-features \
-  --features android-ort,pocket-tts --example pocket_smoke -- --download
-```
-
-The reference must be authorized audio; synthetic Supertonic output is suitable
-for a compatibility probe. Omit `--download` for an offline run. The example
-checks finite, audible output and releases the provider. Set `POCKET_TTS_MODEL`
-only to a supported model ID and provide text appropriate for that language when
-adapting the probe. Only English is used by the default probe.
 
 Run native Rust tests with a clean loader path: `env -u LD_LIBRARY_PATH cargo test --locked --no-default-features --features server,android-ort`. A parent application can inject private C++ libraries that break compiler tools; putting all Termux libraries on the runtime loader path can also shadow Android system dependencies.
 

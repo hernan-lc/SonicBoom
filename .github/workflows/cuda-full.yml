@@ -101,7 +101,7 @@ jobs:
                 | sh -s -- -y --profile minimal --default-toolchain 1.89.0
               . "$HOME/.cargo/env"
               cargo build --release --locked --no-default-features \
-                --features server,cuda,pocket-tts,reverb-tts,web-ui
+                --features server,cuda,reverb-tts,web-ui
               BIN=target/release/SonicBoom
               test -x "$BIN"
               ldd "$BIN" | tee /tmp/ldd.txt

@@ -10,14 +10,14 @@ import zipfile
 
 import package
 
-BUILD_INFO = {'features': ['gui', 'pocket-tts', 'reverb-tts', 'webgpu']}
+BUILD_INFO = {'features': ['gui', 'reverb-tts', 'webgpu']}
 
 
 class PackagingTests(unittest.TestCase):
     def test_rejects_executables_missing_release_features(self):
         package.validate_build_info(BUILD_INFO)
         for invalid in [{**BUILD_INFO, 'features': ['gui']},
-                        {**BUILD_INFO, 'features': ['gui', 'pocket-tts', 'reverb-tts']},
+                        {**BUILD_INFO, 'features': ['gui', 'reverb-tts']},
                         {}]:
             with self.assertRaises(RuntimeError):
                 package.validate_build_info(invalid)

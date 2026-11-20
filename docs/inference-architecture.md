@@ -1,8 +1,8 @@
 # Native inference ownership and cache policy
 
-SonicBoom remains Rust-native: Supertonic, Pocket TTS and Reverb-TTS use ONNX
-Runtime. No Python/PyTorch runtime or model subprocess is introduced. (The
-former Qwen3-TTS backends, Candle and GGUF/llama.cpp, were removed together with
+SonicBoom remains Rust-native: Supertonic and Reverb-TTS use ONNX Runtime. No
+Python/PyTorch runtime or model subprocess is introduced. (The former Qwen3-TTS
+backends, Candle and GGUF/llama.cpp, and Pocket TTS were removed together with
 their vendored dependencies.)
 
 ## Ownership and lock ordering
@@ -14,8 +14,8 @@ native work. Admission/reference preparation permits are shared leases retained
 by actual blocking preparation and encoding, so dropping an HTTP future cannot
 release capacity while that work continues.
 
-Pocket TTS owns its model and prompts on one serialized model transaction, and
-Reverb-TTS on its own ONNX sessions. Worker reply waits are off Tokio executors
+Reverb-TTS owns its ONNX sessions and reference codes behind one serialized
+model transaction. Worker reply waits are off Tokio executors
 and retain permits until acknowledged computation ends. Cancellation/deadlines
 reach the generation loops. Panics in synthesis retire the damaged model. Release
 builds unwind panics so the job owner can report terminal failure. Normal
@@ -42,9 +42,9 @@ work finishes before retirement. Background loaders compare model identity
 candidates, and do not discard a compatible load for a cache-only
 change. Cache changes preserve loaded weights.
 
-Providers are serialized: `providers.pocket_tts.max_concurrent` must be **1**. Older values that implied
-parallel model execution were never effective; set them to 1 before upgrading.
-Global admission can still allow distinct providers to run concurrently.
+Cloning synthesis is serialized per provider by its model transaction; the
+former per-provider `max_concurrent` setting no longer exists. Global admission
+can still allow distinct providers to run concurrently.
 
 ## Disk verification
 
@@ -84,15 +84,10 @@ then re-verify profile identity and file stamp before publishing, so parallel
 reads no longer serialize on the slow path and a mid-decode deletion,
 replacement or reconfiguration can never publish stale audio. Profile
 directories are owner-private; manifests and
-reference writes remain atomic. Pocket TTS retains only its last conditioned
-profile/reference under its serialized model transaction and invalidates that
-reuse on changes/deletion. Its native data is replaced at the next safe reference
-preparation rather than unloading healthy weights. Prefilled Pocket flow states
-stay per-request (rebuilt from cached embeddings): sharing mutable
-request-local KV across voices would be unsound, and per-request cloning
-(which isolation would still require) has no measured win over re-prefill —
-warm-request benchmarking against pinned weights is outstanding (see
-benchmarks), so the embeddings-only cache stands.
+reference writes remain atomic. Reverb-TTS keeps a bounded cache of reference codes
+under its serialized model transaction and invalidates it on changes/deletion;
+its data is replaced at the next safe reference preparation rather than
+unloading healthy weights.
 
 Server-generated playback files transfer ownership atomically on admission:
 the audio thread registers the temp file before it can complete, stop, or be

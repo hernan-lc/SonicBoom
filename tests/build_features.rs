@@ -34,14 +34,7 @@ fn feature_list(manifest: &str, name: &str) -> Vec<String> {
 #[test]
 fn root_defaults_keep_core_providers_and_one_onnx_execution_provider() {
     let default = feature_list(&manifest("Cargo.toml"), "default");
-    for required in [
-        "server",
-        "web-ui",
-        "playback",
-        "pocket-tts",
-        "reverb-tts",
-        "gui",
-    ] {
+    for required in ["server", "web-ui", "playback", "reverb-tts", "gui"] {
         assert!(
             default.contains(&required.to_string()),
             "`default` unexpectedly dropped `{required}`: {default:?}"

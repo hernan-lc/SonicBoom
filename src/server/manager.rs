@@ -313,7 +313,6 @@ fn synchronous_http_budget(configured: u64, path: &str, query: Option<&str>) -> 
         .find_map(|part| part.strip_prefix("provider="))
         .unwrap_or("supertonic");
     let budget = match provider {
-        "pocket-tts" => 60,
         // Masked-diffusion passes: slower than real time on the CPU.
         "reverb-tts" => 120,
         _ => 15,
@@ -332,7 +331,8 @@ mod synchronous_budget_tests {
         use super::synchronous_http_budget as budget;
         assert_eq!(
             budget(120, "/api/tts/play", Some("provider=pocket-tts")),
-            60
+            15,
+            "a retired provider gets the default budget"
         );
         assert_eq!(
             budget(120, "/api/tts/play", Some("provider=reverb-tts")),

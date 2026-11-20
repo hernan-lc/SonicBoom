@@ -2,33 +2,20 @@
 import { computed } from 'vue';
 import { t } from '../../i18n';
 import type { ProviderStatus, Capabilities } from '../../services/contracts';
-import { getPath, useStudio } from '../../composables/useStudio';
+import { useStudio } from '../../composables/useStudio';
 import { useTask } from '../../composables/useTask';
 import FeedbackNotice from '../FeedbackNotice.vue';
 import StatusChip from '../ui/StatusChip.vue';
 import EngineDiagnostics from './EngineDiagnostics.vue';
 import EngineModelList from './EngineModelList.vue';
-import EngineModelPicker from './EngineModelPicker.vue';
 
 const props = defineProps<{ provider: ProviderStatus; capabilities?: Capabilities }>();
 const studio = useStudio();
 const task = useTask();
 const { pending, feedback } = task;
 const togglePath = computed(() => `providers.${props.provider.provider_id.replaceAll('-', '_')}.enabled`);
-const isPocket = computed(() => props.provider.provider_id === 'pocket-tts');
 const models = computed(() => props.capabilities?.models || []);
-const selectedPocketModel = computed(() => {
-  const value = getPath(studio.config.value?.config, 'providers.pocket_tts.model_id') || props.provider.active_model;
-  return typeof value === 'string' ? value : '';
-});
-const switching = computed(
-  () =>
-    Boolean(isPocket.value) &&
-    Boolean(props.provider.enabled) &&
-    props.provider.state !== 'error' &&
-    (props.provider.state === 'loading' ||
-      Boolean(selectedPocketModel.value && props.provider.active_model !== selectedPocketModel.value)),
-);
+const switching = computed(() => props.provider.enabled && props.provider.state === 'loading');
 const stateTone = computed(() =>
   props.provider.state === 'ready'
     ? ('ok' as const)
@@ -57,21 +44,10 @@ const readiness = computed(() =>
       >
     </div>
     <p class="engine-readiness" :title="readiness">{{ readiness }}</p>
-    <p v-if="provider.active_model && !isPocket" class="engine-active-model">
+    <p v-if="provider.active_model" class="engine-active-model">
       <code>{{ provider.active_model }}</code>
     </p>
-    <EngineModelPicker
-      v-if="isPocket"
-      :provider-id="provider.provider_id"
-      :active-model="provider.active_model"
-      :models="models"
-      :enabled="provider.enabled"
-      :state="provider.state"
-      :switching="switching"
-      :pending="pending"
-      @activate="(model) => task.run(() => studio.activatePocketModel(model))"
-    />
-    <EngineModelList v-else-if="models.length" :models="models" :active-model="provider.active_model" />
+    <EngineModelList v-if="models.length" :models="models" :active-model="provider.active_model" />
     <p v-if="switching" role="status" class="help-note">
       {{ t('Preparing the selected model. This page updates automatically; the first download may take a few minutes.') }}
     </p>

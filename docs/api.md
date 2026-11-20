@@ -69,7 +69,7 @@ Synthesizes text and adds it directly to the server's playback queue in a single
 
 | Parameter  | Type    | Required | Default | Description                            |
 | ---------- | ------- | -------- | ------- | -------------------------------------- |
-| `provider` | string | No | `supertonic` | `supertonic`, `pocket-tts`, or `reverb-tts`; empty preserves legacy routing |
+| `provider` | string | No | `supertonic` | `supertonic` or `reverb-tts`; empty preserves legacy routing |
 | `voice` | string | For cloning | `M1` (Supertonic) | Built-in style or token-owned clone profile UUID; matching `provider:voice` option IDs accepted |
 | `lang`     | string  | No       | `en`    | Language code                          |
 | `play_now` | boolean | No       | `false` | If `true`, clears queue and plays now  |
@@ -99,8 +99,7 @@ curl -X POST "http://localhost:17842/api/tts/play?voice=F1&play_now=true" \
 
 Cloning playback uses the profile's stored model, revision, reference audio and clone
 mode through the existing bounded inference gate. `lang` defaults to the profile
-language when omitted; Pocket requires its language-specific profile language.
-Reverb supports the languages advertised by its provider. No provider fallback occurs.
+language when omitted. Reverb supports the languages advertised by its provider. No provider fallback occurs.
 Unknown/mismatched providers or voices and incompatible revisions return `400`;
 foreign/deleted profiles return `404`; unavailable providers return `503`. Existing
 rate limits (`429`), deadlines, secure temporary WAV ownership and queue semantics
@@ -117,16 +116,16 @@ readable and availability comes from the live resident registry.
 
 Authenticated `GET /api/tts/plugin/voices` returns a root array of
 `{id,name,disabled:false}` options, with IDs such as `supertonic:M1` or
-`pocket-tts:<uuid>`. Only ready built-in styles and the requesting token's compatible
+`reverb-tts:<uuid>`. Only ready built-in styles and the requesting token's compatible
 clone profiles are returned; models, revisions, language and clone mode are checked.
-Only the currently resident model is usable (Pocket language models are separate;
-select the matching model in server configuration). The array is sorted by qualified ID, limited to 500 items, with profile names limited
+Only the currently resident model is usable (select the matching model in server
+configuration). The array is sorted by qualified ID, limited to 500 items, with profile names limited
 to 128 characters. Both catalogs send `Cache-Control: private, no-store`. Refreshing
 these routes re-reads live state/profile manifests; it does not reload resident models.
 Clients must strictly filter voices by provider and must not submit an empty clone
 voice. The playback route validates qualified IDs against the authoritative provider.
 
-Example: `POST /api/tts/play?provider=pocket-tts&voice=pocket-tts%3A<uuid>&lang=en&play_now=false`.
+Example: `POST /api/tts/play?provider=reverb-tts&voice=reverb-tts%3A<uuid>&lang=en&play_now=false`.
 
 ---
 
@@ -200,10 +199,10 @@ access, no job is created. Responses (success and errors) carry
 | `locale` | string | No | Supported tag or `auto` (default: as for synthesis) |
 | `mode` | string | No | `auto` or `off` (default: server default) |
 | `reading_style` | string | No | `precise`, `natural` or `digits` (default: server default) |
-| `model` | string | No | When present, `language` must be valid for that model (e.g. `pocket-tts-es` accepts only `es`) |
+| `model` | string | No | When present, `language` must be valid for that model (e.g. `reverb-tts` does not accept `ja`) |
 
 ```bash
-curl -X POST "http://localhost:17842/api/tts/normalize"   -H "Authorization: Bearer YOUR_TOKEN"   -H "Content-Type: application/json"   -d '{"text":"La reunión es el 26/10/2026.","model":"pocket-tts-es","language":"es","locale":"es-PE","mode":"auto"}'
+curl -X POST "http://localhost:17842/api/tts/normalize"   -H "Authorization: Bearer YOUR_TOKEN"   -H "Content-Type: application/json"   -d '{"text":"La reunión es el 26/10/2026.","model":"reverb-tts","language":"es","locale":"es-PE","mode":"auto"}'
 ```
 
 **Response (`200`):**
@@ -726,26 +725,30 @@ The admin panel includes login attempt tracking to prevent brute-force attacks.
 - Maximum 5 failed attempts per IP in 10 minutes
 - 15-minute lockout after threshold exceeded (expires automatically)
 
-## Breaking changes: Qwen3-TTS removal
+## Breaking changes: Qwen3-TTS and Pocket TTS removal
 
-Qwen3-TTS (the GGUF/ONNX provider and the older Candle one) was removed. Clients
-that used it must adapt:
+Qwen3-TTS (the GGUF/ONNX provider and the older Candle one) and Pocket TTS were
+removed; only Supertonic and Reverb-TTS remain. Clients that used them must adapt:
 
-- **Providers and models.** `provider=qwen3-gguf` is no longer a provider ID
-  (`GET /api/providers`, `/api/providers/qwen3-gguf/status`,
-  `/api/tts/play?provider=qwen3-gguf` and `POST /api/voices/clones` reject it),
-  and `GET /v1/models` no longer lists `qwen3-tts-1.7b-base`. Requesting
-  `qwen3-tts-0.6b-base` or `qwen3-tts-1.7b-base` (or a retired GPT-SoVITS ID) in
-  `/v1/audio/speech` returns `400` with a "retired" message suggesting
-  `reverb-tts`; requests are never rerouted to another provider.
-- **Stored voice profiles.** Profiles created for `qwen3-gguf`, `qwen3-candle`
-  or `gpt-sovits` still load, appear in `GET /api/voices` and can be deleted
-  with `DELETE /api/voices/{id}`, but previewing or synthesizing with them
-  returns `400` telling you to recreate them as `reverb-tts` profiles (`icl`
-  mode with the exact transcript). Nothing is migrated automatically.
-- **Clone modes.** Profile creation only accepts `icl` for Reverb-TTS (Pocket
-  TTS keeps `audio_prompt`). `x_vector` is rejected with `400`; old profiles that
-  store it still load.
+- **Providers and models.** `provider=qwen3-gguf` and `provider=pocket-tts` are no
+  longer provider IDs (`GET /api/providers`, `/api/providers/{id}/status`,
+  `/api/tts/play?provider=...`, `/api/tts/jobs?provider=...` and
+  `POST /api/voices/clones` reject them), and `GET /v1/models` no longer lists
+  `qwen3-tts-1.7b-base` or any `pocket-tts-*` model. Requesting
+  `qwen3-tts-0.6b-base`, `qwen3-tts-1.7b-base`, `pocket-tts-en|es|pt|de|it|fr-24l`
+  (or a retired GPT-SoVITS ID) in `/v1/audio/speech` returns `400` with a
+  "retired" message suggesting `reverb-tts`; requests are never rerouted to
+  another provider. `POST /api/tts/normalize` with such a `model` is `400` too.
+- **Stored voice profiles.** Profiles created for `qwen3-gguf`, `qwen3-candle`,
+  `pocket-tts` or `gpt-sovits` still load, appear in `GET /api/voices` and can be
+  deleted with `DELETE /api/voices/{id}`, but previewing or synthesizing with them
+  returns `400` telling you to recreate them as `reverb-tts` profiles (`icl` mode
+  with the exact transcript, 2-30 s of reference audio). Nothing is migrated
+  automatically.
+- **Clone modes.** Profile creation only accepts `icl`. `x_vector` and
+  `audio_prompt` are rejected with `400` ("only icl is supported"); old profiles
+  that store them still load. Pocket's transcript-free flow no longer exists:
+  every profile needs its exact transcript.
 - **Sampling query parameters removed.** `sampling_preset`, `quality`,
   `talker_temperature`, `talker_top_k`, `talker_top_p`,
   `talker_repetition_penalty` and the `predictor_*` equivalents are no longer
@@ -756,10 +759,12 @@ that used it must adapt:
   `{max_text_chars, max_body_bytes, seed_max}` (the `sampling` object with the
   Qwen parameter bounds was removed).
 - **Configuration.** `[providers.qwen3_gguf]` (and its `sampling`/`quality`
-  subtables) and `[providers.qwen3]` are accepted and ignored with a startup
-  warning, so old `config.toml` files still boot; they are not written back.
-- **Builds.** The Cargo features `qwen-gguf`, `qwen-gguf-vulkan` and
-  `qwen-gguf-cuda` and the `vendor/llama.cpp` submodule no longer exist, and
+  subtables), `[providers.qwen3]` and `[providers.pocket_tts]` are accepted and
+  ignored with a startup warning, so old `config.toml` files still boot; they are
+  not written back. Settings paths `providers.pocket_tts.*` and
+  `providers.qwen3_gguf.*` no longer exist in `/api/config/schema`.
+- **Builds.** The Cargo features `qwen-gguf`, `qwen-gguf-vulkan`, `qwen-gguf-cuda`
+  and `pocket-tts` and the `vendor/llama.cpp` submodule no longer exist, and
   `--build-info` no longer prints `native_backends`/`runtime_backends`.
 
 ## Reliable native synthesis jobs
@@ -835,11 +840,11 @@ internal owner and reference hashes.
 
 ```sh
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  -F 'metadata={"name":"Reference","provider":"pocket-tts","model":"pocket-tts-en","language":"en","mode":"audio_prompt","consent_basis":"owner"};type=application/json' \
+  -F 'metadata={"name":"Reference","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","transcript":"Exact words spoken in the reference","consent_basis":"owner"};type=application/json' \
   -F 'file=@reference.wav;type=audio/wav' \
   http://127.0.0.1:17842/api/voices/clones
 ```
 
-For ICL, include the exact reference transcript inside the metadata JSON body.
+ICL is the only mode: include the exact reference transcript inside the metadata JSON body.
 Do not log that body or embed it in command history when it contains private
 material; applications should construct the multipart body in memory.

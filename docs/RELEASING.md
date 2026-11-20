@@ -1,6 +1,6 @@
 # Releases and runtime requirements
 
-Release binaries use the default features plus `gui`: Supertonic, Pocket TTS,
+Release binaries use the default features plus `gui`: Supertonic,
 Reverb-TTS, playback, HTTP server and tray support are retained.
 Models are downloaded separately on normal startup; no credentials, user
 configuration, downloaded voices/models or caches belong in release archives.
@@ -36,8 +36,8 @@ ORT builds use shared libraries they must appear beside the built executable
 (via `ort/copy-dylibs`), be packaged with their notices, and pass the probe.
 
 Vulkan acceleration is included in these packages: Supertonic uses ORT's
-WebGPU EP (Vulkan on Linux) with automatic CPU fallback, and Pocket TTS and
-Reverb-TTS can opt into it. CUDA/ROCm/CoreML builds require separate SDKs,
+WebGPU EP (Vulkan on Linux) with automatic CPU fallback, and Reverb-TTS can
+opt into it. CUDA/ROCm/CoreML builds require separate SDKs,
 provider libraries, driver compatibility and hardware validation. CI does not
 certify model inference quality, GPU execution, tray interaction or audio playback.
 

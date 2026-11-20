@@ -54,9 +54,8 @@ pub(crate) fn parse_clone_mode_public(raw: &str) -> Result<CloneMode, AppError> 
 fn parse_clone_mode(raw: &str) -> Result<CloneMode, AppError> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "icl" => Ok(CloneMode::Icl),
-        "audio_prompt" | "audio-prompt" | "audioprompt" => Ok(CloneMode::AudioPrompt),
         other => Err(AppError::BadRequest(format!(
-            "unsupported clone mode '{other}' (expected one of: icl, audio_prompt)"
+            "unsupported clone mode '{other}' (only icl is supported: reference audio plus its exact transcript)"
         ))),
     }
 }
@@ -616,8 +615,7 @@ pub async fn get_constraints(
                     .clone_modes
                     .iter()
                     .filter(|mode| {
-                        cap.requires_reference_transcript
-                            || CloneMode::parse(mode).is_some_and(CloneMode::requires_transcript)
+                        cap.requires_reference_transcript || CloneMode::parse(mode).is_some()
                     })
                     .collect();
                 providers.insert(id, serde_json::json!({
@@ -821,26 +819,14 @@ async fn post_clones_inner(
             query.provider
         )));
     }
-    if provider != "pocket-tts" && provider != "reverb-tts" {
+    if provider != "reverb-tts" {
         return Err(AppError::BadRequest(format!(
             "unsupported provider '{}' for voice cloning \
-             (expected one of: pocket-tts, reverb-tts; supertonic uses built-in style voices)",
+             (expected: reverb-tts; supertonic uses built-in style voices)",
             query.provider
         )));
     }
     let mode = parse_clone_mode(&query.mode)?;
-    if provider == "pocket-tts" && mode != CloneMode::AudioPrompt {
-        return Err(AppError::BadRequest(
-            "pocket-tts supports only audio_prompt mode (reference WAV, no transcript needed)"
-                .to_string(),
-        ));
-    }
-    if provider == "reverb-tts" && mode != CloneMode::Icl {
-        return Err(AppError::BadRequest(
-            "reverb-tts supports only icl mode (reference WAV plus its exact transcript)"
-                .to_string(),
-        ));
-    }
     let transcript = query
         .transcript
         .as_deref()
@@ -857,7 +843,7 @@ async fn post_clones_inner(
             )),
         ));
     }
-    if mode.requires_transcript() && transcript.is_none() {
+    if transcript.is_none() {
         return Err(AppError::field(
             "transcript",
             "required",
@@ -905,20 +891,11 @@ async fn post_clones_inner(
             capabilities.languages.join(", ")
         )));
     }
-    if provider == "pocket-tts" {
-        sonicboom::tts::providers::pocket_tts::PocketTtsProvider::check_model_language(
-            &query.model,
-            &query.language,
-        )
-        .map_err(provider_error_to_app)?;
-    }
-    if provider == "reverb-tts" {
-        sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
-            &query.model,
-            &query.language,
-        )
-        .map_err(provider_error_to_app)?;
-    }
+    sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
+        &query.model,
+        &query.language,
+    )
+    .map_err(provider_error_to_app)?;
     let transcript_for_validation = transcript.map(str::to_string);
     let preparation_lease = super::jobs::preparation_lease();
     let reference_lease = super::jobs::reference_lease();
@@ -935,24 +912,13 @@ async fn post_clones_inner(
     })
     .await
     .map_err(|e| AppError::internal(e.to_string()))??;
-    match provider.as_str() {
-        "pocket-tts" => {
-            sonicboom::tts::providers::pocket_tts::PocketTtsProvider::validate_reference(&pcm, rate)
-                .map_err(provider_error_to_app)?
-        }
-        "reverb-tts" => {
-            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::validate_reference(
-                &pcm, rate,
-            )
-            .map_err(provider_error_to_app)?;
-            // The transcript is mandatory for icl; make sure it survives cleanup.
-            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::prepare_transcript(
-                transcript_for_validation.as_deref().unwrap_or(""),
-            )
-            .map_err(provider_error_to_app)?;
-        }
-        _ => {}
-    }
+    sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::validate_reference(&pcm, rate)
+        .map_err(provider_error_to_app)?;
+    // The transcript is mandatory for icl; make sure it survives cleanup.
+    sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::prepare_transcript(
+        transcript_for_validation.as_deref().unwrap_or(""),
+    )
+    .map_err(provider_error_to_app)?;
     if state.config.get().await.revision != config.revision {
         return Err(AppError::Conflict(
             "Configuration changed while preparing the reference. Refresh and retry.".into(),
@@ -1001,7 +967,6 @@ pub(crate) fn config_revision_for(
     provider: &str,
 ) -> String {
     match provider {
-        "pocket-tts" => config.providers.pocket_tts.revision.clone(),
         "reverb-tts" => config.providers.reverb_tts.revision.clone(),
         // Retired providers (GPT-SoVITS, Qwen3-TTS) and anything unknown: a revision
         // that matches nothing, so legacy profiles fail closed with an
@@ -1090,16 +1055,11 @@ pub async fn delete_voice(
         Ok(provider)
     })
     .await?;
-    match provider.as_str() {
-        "pocket-tts" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
-            state.providers.pocket.as_ref(),
-            id.trim(),
-        ),
-        "reverb-tts" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
+    if provider == "reverb-tts" {
+        sonicboom::tts::providers::TtsProvider::invalidate_voice(
             state.providers.reverb.as_ref(),
             id.trim(),
-        ),
-        _ => {}
+        );
     }
     state
         .inference_gate
@@ -1438,14 +1398,14 @@ mod tests {
     fn test_profile_input(owner: Option<&str>) -> NewVoiceProfile {
         NewVoiceProfile {
             name: "test".into(),
-            provider: "pocket-tts".into(),
-            model: "pocket-tts-en".into(),
+            provider: "reverb-tts".into(),
+            model: "reverb-tts".into(),
             model_revision: "rev".into(),
             language: "en".into(),
-            clone_mode: "audio_prompt".into(),
+            clone_mode: "icl".into(),
             reference_pcm: vec![0.1; 48_000],
             reference_sample_rate: 24_000,
-            transcript: None,
+            transcript: Some("hello".into()),
             owner_token_hash: owner.map(str::to_string),
             consent_basis: "owner".into(),
             consent_note: String::new(),

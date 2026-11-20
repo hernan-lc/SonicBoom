@@ -188,10 +188,9 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
       }
     }
   }
-  const { saveSetting, toggleProvider, activatePocketModel } = useSettingsActions({
+  const { saveSetting, toggleProvider } = useSettingsActions({
     api,
     config,
-    capabilities,
     errors,
     refreshConfig,
     refreshProviders,
@@ -296,7 +295,6 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
     refreshVoices,
     saveSetting,
     toggleProvider,
-    activatePocketModel,
     profileCompatible,
     selectProfile,
     dispose,

@@ -19,7 +19,7 @@ no-store`; completed audio additionally uses `private, no-store`.
 | --- | --- |
 | `POST /api/tts/jobs?voice=F1&lang=en&format=wav` | `text/plain`; regular Supertonic synthesis; returns `202` with job ID/status |
 | `POST /api/tts/jobs?profile={owned-profile-id}&lang=en&format=wav` | `text/plain`; uses the authorized profile's provider, model, mode and reference |
-| `POST /api/tts/jobs?...&provider={id}` | Routes synthesis to that engine (`supertonic`, `pocket-tts`, `reverb-tts`), like `/api/tts/play` |
+| `POST /api/tts/jobs?...&provider={id}` | Routes synthesis to that engine (`supertonic`, `reverb-tts`), like `/api/tts/play` |
 | `POST /api/tts/jobs?...&playback=enqueue[&play_now=true]` | Also admits the completed audio to the server playback queue; `play_now` interrupts current audio |
 | `POST /api/tts/jobs` + `Idempotency-Key: <key>` header | A repeat returns the original job (`200`); reuse for a different request is `409` |
 | `GET /api/tts/jobs/{id}` | Current status, timestamps, measured frame count, elapsed time, stage durations and actual execution context |
@@ -111,14 +111,14 @@ spoken text.
 Jobs begin `queued`, progress through observable `preparing`, `generating`,
 `decoding` and `encoding` stages, and end `completed`, `failed` or `cancelled`.
 Backend stages without an available hook remain within the enclosing measured
-native stage: Pocket TTS reports sentence-level generation, including its
-Mimi decoding, rather than inventing fine-grained progress. Frame counts refer to
+native stage: cloning providers report sentence-level generation rather than
+inventing fine-grained progress. Frame counts refer to
 codec frames; Supertonic denoising iterations are not labeled frames.
 
 Long-form requests are segmented after exactly-once normalization through the
 shared policy interface (`src/tts/segmentation.rs`; Supertonic uses the
-character-bounded sentence policy with `tts.max_chunk_chars`, Pocket TTS its
-tokenizer-aware splitter). Every status snapshot and SSE event carries
+character-bounded sentence policy with `tts.max_chunk_chars`, Reverb-TTS its
+own sentence-end splitter). Every status snapshot and SSE event carries
 `fragments_total` (absent for single-unit requests) and `fragments_done`
 (highest completed prefix, in original order), so clients can render
 fragment-level progress while later fragments still generate. `stage_secs`
@@ -161,8 +161,8 @@ Jobs and their outputs are process-local. Restart/shutdown/retention expiry
 makes old IDs unavailable (`404`); jobs do not resume after restart. Shutdown
 requests cancellation of active jobs. Graceful shutdown and resource ownership
 wait for native work to return. Native kernels cannot be forcibly interrupted;
-Supertonic checks between denoising steps/chunks; Pocket TTS checks between
-autoregressive frames and sentences; Reverb-TTS checks between sampler passes. A blocked native kernel must
+Supertonic checks between denoising steps/chunks; Reverb-TTS checks between
+sampler passes. A blocked native kernel must
 be diagnosed through elapsed state and worker warnings, never killed unsafely.
 
 ## Progress and streaming

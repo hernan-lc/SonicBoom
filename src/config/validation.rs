@@ -351,39 +351,6 @@ fn validate_providers(config: &AppConfig) -> Result<(), String> {
     if !(1..=4096).contains(&config.voices.max_profiles) {
         return Err("voices.max_profiles must be 1..=4096".into());
     }
-    let pocket = &config.providers.pocket_tts;
-    if !["cpu", "auto"].contains(&pocket.device.as_str()) {
-        return Err("providers.pocket_tts.device must be one of: cpu, auto \
-             (GPU execution providers are unsupported for Pocket TTS)"
-            .to_string());
-    }
-    if pocket.model_id.trim().is_empty() || pocket.model_id.len() > 64 {
-        return Err("providers.pocket_tts.model_id must be 1-64 characters".to_string());
-    }
-    if pocket.revision.trim().is_empty() || pocket.revision.len() > 128 {
-        return Err("providers.pocket_tts.revision must be 1-128 characters".to_string());
-    }
-    if pocket.max_concurrent != 1 {
-        return Err(
-            "providers.pocket_tts.max_concurrent must be 1: mutable model state is serialized"
-                .to_string(),
-        );
-    }
-    if !(1..=1024).contains(&pocket.cache_entries) {
-        return Err("providers.pocket_tts.cache_entries must be between 1 and 1024".to_string());
-    }
-    if !(0.0..=2.0).contains(&pocket.temperature) || !pocket.temperature.is_finite() {
-        return Err("providers.pocket_tts.temperature must be between 0.0 and 2.0".to_string());
-    }
-    if !(1..=8).contains(&pocket.lsd_steps) {
-        return Err("providers.pocket_tts.lsd_steps must be between 1 and 8".to_string());
-    }
-    if !(1..=32).contains(&pocket.cpu_threads) {
-        return Err("providers.pocket_tts.cpu_threads must be between 1 and 32".to_string());
-    }
-    if pocket.model_dir.as_os_str().is_empty() {
-        return Err("providers.pocket_tts.model_dir must not be empty".to_string());
-    }
     validate_reverb(&config.providers.reverb_tts)
 }
 
@@ -618,26 +585,30 @@ mod tests {
     #[test]
     fn optional_providers_default_to_disabled() {
         let config = valid_config();
-        assert!(!config.providers.pocket_tts.enabled);
         assert!(!config.providers.reverb_tts.enabled);
         assert!(config.providers.qwen3_gguf.is_none());
+        assert!(config.providers.pocket_tts.is_none());
         assert!(config.providers.gpt_sovits.is_none());
         assert!(validate(&config).is_ok());
     }
 
     #[test]
     fn provider_devices_are_constrained() {
-        // Pocket TTS is CPU-only: GPU values are rejected, not reinterpreted.
+        // Reverb-TTS is cpu|auto: other values are rejected, not reinterpreted.
         let mut config = valid_config();
-        config.providers.pocket_tts.device = "cuda".to_string();
+        config.providers.reverb_tts.device = "cuda".to_string();
         assert!(validate(&config).is_err());
         let mut config = valid_config();
-        config.providers.pocket_tts.device = "rocm".to_string();
+        config.providers.reverb_tts.device = "rocm".to_string();
         assert!(validate(&config).is_err());
+        let mut config = valid_config();
+        config.providers.reverb_tts.device = "auto".to_string();
+        assert!(validate(&config).is_ok());
         // Leftover sections of retired providers are tolerated and ignored.
         let mut config = valid_config();
         config.providers.gpt_sovits = Some(Default::default());
         config.providers.qwen3_gguf = Some(Default::default());
+        config.providers.pocket_tts = Some(Default::default());
         assert!(validate(&config).is_ok());
     }
 }

@@ -24,7 +24,7 @@ def check_cargo(manifest):
 def check_dockerfile(text):
     if 'AS builder-cuda' not in text:
         raise ValueError('Dockerfile must define a `builder-cuda` stage')
-    if '--features server,cuda,pocket-tts,reverb-tts' not in text:
+    if '--features server,cuda,reverb-tts' not in text:
         raise ValueError('builder-cuda must select explicit CUDA features')
     if 'COPY --from=builder-cuda' not in text:
         raise ValueError('a runtime stage must COPY from builder-cuda')

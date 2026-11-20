@@ -204,8 +204,6 @@ jobs:
           fi
       - name: Build API-only Android executable
         run: cargo build --locked --target aarch64-linux-android --no-default-features --features server,android-ort --bin SonicBoom
-      - name: Check optional Pocket provider
-        run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,pocket-tts --bin SonicBoom
       - name: Check optional Reverb-TTS provider
         run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,reverb-tts --bin SonicBoom
       - name: Validate official Android ORT artifact
@@ -231,12 +229,8 @@ jobs:
             args: --no-default-features
           - features: tiktools-plugin
             args: --no-default-features --features tiktools-plugin
-          - features: server,pocket-tts
-            args: --no-default-features --features server,pocket-tts
           - features: server,reverb-tts
             args: --no-default-features --features server,reverb-tts
-          - features: server,pocket-tts,reverb-tts
-            args: --no-default-features --features server,pocket-tts,reverb-tts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

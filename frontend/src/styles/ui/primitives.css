@@ -127,9 +127,3 @@
     grid-template-columns: 1fr;
   }
 }
-
-.engine-activate {
-  margin-left: auto;
-  padding: 6px 10px;
-  font-size: 12px;
-}

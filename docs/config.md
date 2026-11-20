@@ -139,10 +139,6 @@ and empty assignments are rejected.
 ### Voice-Cloning Providers (TOML only, no environment secrets)
 
 ```toml
-[providers.pocket_tts]
-enabled = false            # Pocket TTS ONNX, CPU only (cpu|auto)
-model_id = "pocket-tts-en"
-
 [providers.reverb_tts]
 enabled = false            # Reverb-TTS ONNX (CC BY-NC 4.0 weights: non-commercial), device cpu|auto
 model_id = "reverb-tts"
@@ -154,7 +150,8 @@ max_upload_bytes = 8388608
 
 All optional providers default to `enabled = false`: existing builds boot
 Supertonic exactly as before and fetch no extra weights. Leftover
-`[providers.qwen3]`, `[providers.qwen3_gguf]` and `[providers.gpt_sovits]`
+`[providers.qwen3]`, `[providers.qwen3_gguf]`, `[providers.pocket_tts]` and
+`[providers.gpt_sovits]`
 sections of removed providers are accepted, ignored and reported with a startup
 warning. See [providers.md](providers.md).
 

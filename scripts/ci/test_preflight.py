@@ -84,9 +84,9 @@ class PreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'expected provider/backend features'):
             validate(self.root)
 
-    def test_context_must_include_examples(self):
+    def test_context_must_include_vendored_crates(self):
         with (self.root / '.dockerignore').open('a') as stream:
-            stream.write('\nexamples/**\n')
+            stream.write('\nvendor/**\n')
         with self.assertRaisesRegex(ValueError, 'context excludes'):
             validate(self.root)
 

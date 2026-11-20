@@ -2,7 +2,7 @@
 //! inference (GPU pipeline/shader compilation) and steady-state inference take?
 //!
 //! ```sh
-//! cargo run --release --no-default-features --features webgpu,server,pocket-tts \
+//! cargo run --release --no-default-features --features webgpu,server \
 //!   --example startup_probe -- [cpu|default] [steps] [warm]
 //! ```
 //!

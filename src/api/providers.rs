@@ -33,22 +33,6 @@ pub fn map_reverb_config(
     }
 }
 
-pub fn map_pocket_config(
-    pocket: &crate::config::model::PocketTtsConfig,
-) -> sonicboom::tts::providers::pocket_tts::PocketTtsConfig {
-    sonicboom::tts::providers::pocket_tts::PocketTtsConfig {
-        enabled: pocket.enabled,
-        model_dir: pocket.model_dir.clone(),
-        model_id: pocket.model_id.clone(),
-        revision: pocket.revision.clone(),
-        device: parse_device(&pocket.device),
-        cache_capacity: pocket.cache_entries.max(1),
-        temperature: pocket.temperature,
-        lsd_steps: pocket.lsd_steps.max(1),
-        cpu_threads: pocket.cpu_threads.clamp(1, 32),
-    }
-}
-
 /// Build a request-scoped registry from live config, the resident provider
 /// pool, and the current Supertonic handle (if any). Singleton configs sync
 /// from the live configuration first (hot reload without restarts), and an
@@ -62,7 +46,6 @@ pub fn build_registry(
     supertonic_handle: Option<Arc<ModelHandle>>,
     pool: &sonicboom::tts::providers::ProviderPool,
 ) -> TtsProviderRegistry {
-    pool.sync_pocket_config(map_pocket_config(&config.providers.pocket_tts));
     pool.sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
     // Hot-reload path: no HF token at request time (public bundles need
     // none; gated bundles report an explicit auth error in status).
@@ -81,10 +64,7 @@ pub async fn build_registry_for_state(state: &crate::AppState) -> TtsProviderReg
     let (generation, config) = state.config.versioned_snapshot().await;
     state
         .providers
-        .sync_versioned(generation, map_pocket_config(&config.providers.pocket_tts));
-    state
-        .providers
-        .sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
+        .sync_versioned(generation, map_reverb_config(&config.providers.reverb_tts));
     state.providers.kick_ensure_if_needed(None);
     let supertonic = Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
     if let Some(handle) = supertonic_handle(state).await {
@@ -111,7 +91,6 @@ pub async fn get_providers(
     let registry = build_registry_for_state(&state).await;
     let capabilities = [
         registry.get("supertonic").map(|p| p.capabilities()),
-        registry.get("pocket-tts").map(|p| p.capabilities()),
         registry.get("reverb-tts").map(|p| p.capabilities()),
     ]
     .into_iter()
@@ -147,7 +126,7 @@ pub async fn get_provider_status(
             ))
         }
         None => Err(crate::error::AppError::BadRequest(format!(
-            "unknown provider '{id}' (expected one of: supertonic, pocket-tts, reverb-tts)"
+            "unknown provider '{id}' (expected one of: supertonic, reverb-tts)"
         ))),
     }
 }
@@ -187,13 +166,10 @@ mod tests {
         let pool = sonicboom::tts::providers::ProviderPool::new();
         let registry = build_registry(&config, None, &pool);
         // Retired providers must never appear as a provider id.
-        for retired in ["qwen3", "qwen3-gguf", "gpt-sovits"] {
+        for retired in ["qwen3", "qwen3-gguf", "pocket-tts", "gpt-sovits"] {
             assert!(!registry.provider_ids().contains(&retired.to_string()));
         }
-        assert_eq!(
-            registry.provider_ids(),
-            vec!["pocket-tts", "reverb-tts", "supertonic"]
-        );
+        assert_eq!(registry.provider_ids(), vec!["reverb-tts", "supertonic"]);
         for status in registry.statuses() {
             if status.provider_id == "supertonic" {
                 assert_eq!(status.effective_device.as_deref(), Some("cpu"));
@@ -220,19 +196,19 @@ mod tests {
         // Supertonic keeps serving.
         // Uses an isolated empty dir: the workspace `./models` may hold
         // real downloaded weights, which must not flip this expectation.
-        let dir = std::env::temp_dir().join(format!("pocket-no-weights-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("reverb-no-weights-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut config = AppConfig::default();
-        config.providers.pocket_tts.enabled = true;
-        config.providers.pocket_tts.model_dir = dir.clone();
+        config.providers.reverb_tts.enabled = true;
+        config.providers.reverb_tts.model_dir = dir.clone();
         // Built without the background kick on purpose: kicking would
         // start a real download in this test.
         let pool = sonicboom::tts::providers::ProviderPool::new();
-        pool.sync_pocket_config(map_pocket_config(&config.providers.pocket_tts));
+        pool.sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
         let supertonic =
             std::sync::Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
         let registry = pool.registry(supertonic);
-        let status = registry.get("pocket-tts").unwrap().status();
+        let status = registry.get("reverb-tts").unwrap().status();
         assert!(status.enabled);
         assert_eq!(
             status.state,

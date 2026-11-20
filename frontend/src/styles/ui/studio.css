@@ -266,23 +266,6 @@
   margin: 4px 0 8px;
   overflow-wrap: anywhere;
 }
-.engine-model-picker {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-  margin: 8px 0;
-}
-.engine-model-picker label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-}
-.engine-model-picker .engine-activate {
-  flex: none;
-}
 .engine-readiness {
   display: flex;
   flex-wrap: wrap;
