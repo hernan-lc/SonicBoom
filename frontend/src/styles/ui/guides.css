@@ -1,0 +1,134 @@
+.guides-page {
+  max-width: var(--content-max);
+}
+.guides-intro {
+  color: var(--text-secondary);
+}
+.guides-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.guide-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.guide-card h2 {
+  font-size: 18px;
+}
+.guide-summary {
+  color: var(--text-secondary);
+}
+.guide-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.guide-done {
+  color: var(--success);
+  font-weight: 700;
+}
+.guide-card button {
+  align-self: flex-start;
+}
+.guide-launcher {
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0;
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+.guide-launcher:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+/* driver.css is injected at tour start, so these overrides need more specificity. */
+body .driver-popover {
+  max-width: 320px;
+  padding: var(--space-4);
+  background-color: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-family: var(--font-sans);
+}
+body .driver-popover-title {
+  font-size: 17px;
+  color: var(--text);
+}
+body .driver-popover-description {
+  color: var(--text-secondary);
+}
+body .driver-popover-progress-text,
+body .driver-popover-close-btn {
+  color: var(--text-muted);
+}
+body .driver-popover-close-btn:hover,
+body .driver-popover-close-btn:focus-visible {
+  color: var(--text);
+}
+body .driver-popover-footer-btn {
+  padding: 6px 12px;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+body .driver-popover-footer-btn:hover:not(.driver-popover-btn-disabled),
+body .driver-popover-footer-btn:focus-visible {
+  background-color: var(--accent-surface);
+  border-color: var(--accent);
+}
+body .driver-popover-navigation-btns .driver-popover-footer-btn:last-child {
+  background-color: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+body .driver-popover-arrow {
+  border-color: var(--surface);
+}
+body .driver-popover-arrow-side-left {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-right-color: var(--surface);
+}
+body .driver-popover-arrow-side-right {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: var(--surface);
+}
+body .driver-popover-arrow-side-top {
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: var(--surface);
+}
+body .driver-popover-arrow-side-bottom {
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-top-color: var(--surface);
+}
+@media (prefers-reduced-motion: reduce) {
+  body.driver-fade .driver-overlay,
+  body.driver-fade .driver-popover {
+    animation: none;
+  }
+}

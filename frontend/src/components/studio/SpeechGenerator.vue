@@ -155,6 +155,7 @@ onBeforeUnmount(() => {
                     </div>
                     <textarea
                         id="text"
+                        data-guide="first-audio-text"
                         v-model="text"
                         :placeholder="
                             t(
@@ -182,7 +183,7 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="field">
                         <label for="lang">{{ t("Language") }}</label
-                        ><select id="lang" v-model="language" :disabled="pending">
+                        ><select id="lang" data-guide="first-audio-language" v-model="language" :disabled="pending">
                             <option
                                 v-for="code in languages"
                                 :key="code"
@@ -204,6 +205,7 @@ onBeforeUnmount(() => {
                 </EmptyState>
                 <VoiceSelector
                     v-else
+                    data-guide="first-audio-voice"
                     v-model="voice"
                     :voices="availableVoices"
                     :disabled="pending"
@@ -227,6 +229,7 @@ onBeforeUnmount(() => {
             <div class="toolbar">
                 <button
                     id="btn"
+                    data-guide="first-audio-generate"
                     class="primary"
                     :disabled="pending || !!jobId || !canGenerate"
                 >
@@ -262,7 +265,7 @@ onBeforeUnmount(() => {
                 </button>
             </div>
         </form>
-        <SectionCard :title="t('Result')" class="create-side">
+        <SectionCard :title="t('Result')" data-guide="first-audio-result" class="create-side">
             <GenerationStatus
                 :pending="pending"
                 :snapshot="snapshot"
