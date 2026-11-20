@@ -27,8 +27,31 @@ pub fn initialize() -> Result<()> {
             })?
             .commit();
     }
-    ort::environment::Environment::current().context("ONNX Runtime initialization failed")?;
+    let env =
+        ort::environment::Environment::current().context("ONNX Runtime initialization failed")?;
+    static SEVERITY: std::sync::Once = std::sync::Once::new();
+    SEVERITY.call_once(|| env.set_log_level(log_severity()));
     Ok(())
+}
+
+/// ONNX Runtime log severity, applied at the source so filtered messages are
+/// never formatted or passed into the Rust log pipeline. The default is
+/// `error`: per-session graph notes and per-dispatch WebGPU traces are
+/// suppressed. `SONICBOOM_ORT_LOG=warning` shows GPU fallback notes;
+/// `info` or `verbose` is for debugging ORT itself.
+fn log_severity() -> ort::logging::LogLevel {
+    use ort::logging::LogLevel;
+    match std::env::var("SONICBOOM_ORT_LOG")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "verbose" | "trace" => LogLevel::Verbose,
+        "info" => LogLevel::Info,
+        "warning" | "warn" => LogLevel::Warning,
+        "fatal" => LogLevel::Fatal,
+        _ => LogLevel::Error,
+    }
 }
 
 /// Hardware execution providers in priority order for a model at `model_path`.

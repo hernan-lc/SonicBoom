@@ -1,46 +1,60 @@
-//! Logging configuration for SonicBoom
+//! Logging for SonicBoom.
 //!
-//! Provides structured logging with file rotation
-//! and a hot-reloadable level filter (see
-//! [`set_level`]).
+//! * `LOG_LEVEL` (`logging.level`) applies to SonicBoom's own targets and to
+//!   the `tower_http` access log only. Every other crate stays at `warn`, so
+//!   `info` no longer streams ONNX Runtime / WebGPU internals (one line per GPU
+//!   dispatch, ~50k lines per day before this change).
+//! * `logging.filter` / `RUST_LOG` replace those default directives entirely,
+//!   e.g. `RUST_LOG=warn,sonicboom=debug,ort=info` for deep debugging.
+//! * ONNX Runtime severity is set at the source by `onnx_runtime` (see
+//!   `SONICBOOM_ORT_LOG`), so messages below it never reach this pipeline.
+//! * The level is hot-reloadable through [`set_level`].
 
 use std::sync::OnceLock;
+
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     EnvFilter, fmt, fmt::format::Writer, layer::SubscriberExt, reload, util::SubscriberInitExt,
 };
 
-/// Custom timer that shows only time (HH:MM:SS)
-struct ShortTimer;
+/// Local wall-clock time with milliseconds, e.g. `14:19:50.123`.
+/// (Replaces a UTC-only HH:MM:SS timer that disagreed with the local clock.)
+struct LocalTime;
 
-impl tracing_subscriber::fmt::time::FormatTime for ShortTimer {
+impl fmt::time::FormatTime for LocalTime {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
-        use std::time::SystemTime;
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        let secs = now.as_secs();
-        let hours = (secs / 3600) % 24;
-        let mins = (secs / 60) % 60;
-        let secs = secs % 60;
-        write!(w, "{:02}:{:02}:{:02}", hours, mins, secs)
+        write!(w, "{}", chrono::Local::now().format("%H:%M:%S%.3f"))
     }
 }
 
-/// Global guard to keep the file writer alive
-static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+/// Keeps the file writer's worker thread alive for the process lifetime.
+static LOG_GUARDS: OnceLock<Vec<WorkerGuard>> = OnceLock::new();
 
-/// Type-erased log-level setter: the reload handle is
-/// generic over the (unnameable) layered subscriber
-/// type, so it is captured in a closure and erased.
+/// Type-erased level setter. The reload handle is generic over the (unnameable)
+/// layered subscriber type, so it is captured in a closure and erased.
 type LevelSetter = dyn Fn(&str) -> Result<(), String> + Send + Sync;
-struct LevelHandle {
-    modify: Box<LevelSetter>,
+
+static LEVEL_HANDLE: OnceLock<Box<LevelSetter>> = OnceLock::new();
+
+/// Expands a plain level (`debug`) into directives that scope it to SonicBoom
+/// and its access log. Anything else is already an `EnvFilter` directive list
+/// (`logging.filter`, `RUST_LOG`) and is used unchanged.
+///
+/// The binary crate logs under `SonicBoom` and the library under `sonicboom`,
+/// so both targets are listed.
+fn directives(spec: &str) -> String {
+    let spec = spec.trim();
+    let lower = spec.to_ascii_lowercase();
+    match lower.as_str() {
+        "trace" | "debug" | "info" | "warn" | "error" | "off" => {
+            format!("warn,SonicBoom={lower},sonicboom={lower},tower_http={lower}")
+        }
+        _ => spec.to_owned(),
+    }
 }
 
-static LEVEL_HANDLE: OnceLock<LevelHandle> = OnceLock::new();
-
-/// Initialize the logging system
+/// Initialize the logging system. Call once at startup; a second call only
+/// prints a warning.
 pub fn init(
     log_dir: &str,
     log_level: &str,
@@ -48,106 +62,68 @@ pub fn init(
     log_to_file: bool,
     log_to_stdout: bool,
 ) {
-    // Create log directory if it doesn't exist
-    if log_to_file && let Err(e) = std::fs::create_dir_all(log_dir) {
-        eprintln!("Warning: Could not create log directory: {}", e);
-    }
-
-    // Build the env filter - include tower_http at trace level for request logging.
-    // Logging hygiene: the TraceLayer callbacks used in main.rs log only
-    // method/uri/status/latency. Headers (Authorization, Cookie), bodies
-    // (private TTS text), and secrets (tokens, passwords, HF_TOKEN, CSRF
-    // values) are never emitted by request logging.
-    // NOTE: the level applies globally (not just `SonicBoom`), because the
-    // library (`sonicboom`), ONNX Runtime (`ort`), and model-verification
-    // warnings live under different targets and must stay visible.
-    let env_filter = EnvFilter::new(
-        filter
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("{log_level},tower_http=trace")),
-    );
-
-    // Make the level filter hot-reloadable: the filter is wrapped in a
-    // reload layer whose handle is stored (type-erased) for `set_level`.
-    // `reload::Layer` wraps either a Layer or a Filter.
+    // `logging.filter` / `RUST_LOG` take precedence over `LOG_LEVEL`, and both
+    // go through `directives` so a bare level scopes the same way on startup
+    // and on hot reload.
+    let env_filter =
+        EnvFilter::try_new(directives(filter.unwrap_or(log_level))).unwrap_or_else(|e| {
+            eprintln!("Warning: invalid log filter ({e}); falling back to info");
+            EnvFilter::new(directives("info"))
+        });
     let (reloadable_filter, reload_handle) = reload::Layer::new(env_filter);
 
-    // Base subscriber
-    let base = tracing_subscriber::registry().with(reloadable_filter);
-
-    if log_to_file && log_to_stdout {
-        // File writer - detailed format
-        let file_appender = tracing_appender::rolling::daily(log_dir, "sonicboom.log");
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-        let file_layer = fmt::layer()
+    // File: full detail, daily rotation, written by a background thread.
+    let mut guards = Vec::new();
+    let file_layer = log_to_file.then(|| {
+        if let Err(e) = std::fs::create_dir_all(log_dir) {
+            eprintln!("Warning: could not create log directory: {e}");
+        }
+        let appender = tracing_appender::rolling::daily(log_dir, "sonicboom.log");
+        let (writer, guard) = tracing_appender::non_blocking(appender);
+        guards.push(guard);
+        fmt::layer()
             .with_target(true)
             .with_thread_ids(true)
             .with_file(true)
             .with_line_number(true)
-            .with_level(true)
             .with_ansi(false)
-            .with_writer(non_blocking);
+            .with_writer(writer)
+    });
 
-        // Console - simplified format (level + target + message only)
-        let stdout_layer = fmt::layer()
+    // Console: compact, local time.
+    let stdout_layer = log_to_stdout.then(|| {
+        fmt::layer()
             .with_target(true)
-            .with_level(true)
             .with_ansi(false)
-            .with_timer(ShortTimer)
-            .compact();
+            .with_timer(LocalTime)
+            .compact()
+    });
 
-        // Keep guard alive
-        let _ = LOG_GUARD.set(guard);
-
-        base.with(file_layer).with(stdout_layer).init();
-    } else if log_to_file {
-        let file_appender = tracing_appender::rolling::daily(log_dir, "sonicboom.log");
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-        let file_layer = fmt::layer()
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_file(true)
-            .with_line_number(true)
-            .with_level(true)
-            .with_ansi(false)
-            .with_writer(non_blocking);
-
-        let _ = LOG_GUARD.set(guard);
-
-        base.with(file_layer).init();
-    } else if log_to_stdout {
-        let stdout_layer = fmt::layer()
-            .with_target(true)
-            .with_level(true)
-            .with_ansi(false)
-            .with_timer(ShortTimer)
-            .compact();
-
-        base.with(stdout_layer).init();
-    } else {
-        base.init();
+    let _ = LOG_GUARDS.set(guards);
+    let subscriber = tracing_subscriber::registry()
+        .with(reloadable_filter)
+        .with(file_layer)
+        .with(stdout_layer);
+    if let Err(e) = subscriber.try_init() {
+        eprintln!("Warning: logging was already initialized: {e}");
     }
 
-    // Store the type-erased level setter for hot reload.
-    let _ = LEVEL_HANDLE.set(LevelHandle {
-        modify: Box::new(move |level: &str| {
-            let filter = EnvFilter::try_new(level).map_err(|e| e.to_string())?;
-            reload_handle
-                .modify(|f| *f = filter)
-                .map_err(|e| e.to_string())
-        }),
+    let setter: Box<LevelSetter> = Box::new(move |spec: &str| {
+        let filter = EnvFilter::try_new(directives(spec)).map_err(|e| e.to_string())?;
+        reload_handle
+            .modify(|f| *f = filter)
+            .map_err(|e| e.to_string())
     });
+    let _ = LEVEL_HANDLE.set(setter);
 }
 
-/// Hot-reload the global log level (spec §44).
-/// All environment precedence is resolved by ConfigManager.
-pub fn set_level(level: &str) -> Result<(), String> {
-    LEVEL_HANDLE
-        .get()
-        .ok_or_else(|| "logging is not initialized".to_string())
-        .and_then(|handle| (handle.modify)(level))
+/// Hot-reload the log level or a directive list (spec §44). Accepts the same
+/// values as `LOG_LEVEL` and `logging.filter`; ConfigManager resolves precedence.
+pub fn set_level(spec: &str) -> Result<(), String> {
+    match LEVEL_HANDLE.get() {
+        Some(set) => set(spec),
+        None => Err("logging is not initialized".to_string()),
+    }
 }
 
 /// Log startup banner
@@ -165,27 +141,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn set_level_before_init_is_an_error() {
-        // In a fresh process the handle is unset; the
-        // test process may have initialized logging
-        // already, so only assert the function is
-        // callable and returns a Result.
+    fn plain_levels_are_scoped_to_sonicboom_and_access_log() {
+        assert_eq!(
+            directives("info"),
+            "warn,SonicBoom=info,sonicboom=info,tower_http=info"
+        );
+        assert_eq!(
+            directives(" DEBUG "),
+            "warn,SonicBoom=debug,sonicboom=debug,tower_http=debug"
+        );
+    }
+
+    #[test]
+    fn explicit_directives_pass_through_unchanged() {
+        assert_eq!(directives("warn,ort=info"), "warn,ort=info");
+        assert!(EnvFilter::try_new(directives("info")).is_ok());
+        assert!(EnvFilter::try_new(directives("warn,sonicboom=debug")).is_ok());
+    }
+
+    #[test]
+    fn set_level_before_init_is_an_error_or_ok() {
+        // The test process may already have initialized logging, so only
+        // assert that the call is safe and returns a Result.
         let _ = set_level("debug");
     }
 
-    #[tokio::test]
-    async fn init_then_set_level_round_trips() {
-        // Initialize in-memory logging (stdout only,
-        // no files) and change the level twice.
-        let dir = std::env::temp_dir().join(format!(
-            "sonicboom-logging-test-{}-{}",
-            std::process::id(),
-            "level"
-        ));
-        let _ = std::fs::create_dir_all(&dir);
-        init(&dir.to_string_lossy(), "info", None, false, false);
+    #[test]
+    fn init_then_set_level_round_trips() {
+        // Stdout only, no files. A second init in the same process only
+        // prints a warning (try_init), so this is safe under the test harness.
+        init("unused", "info", None, false, false);
         assert!(set_level("debug").is_ok());
         assert!(set_level("warn").is_ok());
-        let _ = std::fs::remove_dir_all(&dir);
+        assert!(set_level("warn,ort=info").is_ok());
     }
 }
