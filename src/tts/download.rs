@@ -265,6 +265,9 @@ pub fn resolve_trust(
     Ok((revision.to_string(), builtin_trust()?))
 }
 
+/// Cached files at least this large skip the full re-hash on warm starts.
+const VERIFY_CACHE_MIN_BYTES: u64 = 1024 * 1024;
+
 pub fn sha256_of_file(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -296,6 +299,27 @@ fn verify_cached_file(filename: &str, local_path: &Path, expected: &ExpectedTrus
         .hashes
         .get(filename)
         .ok_or_else(|| anyhow!("missing trusted digest for {filename}"))?;
+    // Large model files reuse the identity-bound verification record that
+    // the native providers already trust: the full SHA-256 runs once, and
+    // later starts skip it while the file (inode, size, mtime, ctime) is
+    // untouched. Small files are hashed every time; that is instant.
+    if metadata.len() >= VERIFY_CACHE_MIN_BYTES {
+        let source = format!("supertonic:{filename}");
+        return match crate::tts::providers::assets::verify_cached_identity(
+            local_path,
+            &source,
+            want,
+            metadata.len(),
+            |_| {},
+        ) {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                tracing::warn!("hash mismatch for cached {filename}: expected trusted digest");
+                Ok(false)
+            }
+            Err(e) => Err(anyhow!("{e}")),
+        };
+    }
     let actual = sha256_of_file(local_path)?;
     if constant_time_eq_str(&actual, want) {
         return Ok(true);
@@ -746,6 +770,39 @@ mod tests {
         );
         // Unknown names are rejected even if the file exists.
         assert!(verify_cached_file("unknown.bin", &file, &trust).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn large_cached_file_records_verification_and_detects_changes() {
+        let dir = std::env::temp_dir().join(format!("sonicboom-verify-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("vocoder.onnx");
+        let content = vec![7u8; (VERIFY_CACHE_MIN_BYTES as usize) + 4096];
+        std::fs::write(&file, &content).unwrap();
+        let mut hashes = ExpectedHashes::new();
+        for name in MODEL_FILES {
+            hashes.insert(name.to_string(), "0".repeat(64));
+        }
+        hashes.insert(
+            "onnx/vocoder.onnx".to_string(),
+            hex::encode(Sha256::digest(&content)),
+        );
+        let trust = trust_with(hashes, None);
+        let record = dir.join("vocoder.verified.json");
+        assert!(!record.exists());
+        // First verification hashes the file and records the result.
+        assert!(verify_cached_file("onnx/vocoder.onnx", &file, &trust).unwrap());
+        assert!(record.is_file(), "full verification must leave a record");
+        // The record is honoured on the next start.
+        assert!(verify_cached_file("onnx/vocoder.onnx", &file, &trust).unwrap());
+        // Same-length tampering changes mtime/ctime, so the record is stale
+        // and the full hash rejects the file.
+        let mut tampered = content.clone();
+        tampered[100] ^= 0xff;
+        std::fs::write(&file, &tampered).unwrap();
+        assert!(!verify_cached_file("onnx/vocoder.onnx", &file, &trust).unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

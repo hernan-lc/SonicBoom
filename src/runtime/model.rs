@@ -152,7 +152,14 @@ impl ModelService {
         if !keep_ready {
             *status.write().await = ModelStatus::Loading;
         }
-        let handle = match tokio::task::spawn_blocking(move || ModelHandle::load(&paths)).await {
+        let handle = match tokio::task::spawn_blocking(move || {
+            let handle = ModelHandle::load(&paths)?;
+            // Compile GPU pipelines before the model is advertised as Ready.
+            handle.warm_up();
+            Ok::<_, anyhow::Error>(handle)
+        })
+        .await
+        {
             Ok(Ok(handle)) => handle,
             Ok(Err(e)) => {
                 tracing::error!("Model reload load failed: {e}");

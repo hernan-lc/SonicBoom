@@ -375,9 +375,13 @@ impl SonicBoomEngine {
             on_progress,
         )
         .await?;
-        let model = tokio::task::spawn_blocking(move || ModelHandle::load(&paths))
-            .await
-            .map_err(|error| anyhow!("model loading task failed: {error}"))??;
+        let model = tokio::task::spawn_blocking(move || {
+            let handle = ModelHandle::load(&paths)?;
+            handle.warm_up();
+            Ok::<_, anyhow::Error>(handle)
+        })
+        .await
+        .map_err(|error| anyhow!("model loading task failed: {error}"))??;
         Ok(Arc::new(Self {
             model: Arc::new(model),
             inference_lock: std::sync::Mutex::new(()),

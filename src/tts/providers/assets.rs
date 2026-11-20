@@ -118,12 +118,27 @@ fn verify_cached_progress(
     file: &PinnedFile,
     on_bytes: impl Fn(u64),
 ) -> Result<bool, String> {
+    verify_cached_identity(path, &file.url, file.sha256, file.size, on_bytes)
+}
+
+/// Verify `path` against a trusted `sha256`/`size`, skipping the full hash
+/// when a sidecar `*.verified.json` written by an earlier full verification
+/// still matches the file's identity (device, inode, size, mtime, ctime).
+/// `source` only labels the record; the trusted digest is part of the
+/// record, so changing the pinned digest invalidates the cache entry.
+pub(crate) fn verify_cached_identity(
+    path: &Path,
+    source: &str,
+    sha256: &str,
+    size: u64,
+    on_bytes: impl Fn(u64),
+) -> Result<bool, String> {
     let before = identity(path);
     let record = Verification {
         version: 1,
-        source: file.url.clone(),
-        digest: file.sha256.to_ascii_lowercase(),
-        size: file.size,
+        source: source.to_string(),
+        digest: sha256.to_ascii_lowercase(),
+        size,
         identity: before.clone().unwrap_or_default(),
     };
     let metadata_path = metadata_path(path);
@@ -145,17 +160,17 @@ fn verify_cached_progress(
                 == Some(&record)
         {
             tracing::debug!(
-                asset = file.path,
+                asset = source,
                 cache_hit = true,
                 "trusted verification identity unchanged"
             );
             return Ok(true);
         }
     }
-    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() != file.size {
+    if std::fs::metadata(path).map_err(|e| e.to_string())?.len() != size {
         return Ok(false);
     }
-    let valid = hex_sha256_file(path, file.size, on_bytes)?.eq_ignore_ascii_case(file.sha256);
+    let valid = hex_sha256_file(path, size, on_bytes)?.eq_ignore_ascii_case(sha256);
     if valid && before.is_some() && identity(path) == before {
         let tmp = metadata_path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
         use std::io::Write;
@@ -178,7 +193,7 @@ fn verify_cached_progress(
         }
     }
     Ok(valid
-        && std::fs::metadata(path).is_ok_and(|m| m.len() == file.size)
+        && std::fs::metadata(path).is_ok_and(|m| m.len() == size)
         && (before.is_none() || identity(path) == before))
 }
 

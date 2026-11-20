@@ -134,16 +134,52 @@ fn build_session(path: &std::path::Path) -> Result<Session> {
     Ok(builder.commit_from_file(path)?)
 }
 
+/// Build one session and log how long ONNX Runtime (graph optimisation plus
+/// execution-provider kernel setup/weight upload) took.
+fn timed_session(label: &'static str, path: &std::path::Path) -> Result<Session> {
+    let started = std::time::Instant::now();
+    let session = build_session(path)?;
+    tracing::info!(
+        session = label,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "ONNX session ready"
+    );
+    Ok(session)
+}
+
 impl ModelHandle {
     pub fn load(paths: &ModelPaths) -> Result<Self> {
         tracing::info!("Loading ONNX sessions...");
+        let started = std::time::Instant::now();
 
-        let sessions = std::sync::Mutex::new(Sessions {
-            duration_predictor: build_session(&paths.duration_predictor)?,
-            text_encoder: build_session(&paths.text_encoder)?,
-            vector_estimator: build_session(&paths.vector_estimator)?,
-            vocoder: build_session(&paths.vocoder)?,
-        });
+        // The four graphs are independent, so create them concurrently:
+        // wall-clock load time becomes that of the slowest graph
+        // (`vector_estimator`) instead of the sum of all four. It is spawned
+        // first so it never waits behind the small graphs for a core.
+        let sessions = std::thread::scope(|scope| -> Result<Sessions> {
+            let vector_estimator =
+                scope.spawn(|| timed_session("vector_estimator", &paths.vector_estimator));
+            let vocoder = scope.spawn(|| timed_session("vocoder", &paths.vocoder));
+            let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
+            let duration_predictor =
+                scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
+            let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>, label: &str| {
+                handle
+                    .join()
+                    .map_err(|_| anyhow!("{label} session creation panicked"))?
+            };
+            Ok(Sessions {
+                duration_predictor: join(duration_predictor, "duration_predictor")?,
+                text_encoder: join(text_encoder, "text_encoder")?,
+                vector_estimator: join(vector_estimator, "vector_estimator")?,
+                vocoder: join(vocoder, "vocoder")?,
+            })
+        })?;
+        let sessions = std::sync::Mutex::new(sessions);
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "All ONNX sessions created"
+        );
 
         let text_processor = TextProcessor::load(&paths.unicode_indexer)?;
 
@@ -190,6 +226,40 @@ impl ModelHandle {
             voice_styles,
             config,
         })
+    }
+
+    /// Run a couple of tiny syntheses so the GPU execution provider compiles
+    /// its shaders/pipelines now instead of during the first user request
+    /// (measured ~0.8 s on Vulkan/RADV for the very first inference).
+    ///
+    /// Two different text lengths are used because the WebGPU EP builds
+    /// additional pipelines for new tensor shapes. Failures are logged and
+    /// ignored: warm-up is an optimisation, never a readiness requirement.
+    /// Disable with `SONICBOOM_WARMUP=0`; skipped when forced to CPU.
+    pub fn warm_up(&self) {
+        let disabled = std::env::var("SONICBOOM_WARMUP").is_ok_and(|v| v == "0");
+        let cpu_only = std::env::var("SONICBOOM_EP").is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
+        if disabled || cpu_only {
+            return;
+        }
+        let Some(voice) = self.default_voice() else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        const SAMPLES: [&str; 2] = [
+            "Hello.",
+            "A gentle breeze moved through the open window while everyone listened quietly.",
+        ];
+        for text in SAMPLES {
+            if let Err(error) = crate::tts::inference::synthesize(self, text, "en", voice, 2, 200) {
+                tracing::warn!("GPU warm-up synthesis failed (ignored): {error}");
+                return;
+            }
+        }
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "Model warm-up complete"
+        );
     }
 
     pub fn default_voice(&self) -> Option<&str> {
