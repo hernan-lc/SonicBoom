@@ -159,3 +159,16 @@ per execution provider.
 Any optimization that changes numerical output must keep CPU/Vulkan waveform
 difference in the same range as today (`~1e-4` max, `~1e-6` mean) or document
 an explicit, audible quality trade-off.
+
+## Pocket TTS on the WebGPU EP (2026-11-20)
+
+Since the Vulkan-first commit (`ffac36e`) all five Pocket graphs were created with
+the GPU policy. On AMD BC-250 / RADV that produced near-silent audio (RMS 0.0055
+against 0.045 on CPU, ASR transcribed nothing). Bisecting one graph at a time on GPU
+with the rest on CPU: text conditioner, Mimi encoder, `flow_lm_main` and
+`flow_lm_flow` are correct; **only `mimi_decoder_int8` is wrong**. The GPU did not
+help either (same 2.2 s clip: all CPU 3.3 s; `flow_lm_main` on GPU 5.5 s; default
+all-GPU 7.9 s). Pocket now runs on CPU by default; `SONICBOOM_POCKET_EP=gpu`
+restores the old policy to reproduce the failure. Same failure class as the Qwen
+int8 codec. Not caused by the startup or Qwen changes of this session
+(`pocket_tts.rs` and `onnx_runtime.rs` are identical to `ffac36e`).

@@ -799,15 +799,24 @@ fn ort_session(path: PathBuf, cpu_threads: usize) -> Result<Session, ProviderErr
         .map_err(|e| ProviderError::inference_failed(format!("pocket-tts session setup: {e}")))?
         .with_intra_threads(threads)
         .map_err(|e| ProviderError::inference_failed(format!("pocket-tts thread setup: {e}")))?;
-    // Same Vulkan-first / CPU-fallback policy as Supertonic.
-    crate::onnx_runtime::with_gpu(builder, &path)
-        .commit_from_file(&path)
-        .map_err(|e| {
-            ProviderError::inference_failed(format!(
-                "pocket-tts native load failed ({}): {e}",
-                path.display()
-            ))
-        })
+    // CPU by default. On the WebGPU EP (AMD BC-250 / RADV) the int8
+    // `mimi_decoder_int8.onnx` returns near-silent audio (RMS 0.0055 against
+    // 0.045 on CPU; the ASR transcribes nothing) while the other four graphs
+    // are correct. The GPU is not faster either: all-CPU 3.3 s, `flow_lm_main`
+    // on GPU 5.5 s for the same 2.2 s clip. `SONICBOOM_POCKET_EP=gpu` keeps
+    // the old Vulkan-first behaviour only to reproduce that.
+    let mut builder =
+        if std::env::var("SONICBOOM_POCKET_EP").is_ok_and(|v| v.eq_ignore_ascii_case("gpu")) {
+            crate::onnx_runtime::with_gpu(builder, &path)
+        } else {
+            builder
+        };
+    builder.commit_from_file(&path).map_err(|e| {
+        ProviderError::inference_failed(format!(
+            "pocket-tts native load failed ({}): {e}",
+            path.display()
+        ))
+    })
 }
 
 #[cfg(feature = "pocket-tts")]
