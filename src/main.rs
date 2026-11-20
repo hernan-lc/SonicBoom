@@ -628,13 +628,9 @@ fn run_linux_tray(server_err_rx: std::sync::mpsc::Receiver<String>) -> anyhow::R
         Ok(handle) => {
             tracing::info!("System tray running (StatusNotifierItem)");
             loop {
-                if let Ok(err_msg) = server_err_rx.try_recv() {
-                    // Fatal: token store / trust / bind failure. A lingering
-                    // tray with a dead server is worse than a visible exit.
-                    tracing::error!("Server thread died: {err_msg}");
-                    eprintln!("Server error: {err_msg}");
-                    show_startup_error(&err_msg);
-                    std::process::exit(1);
+                if server_stopped(&server_err_rx) {
+                    tracing::info!("Server stopped; closing tray");
+                    return Ok(());
                 }
                 if handle.is_closed() {
                     tracing::info!("Tray service closed; shutting down");
@@ -648,15 +644,31 @@ fn run_linux_tray(server_err_rx: std::sync::mpsc::Receiver<String>) -> anyhow::R
             // HTTP on the background thread instead of exiting.
             tracing::error!("System tray unavailable ({e}); running headless");
             loop {
-                if let Ok(err_msg) = server_err_rx.try_recv() {
-                    tracing::error!("Server thread died: {err_msg}");
-                    eprintln!("Server error: {err_msg}");
-                    show_startup_error(&err_msg);
-                    std::process::exit(1);
+                if server_stopped(&server_err_rx) {
+                    return Ok(());
                 }
                 std::thread::sleep(std::time::Duration::from_secs(5));
             }
         }
+    }
+}
+
+/// Checks the server thread from a tray loop. A server error exits the process
+/// visibly (token store / trust / bind failure: a lingering tray with a dead
+/// server is worse). A disconnected channel means `run_server` returned after
+/// SIGTERM or Ctrl+C, so this returns `true` and the tray stops too. Without
+/// that, the tray loop never ended and the process ignored SIGTERM.
+#[cfg(feature = "gui")]
+fn server_stopped(server_err_rx: &std::sync::mpsc::Receiver<String>) -> bool {
+    match server_err_rx.try_recv() {
+        Ok(err_msg) => {
+            tracing::error!("Server thread died: {err_msg}");
+            eprintln!("Server error: {err_msg}");
+            show_startup_error(&err_msg);
+            std::process::exit(1);
+        }
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => true,
+        Err(std::sync::mpsc::TryRecvError::Empty) => false,
     }
 }
 
@@ -694,14 +706,11 @@ fn run_tao_tray(server_err_rx: std::sync::mpsc::Receiver<String>) -> anyhow::Res
         // are never missed. This is a tray-only app so CPU usage is negligible.
         *control_flow = ControlFlow::Poll;
 
-        // A server-thread error is fatal (token store / trust / bind
-        // failure): exit visibly instead of lingering as a tray with a
-        // dead server behind it.
-        if let Ok(err_msg) = server_err_rx.try_recv() {
-            tracing::error!("Server thread died: {err_msg}");
-            eprintln!("Server error: {err_msg}");
-            show_startup_error(&err_msg);
-            std::process::exit(1);
+        // A server-thread error exits visibly; a clean server stop (SIGTERM,
+        // Ctrl+C) closes the tray so the process ends.
+        if server_stopped(&server_err_rx) {
+            *control_flow = ControlFlow::Exit;
+            return;
         }
 
         match event {
