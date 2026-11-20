@@ -429,6 +429,21 @@ pub struct ProvidersConfig {
     pub gpt_sovits: Option<RetiredProviderSection>,
 }
 
+impl ProvidersConfig {
+    /// Names of leftover sections of removed providers present in the file.
+    pub fn retired_sections(&self) -> Vec<&'static str> {
+        [
+            ("qwen3", self.qwen3.is_some()),
+            ("qwen3_gguf", self.qwen3_gguf.is_some()),
+            ("pocket_tts", self.pocket_tts.is_some()),
+            ("gpt_sovits", self.gpt_sovits.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, present)| present.then_some(name))
+        .collect()
+    }
+}
+
 /// Voice-profile store settings (`[voices]`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

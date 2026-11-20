@@ -283,11 +283,6 @@
   font-size: 12px;
   padding-block: 4px;
 }
-.engine-solution {
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 8px;
-  padding-top: 8px;
-}
 .show-keys {
   display: flex;
   align-items: center;

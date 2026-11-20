@@ -1,13 +1,9 @@
-//! In-process worker-thread helper for non-`Send` model internals.
-//!
-//! Some model handles (for example mutable KV-cache states)
-//! cannot be shared across threads. This helper encapsulates such state in
-//! a dedicated Rust thread with a bounded channel — in-process, never a
-//! subprocess — and serializes `(prepare_reference + synthesize)` atomically
-//! so concurrent requests with distinct voices can never swap reference data.
+//! Shared building blocks for in-process cloning providers: a process-wide
+//! guard that serializes heavyweight model construction, and a bounded
+//! conditioning cache keyed by the reference identity.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Serialize heavyweight construction across providers. Already resident
 /// models and inference remain independent; a failed load cannot poison
@@ -77,11 +73,6 @@ impl ConditioningCache {
         }
     }
 
-    pub fn invalidate_model(&mut self, provider: &str, model_revision: &str) {
-        let prefix = format!("{provider}|{model_revision}|");
-        self.entries.retain(|(k, _)| !k.starts_with(&prefix));
-    }
-
     /// Drop a single entry (voice-profile deletion/rotation). Missing keys
     /// are a no-op so double deletion stays idempotent.
     pub fn remove(&mut self, key: &str) {
@@ -96,42 +87,6 @@ impl ConditioningCache {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
-    }
-}
-
-/// Shared, mutex-serialized conditioning cache handle.
-#[derive(Debug, Clone)]
-pub struct SharedConditioningCache {
-    inner: Arc<Mutex<ConditioningCache>>,
-}
-
-impl SharedConditioningCache {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ConditioningCache::new(capacity))),
-        }
-    }
-
-    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
-        self.inner.lock().ok()?.get(key)
-    }
-
-    pub fn insert(&self, key: String, value: Vec<u8>) {
-        if let Ok(mut cache) = self.inner.lock() {
-            cache.insert(key, value);
-        }
-    }
-
-    pub fn invalidate_model(&self, provider: &str, model_revision: &str) {
-        if let Ok(mut cache) = self.inner.lock() {
-            cache.invalidate_model(provider, model_revision);
-        }
-    }
-
-    pub fn remove(&self, key: &str) {
-        if let Ok(mut cache) = self.inner.lock() {
-            cache.remove(key);
-        }
     }
 }
 
@@ -150,18 +105,6 @@ mod tests {
         assert!(cache.get("b").is_none());
         assert!(cache.get("a").is_some());
         assert!(cache.get("c").is_some());
-    }
-
-    #[test]
-    fn model_invalidation_drops_only_that_revision() {
-        let mut cache = ConditioningCache::new(8);
-        let k1 = ConditioningCache::cache_key("other", "rev1", "h", None, "icl");
-        let k2 = ConditioningCache::cache_key("other", "rev2", "h", None, "icl");
-        cache.insert(k1.clone(), vec![1]);
-        cache.insert(k2.clone(), vec![2]);
-        cache.invalidate_model("other", "rev1");
-        assert!(cache.get(&k1).is_none());
-        assert_eq!(cache.get(&k2), Some(vec![2]));
     }
 
     #[test]

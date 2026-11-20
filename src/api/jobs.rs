@@ -1950,7 +1950,6 @@ mod normalization_tests {
                 active_model: Some("reverb-tts".into()),
                 effective_device: Some("cpu".into()),
                 model_revision: None,
-                backend_diagnostics: None,
                 detail: None,
             }
         }

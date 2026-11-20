@@ -101,20 +101,6 @@ export const providersSchema: z.ZodType<ProvidersResponse> = z.object({
       effective_device: optionalString,
       active_model: optionalString,
       detail: optionalString,
-      backend_diagnostics: z
-        .object({
-          compiled_backends: z.array(z.string()),
-          available_runtime_backends: z.array(z.string()),
-          requested_device: z.string(),
-          effective_device: optionalString,
-          model_loading_status: z.string(),
-          status: z.string(),
-          vulkan_gpu_name: optionalString,
-          vulkan_initialization_error: optionalString,
-          cpu_fallback_reason: optionalString,
-        })
-        .nullish()
-        .transform((value) => value ?? undefined),
     }),
   ),
   capabilities: z

@@ -6,7 +6,6 @@ import { useStudio } from '../../composables/useStudio';
 import { useTask } from '../../composables/useTask';
 import FeedbackNotice from '../FeedbackNotice.vue';
 import StatusChip from '../ui/StatusChip.vue';
-import EngineDiagnostics from './EngineDiagnostics.vue';
 import EngineModelList from './EngineModelList.vue';
 
 const props = defineProps<{ provider: ProviderStatus; capabilities?: Capabilities }>();
@@ -52,7 +51,6 @@ const readiness = computed(() =>
       {{ t('Preparing the selected model. This page updates automatically; the first download may take a few minutes.') }}
     </p>
     <p v-if="provider.detail" class="engine-detail">{{ t(provider.detail) }}</p>
-    <EngineDiagnostics :provider="provider" />
     <div v-if="studio.schema.value[togglePath]" class="provider-actions">
       <span v-if="capabilities?.languages.length" class="muted">{{
         t('{count} audio languages', { count: capabilities.languages.length })

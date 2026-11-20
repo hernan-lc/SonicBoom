@@ -144,22 +144,6 @@ impl ConfigManager {
         }
         validation::validate(&config)
             .map_err(|e| ConfigError::invalid(path.display().to_string().as_str(), e))?;
-        for (section, present) in [
-            ("qwen3", config.providers.qwen3.is_some()),
-            ("qwen3_gguf", config.providers.qwen3_gguf.is_some()),
-            ("pocket_tts", config.providers.pocket_tts.is_some()),
-            ("gpt_sovits", config.providers.gpt_sovits.is_some()),
-        ] {
-            if present {
-                tracing::warn!(
-                    "Ignoring retired [providers.{section}] section (that provider was removed); \
-                     delete it from {} and use [providers.reverb_tts] for voice cloning. \
-                     Existing voice profiles of the removed provider are kept but unavailable: \
-                     recreate them as reverb-tts profiles from their stored reference audio",
-                    path.display()
-                );
-            }
-        }
         let file_revision = config.revision.max(1);
         let (tx, _) = broadcast::channel(64);
         let manager = Arc::new(Self {

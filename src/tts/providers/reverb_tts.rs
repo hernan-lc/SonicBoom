@@ -616,7 +616,6 @@ impl TtsProvider for ReverbTtsProvider {
                 active_model: None,
                 effective_device: None,
                 model_revision: Some(config.revision),
-                backend_diagnostics: None,
                 detail: Some(
                     "provider disabled in configuration ([providers.reverb_tts] enabled=false)"
                         .to_string(),
@@ -669,7 +668,6 @@ impl TtsProvider for ReverbTtsProvider {
             // The web UI validates this block against a fixed shape (Vulkan backend
             // diagnostics), so a provider without those fields must leave it empty:
             // any other JSON makes the whole /api/providers response unreadable.
-            backend_diagnostics: None,
             detail,
         }
     }
@@ -1151,20 +1149,6 @@ mod tests {
                 .encode(text::prompt(text, reference, language), false)
                 .unwrap();
             assert_eq!(encoding.get_ids(), *expected, "{language}: {text}");
-        }
-    }
-
-    #[test]
-    fn status_never_carries_free_form_backend_diagnostics() {
-        // The UI rejects /api/providers when this block has an unexpected shape.
-        let dir = std::env::temp_dir().join(format!("reverb-diag-{}", uuid::Uuid::new_v4()));
-        for enabled in [false, true] {
-            let p = ReverbTtsProvider::new(ReverbTtsConfig {
-                enabled,
-                model_dir: dir.clone(),
-                ..Default::default()
-            });
-            assert!(p.status().backend_diagnostics.is_none());
         }
     }
 

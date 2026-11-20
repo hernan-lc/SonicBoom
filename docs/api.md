@@ -758,6 +758,8 @@ removed; only Supertonic and Reverb-TTS remain. Clients that used them must adap
   snapshots, and `GET /api/info` `synthesis` now reports
   `{max_text_chars, max_body_bytes, seed_max}` (the `sampling` object with the
   Qwen parameter bounds was removed).
+- **Provider status.** `GET /api/providers` entries no longer carry the optional
+  `backend_diagnostics` block (it only described the Qwen llama.cpp backends).
 - **Configuration.** `[providers.qwen3_gguf]` (and its `sampling`/`quality`
   subtables), `[providers.qwen3]` and `[providers.pocket_tts]` are accepted and
   ignored with a startup warning, so old `config.toml` files still boot; they are

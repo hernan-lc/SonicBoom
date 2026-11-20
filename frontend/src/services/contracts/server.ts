@@ -12,20 +12,8 @@ export interface ServerInfo {
   config_revision: number;
   model: { status: string };
 }
-export interface BackendDiagnostics {
-  compiled_backends: string[];
-  available_runtime_backends: string[];
-  vulkan_gpu_name?: string | null;
-  requested_device: string;
-  effective_device?: string | null;
-  model_loading_status: string;
-  vulkan_initialization_error?: string | null;
-  cpu_fallback_reason?: string | null;
-  status: string;
-}
 export interface ProviderStatus {
   model_revision?: string;
-  backend_diagnostics?: BackendDiagnostics;
   provider_id: string;
   state: string;
   enabled: boolean;

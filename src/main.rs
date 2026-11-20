@@ -828,6 +828,16 @@ async fn run_server_inner(config_path: std::path::PathBuf, smoke: bool) -> anyho
         bind = %current.server.bind,
         "Configuration loaded"
     );
+    // Logged here because the configuration is loaded before logging starts.
+    for section in current.providers.retired_sections() {
+        tracing::warn!(
+            "Ignoring retired [providers.{section}] section (that provider was removed); \
+             delete it from {} and use [providers.reverb_tts] for voice cloning. \
+             Existing voice profiles of the removed provider are kept but unavailable: \
+             recreate them as reverb-tts profiles from their stored reference audio",
+            config_path.display()
+        );
+    }
 
     // Fail closed on credential-store errors: a malformed or unreadable
     // token file must never silently become an empty store. A missing file

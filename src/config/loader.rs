@@ -940,6 +940,10 @@ strictness = 3
         assert!(config.providers.qwen3_gguf.is_some());
         assert!(config.providers.pocket_tts.is_some());
         assert!(config.providers.gpt_sovits.is_some());
+        assert_eq!(
+            config.providers.retired_sections(),
+            ["qwen3", "qwen3_gguf", "pocket_tts", "gpt_sovits"]
+        );
         assert!(parse_toml("").unwrap().providers.qwen3_gguf.is_none());
         // Retired sections never reappear when the configuration is saved.
         let rendered = toml::to_string(&config).unwrap();

@@ -12,7 +12,7 @@ dependency revision):
 
 | Provider | Source | Reviewed revision | Reality |
 |---|---|---|---|
-| Reverb-TTS | https://huggingface.co/melser/Reverb-TTS-onnx (converted from https://huggingface.co/software-mansion/Reverb-TTS) | pinned in `src/tts/providers/reverb_tts.rs` | Pure-Rust driver over 4 ONNX graphs plus the Higgs Audio v2 codec; masked-diffusion ICL cloning (reference WAV plus its exact transcript); CPU, optional Vulkan for the transformer |
+| Reverb-TTS | https://huggingface.co/melser/Reverb-TTS-onnx (converted from https://huggingface.co/software-mansion/Reverb-TTS) | pinned in `src/tts/providers/reverb_tts.rs` | Pure-Rust driver over the transformer ONNX graphs (core, embeddings, heads) plus the Higgs Audio v2 codec encoder/decoder; masked-diffusion ICL cloning (reference WAV plus its exact transcript); CPU, optional Vulkan for the transformer |
 
 ONNX Runtime's packaged native library is the only native-code exception
 and is shared by all providers (initialized once). Python is used **offline
