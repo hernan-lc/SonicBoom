@@ -696,6 +696,20 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         allowed_values_source: None,
     });
     add(SettingSchema {
+        path: "providers.reverb_tts.enabled".to_string(),
+        description: "Enable the Reverb-TTS voice-cloning provider (default false). Weights are \
+            CC BY-NC 4.0: non-commercial use only"
+            .to_string(),
+        type_name: "boolean",
+        apply: ApplyStrategy::Hot,
+        min: None,
+        max: None,
+        allowed_values: None,
+        nullable: false,
+        secret: false,
+        allowed_values_source: None,
+    });
+    add(SettingSchema {
         path: "providers.qwen3_gguf.enabled".to_string(),
         description: "Enable the Qwen3-TTS GGUF/ONNX voice-cloning provider (default false)"
             .to_string(),
@@ -741,6 +755,18 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
             "Pinned Pocket TTS export revision",
         ),
         (
+            "providers.reverb_tts.model_dir",
+            "Directory holding the verified Reverb-TTS ONNX files",
+        ),
+        (
+            "providers.reverb_tts.model_id",
+            "Reverb-TTS model identifier (reverb-tts)",
+        ),
+        (
+            "providers.reverb_tts.revision",
+            "Pinned Reverb-TTS ONNX export revision",
+        ),
+        (
             "voices.store_dir",
             "Directory for voice profiles and reference audio",
         ),
@@ -755,6 +781,13 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
             allowed_values: if path == "providers.pocket_tts.model_id" {
                 Some(
                     sonicboom::tts::providers::pocket_tts::POCKET_TTS_MODELS
+                        .iter()
+                        .map(|s| (*s).to_string())
+                        .collect(),
+                )
+            } else if path == "providers.reverb_tts.model_id" {
+                Some(
+                    sonicboom::tts::providers::catalog::REVERB_TTS_MODELS
                         .iter()
                         .map(|s| (*s).to_string())
                         .collect(),
@@ -782,6 +815,20 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
             "vulkan".to_string(),
             "cuda".to_string(),
         ]),
+        nullable: false,
+        secret: false,
+        allowed_values_source: None,
+    });
+    add(SettingSchema {
+        path: "providers.reverb_tts.device".to_string(),
+        description: "Reverb-TTS device: cpu (default) or auto (Vulkan for the transformer; \
+            the codec always runs on the CPU)"
+            .to_string(),
+        type_name: "string",
+        apply: ApplyStrategy::Hot,
+        min: None,
+        max: None,
+        allowed_values: Some(vec!["cpu".to_string(), "auto".to_string()]),
         nullable: false,
         secret: false,
         allowed_values_source: None,
@@ -852,6 +899,24 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
         (
             "providers.pocket_tts.cpu_threads",
             "Pocket TTS ORT intra-op threads",
+            1.0,
+            32.0,
+        ),
+        (
+            "providers.reverb_tts.cache_entries",
+            "Reverb-TTS reference-code cache entries",
+            1.0,
+            1024.0,
+        ),
+        (
+            "providers.reverb_tts.steps",
+            "Reverb-TTS main sampler passes (upstream default 8; more is slower)",
+            1.0,
+            64.0,
+        ),
+        (
+            "providers.reverb_tts.cpu_threads",
+            "Reverb-TTS ORT intra-op threads",
             1.0,
             32.0,
         ),

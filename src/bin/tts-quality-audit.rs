@@ -43,6 +43,7 @@ fn reference(path: &Path) -> Result<ReferenceAudio> {
 enum Engine {
     Mock,
     Pocket(std::sync::Arc<sonicboom::tts::providers::pocket_tts::PocketTtsProvider>),
+    Reverb(std::sync::Arc<sonicboom::tts::providers::reverb_tts::ReverbTtsProvider>),
     #[cfg(feature = "qwen-gguf")]
     Qwen(sonicboom::tts::providers::qwen_gguf::worker::Worker),
 }
@@ -73,6 +74,35 @@ impl Engine {
                 let p = PocketTtsProvider::new(config);
                 p.load(model)?;
                 Ok(Self::Pocket(p))
+            }
+            "reverb" => {
+                use sonicboom::tts::providers::DevicePreference;
+                use sonicboom::tts::providers::reverb_tts::{ReverbTtsConfig, ReverbTtsProvider};
+                let device = match std::env::var("AUDIT_DEVICE")
+                    .unwrap_or_else(|_| "cpu".into())
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "cpu" => DevicePreference::Cpu,
+                    "vulkan" | "auto" => DevicePreference::Auto,
+                    other => bail!("AUDIT_DEVICE must be cpu or vulkan for reverb (got {other})"),
+                };
+                let p = ReverbTtsProvider::new(ReverbTtsConfig {
+                    enabled: true,
+                    model_dir: dir.into(),
+                    model_id: model.into(),
+                    device,
+                    steps: std::env::var("AUDIT_REVERB_STEPS")
+                        .unwrap_or_else(|_| "8".into())
+                        .parse()?,
+                    cpu_threads: std::env::var("AUDIT_THREADS")
+                        .unwrap_or_else(|_| "6".into())
+                        .parse()?,
+                    ..Default::default()
+                });
+                p.load(model)?;
+                Ok(Self::Reverb(p))
             }
             #[cfg(feature = "qwen-gguf")]
             "qwen" => {
@@ -122,6 +152,10 @@ impl Engine {
                 p.synthesize(request)?,
                 json!({"termination":"not_exposed", "cache_hit":null}),
             )),
+            Self::Reverb(p) => Ok((
+                p.synthesize(request)?,
+                json!({"termination":"fixed_passes", "cache_hit":null, "device":p.status().effective_device}),
+            )),
             #[cfg(feature = "qwen-gguf")]
             Self::Qwen(w) => {
                 let output = w.synthesize(request.clone())?;
@@ -137,7 +171,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 6 || args.iter().any(|arg| arg == "--help") {
         println!(
-            "tts-quality-audit PROVIDER MODEL LANGUAGE MODEL_DIR NEW_OUTPUT_DIR [AUTHORIZED_REFERENCE_WAV]\nProviders: mock, pocket, qwen (feature required). Reference positional argument explicitly certifies authorized diagnostic use. Qwen requires exact QWEN_REFERENCE_TRANSCRIPT. No outputs overwritten. Default seed 42. Writes hashed inputs only.\nEnv: AUDIT_SEED, AUDIT_SAMPLING_PRESET (balanced|stable|expressive|custom), AUDIT_QUALITY (off|report|retry|experimental_trim), AUDIT_DEVICE (cpu|vulkan|cuda), AUDIT_ASR_JSON (offline ASR transcripts array for echo detection), AUDIT_TEXTS_JSON, AUDIT_ALT_REFERENCE_WAV, AUDIT_ALT_REFERENCE_TRANSCRIPT."
+            "tts-quality-audit PROVIDER MODEL LANGUAGE MODEL_DIR NEW_OUTPUT_DIR [AUTHORIZED_REFERENCE_WAV]\nProviders: mock, pocket, reverb (REVERB_REFERENCE_TRANSCRIPT, AUDIT_DEVICE=cpu|vulkan), qwen (feature required). Reference positional argument explicitly certifies authorized diagnostic use. Qwen requires exact QWEN_REFERENCE_TRANSCRIPT. No outputs overwritten. Default seed 42. Writes hashed inputs only.\nEnv: AUDIT_SEED, AUDIT_SAMPLING_PRESET (balanced|stable|expressive|custom), AUDIT_QUALITY (off|report|retry|experimental_trim), AUDIT_DEVICE (cpu|vulkan|cuda), AUDIT_ASR_JSON (offline ASR transcripts array for echo detection), AUDIT_TEXTS_JSON, AUDIT_ALT_REFERENCE_WAV, AUDIT_ALT_REFERENCE_TRANSCRIPT."
         );
         return Ok(());
     }
@@ -171,6 +205,13 @@ fn main() -> Result<()> {
         .ok()
         .map(|path| -> Result<_> { Ok((reference(Path::new(&path))?, hash(&fs::read(path)?))) })
         .transpose()?;
+    if provider == "reverb" {
+        request.clone_mode = Some(sonicboom::tts::providers::CloneMode::Icl);
+        request.reference_transcript = Some(
+            std::env::var("REVERB_REFERENCE_TRANSCRIPT")
+                .context("set exact REVERB_REFERENCE_TRANSCRIPT")?,
+        );
+    }
     if provider == "qwen" {
         request.clone_mode = Some(sonicboom::tts::providers::CloneMode::Icl);
         request.reference_transcript = Some(
@@ -215,6 +256,7 @@ fn main() -> Result<()> {
         .open(out.join("manifest.jsonl"))?;
     let revision = match provider.as_str() {
         "pocket" => sonicboom::tts::providers::pocket_tts::POCKET_TTS_UPSTREAM_REVISION,
+        "reverb" => sonicboom::tts::providers::reverb_tts::REVERB_ONNX_REVISION,
         "qwen" => "0a36d692562f83a862466b0bf8c12154ddf1965d",
         _ => "mock-v1",
     };

@@ -615,7 +615,10 @@ fn plugin_identity<'a>(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or("supertonic");
-    if !matches!(provider, "supertonic" | "pocket-tts" | "qwen3-gguf") {
+    if !matches!(
+        provider,
+        "supertonic" | "pocket-tts" | "qwen3-gguf" | "reverb-tts"
+    ) {
         return Err(AppError::BadRequest("unknown provider".into()));
     }
     let voice = voice

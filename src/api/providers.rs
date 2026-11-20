@@ -50,6 +50,21 @@ pub fn map_qwen_gguf_config(
     }
 }
 
+pub fn map_reverb_config(
+    reverb: &crate::config::model::ReverbTtsConfig,
+) -> sonicboom::tts::providers::reverb_tts::ReverbTtsConfig {
+    sonicboom::tts::providers::reverb_tts::ReverbTtsConfig {
+        enabled: reverb.enabled,
+        model_dir: reverb.model_dir.clone(),
+        model_id: reverb.model_id.clone(),
+        revision: reverb.revision.clone(),
+        device: parse_device(&reverb.device),
+        cache_capacity: reverb.cache_entries.max(1),
+        steps: reverb.steps.clamp(1, 64),
+        cpu_threads: reverb.cpu_threads.clamp(1, 32),
+    }
+}
+
 pub fn map_pocket_config(
     pocket: &crate::config::model::PocketTtsConfig,
 ) -> sonicboom::tts::providers::pocket_tts::PocketTtsConfig {
@@ -80,6 +95,7 @@ pub fn build_registry(
     pool: &sonicboom::tts::providers::ProviderPool,
 ) -> TtsProviderRegistry {
     pool.sync_pocket_config(map_pocket_config(&config.providers.pocket_tts));
+    pool.sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
     #[cfg(feature = "qwen-gguf")]
     pool.sync_gguf_config(map_qwen_gguf_config(&config.providers.qwen3_gguf));
     // Hot-reload path: no HF token at request time (public bundles need
@@ -100,6 +116,9 @@ pub async fn build_registry_for_state(state: &crate::AppState) -> TtsProviderReg
     state
         .providers
         .sync_versioned(generation, map_pocket_config(&config.providers.pocket_tts));
+    state
+        .providers
+        .sync_reverb_config(map_reverb_config(&config.providers.reverb_tts));
     #[cfg(feature = "qwen-gguf")]
     state
         .providers
@@ -131,6 +150,7 @@ pub async fn get_providers(
     let capabilities = [
         registry.get("supertonic").map(|p| p.capabilities()),
         registry.get("pocket-tts").map(|p| p.capabilities()),
+        registry.get("reverb-tts").map(|p| p.capabilities()),
     ]
     .into_iter()
     .chain(
@@ -168,7 +188,7 @@ pub async fn get_provider_status(
             ))
         }
         None => Err(crate::error::AppError::BadRequest(format!(
-            "unknown provider '{id}' (expected one of: supertonic, pocket-tts{})",
+            "unknown provider '{id}' (expected one of: supertonic, pocket-tts, reverb-tts{})",
             if cfg!(feature = "qwen-gguf") {
                 ", qwen3-gguf"
             } else {
@@ -222,10 +242,10 @@ mod tests {
         #[cfg(feature = "qwen-gguf")]
         assert_eq!(
             registry.provider_ids(),
-            vec!["pocket-tts", "qwen3-gguf", "supertonic"]
+            vec!["pocket-tts", "qwen3-gguf", "reverb-tts", "supertonic"]
         );
         #[cfg(not(feature = "qwen-gguf"))]
-        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "supertonic"]);
+        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "reverb-tts", "supertonic"]);
         for status in registry.statuses() {
             if status.provider_id == "supertonic" {
                 assert_eq!(status.effective_device.as_deref(), Some("cpu"));

@@ -9,6 +9,7 @@ pub mod assets;
 pub mod catalog;
 pub mod error;
 pub mod pocket_tts;
+pub mod reverb_tts;
 pub mod pool;
 #[cfg(feature = "qwen-gguf")]
 pub mod qwen_gguf;

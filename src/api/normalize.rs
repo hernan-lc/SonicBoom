@@ -209,6 +209,12 @@ fn validate_model_language(model: &str, language: &str) -> Result<(), AppError> 
             .map_err(|_| unsupported())
         }
         Some(ModelProvider::QwenGguf) => qwen_language(language).ok_or_else(unsupported),
+        Some(ModelProvider::ReverbTts) => {
+            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
+                model, language,
+            )
+            .map_err(|_| unsupported())
+        }
     }
 }
 

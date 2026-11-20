@@ -456,6 +456,7 @@
   "Generation diagnostics": "Diagnóstico de generación",
   "Seed: not exposed by this API": "Semilla: esta API no la expone",
   "Qwen ICL needs the exact words, punctuation and language of the recording. A mismatched transcript can cause reference words to be repeated. Speaker-only mode is not validated.": "Qwen ICL necesita las palabras, puntuación e idioma exactos de la grabación. Una transcripción incorrecta puede causar repeticiones. El modo de solo hablante no está validado.",
+  "Reverb works best with 3-10 s of clean speech from one speaker and needs its exact transcript. Its weights are CC BY-NC 4.0: non-commercial use only.": "Reverb funciona mejor con 3-10 s de voz limpia de una sola persona y necesita su transcripción exacta. Sus pesos son CC BY-NC 4.0: solo uso no comercial.",
   "Pocket uses the recording without a transcript. Each language needs its own model; select a matching model and language.": "Pocket usa la grabación sin transcripción. Cada idioma necesita su propio modelo; selecciona un modelo y un idioma compatibles.",
   "Generated duration: {seconds}s": "Duración generada: {seconds}s",
   "The reference recording is nearly silent. Choose a clearer recording.": "La grabación de referencia es casi silenciosa. Elige una grabación más clara.",

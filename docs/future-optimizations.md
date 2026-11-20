@@ -309,3 +309,24 @@ transcribed word-for-word.
 Qwen3-TTS GGUF: the `balanced` sampling preset already equals the pinned
 upstream defaults (talker 0.9/50/1.0/1.05, predictor 0.9/50/1.0/1.0); no
 change.
+
+## Reverb-TTS provider (2026-11-20)
+
+`reverb-tts` runs Software Mansion's masked-diffusion TTS from ONNX exports
+(`melser/Reverb-TTS-onnx` + `melser/Higgs-Audio-2-Tokenizer-onnx`, conversion repo
+<https://github.com/nglmercer/Reverb-TTS-onnx>). Measured on the AMD BC-250 (Whisper small
+word error rate, 4 Spanish texts x 6 seeds, clean 7 s reference): Reverb 0.031, Pocket 0.173;
+preset voices 0.000. The Rust sampler/tokenizer/text code is validated against the official
+Python package (tokenizer ids identical in es/en/de/pl; the ONNX graphs reproduce the official
+codes 100 %).
+
+| Path | 4.8 s of audio |
+|---|---|
+| CPU (6 threads) | 7.8 s |
+| Vulkan, transformer only (codec on CPU) | 2.8 s |
+
+Open items, not done: share one process-wide GPU lock with Supertonic's sessions; IO-binding
+to keep the KV cache on the device between passes; fp16 weights (halves the 1.9 GB download,
+untested on RADV); the 16 upstream preset voices (codes, not audio, so they need a profile
+path that accepts codes); Verbalis-grade text verbalization for the languages SonicBoom's
+normalizer does not cover (`pl`).

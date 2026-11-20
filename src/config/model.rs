@@ -539,6 +539,41 @@ pub struct PocketTtsConfig {
     pub cpu_threads: usize,
 }
 
+/// Native Reverb-TTS ONNX provider settings (`[providers.reverb_tts]`).
+///
+/// Zero-shot cloning from a 3-10 s reference plus its exact transcript. The weights are
+/// CC BY-NC 4.0 (non-commercial) and the codec follows the Boson Higgs Audio 2 license.
+/// Disabled by default; files download only after `enabled = true`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReverbTtsConfig {
+    /// Enable the Reverb-TTS provider (default `false`).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Directory holding the verified ONNX files.
+    #[serde(default = "default_reverb_model_dir")]
+    pub model_dir: PathBuf,
+    /// Model identifier (`reverb-tts`).
+    #[serde(default = "default_reverb_model_id")]
+    pub model_id: String,
+    /// Pinned export revision.
+    #[serde(default = "default_reverb_revision")]
+    pub revision: String,
+    /// `cpu` (default) or `auto`: Vulkan (WebGPU EP) for the transformer graphs;
+    /// the codec always runs on the CPU.
+    #[serde(default = "default_reverb_device")]
+    pub device: String,
+    /// Reference-code cache entries.
+    #[serde(default = "default_provider_cache")]
+    pub cache_entries: usize,
+    /// Main sampler passes (upstream default `8`; more is slower).
+    #[serde(default = "default_reverb_steps")]
+    pub steps: usize,
+    /// ORT intra-op threads (clamped to 1..=32).
+    #[serde(default = "default_pocket_cpu_threads")]
+    pub cpu_threads: usize,
+}
+
 /// Provider section grouping (`[providers.qwen3_gguf]`,
 /// `[providers.pocket_tts]`). Leftover `[providers.qwen3]` Candle and
 /// `[providers.gpt_sovits]` sections are tolerated for boot compatibility
@@ -552,6 +587,8 @@ pub struct ProvidersConfig {
     pub qwen3_gguf: Qwen3GgufConfig,
     #[serde(default)]
     pub pocket_tts: PocketTtsConfig,
+    #[serde(default)]
+    pub reverb_tts: ReverbTtsConfig,
     #[serde(default, skip_serializing)]
     pub qwen3: DeprecatedQwen3Section,
     #[serde(default, skip_serializing)]
@@ -785,6 +822,37 @@ fn default_pocket_model_id() -> String {
 fn default_pocket_revision() -> String {
     "58a6d00cf13d239b6748cb0769f35c580a8f606c".to_string()
 }
+fn default_reverb_model_dir() -> PathBuf {
+    PathBuf::from("./models/reverb-tts")
+}
+fn default_reverb_model_id() -> String {
+    "reverb-tts".to_string()
+}
+fn default_reverb_revision() -> String {
+    "ca95b327a5624f0988511e192510970885430421".to_string()
+}
+fn default_reverb_device() -> String {
+    "cpu".to_string()
+}
+fn default_reverb_steps() -> usize {
+    8
+}
+
+impl Default for ReverbTtsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model_dir: default_reverb_model_dir(),
+            model_id: default_reverb_model_id(),
+            revision: default_reverb_revision(),
+            device: default_reverb_device(),
+            cache_entries: default_provider_cache(),
+            steps: default_reverb_steps(),
+            cpu_threads: default_pocket_cpu_threads(),
+        }
+    }
+}
+
 /// Former default, written into saved configs before 0.3 became the default.
 pub const LEGACY_POCKET_TEMPERATURE: f32 = 0.7;
 fn default_pocket_temperature() -> f32 {

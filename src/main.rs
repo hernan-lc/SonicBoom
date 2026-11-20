@@ -142,6 +142,7 @@ fn main() -> anyhow::Result<()> {
             (cfg!(feature = "android-ort"), "android-ort"),
             (cfg!(feature = "playback"), "playback"),
             (cfg!(feature = "pocket-tts"), "pocket-tts"),
+            (cfg!(feature = "reverb-tts"), "reverb-tts"),
             (cfg!(feature = "webgpu"), "webgpu"),
         ] {
             if enabled {
@@ -321,6 +322,7 @@ fn prepare_config(config_path: &std::path::Path) -> Result<PrepareOutcome, Strin
         bootstrap.server.auth_mode = config::AuthMode::Local;
     }
     bootstrap.providers.pocket_tts.model_dir = data_dir.join("models/pocket-tts");
+    bootstrap.providers.reverb_tts.model_dir = data_dir.join("models/reverb-tts");
     bootstrap.providers.qwen3_gguf.model_dir = data_dir.join("models/qwen3-tts-1.7b-gguf");
     bootstrap.voices.store_dir = data_dir.join("voices").to_string_lossy().to_string();
     bootstrap.paths.logs = data_dir.join("logs").to_string_lossy().to_string();
@@ -961,6 +963,9 @@ async fn run_server_inner(config_path: std::path::PathBuf, smoke: bool) -> anyho
     {
         use crate::api::providers::map_pocket_config;
         provider_pool.sync_pocket_config(map_pocket_config(&current.providers.pocket_tts));
+        provider_pool.sync_reverb_config(crate::api::providers::map_reverb_config(
+            &current.providers.reverb_tts,
+        ));
         #[cfg(feature = "qwen-gguf")]
         provider_pool.sync_gguf_config(crate::api::providers::map_qwen_gguf_config(
             &current.providers.qwen3_gguf,
@@ -1047,11 +1052,11 @@ async fn doctor() -> anyhow::Result<()> {
         "configuration_path": path, "playback": cfg!(feature = "playback"),
         "web_ui": cfg!(feature = "web-ui"), "cpu_inference": runtime.is_ok(),
         "onnxruntime": runtime.as_ref().map(|_| "inference passed".to_string()).unwrap_or_else(|e| format!("{e:#}")),
-        "compiled_providers": {"supertonic": true, "pocket_tts": cfg!(feature="pocket-tts"), "qwen_gguf": cfg!(feature="qwen-gguf")}
+        "compiled_providers": {"supertonic": true, "pocket_tts": cfg!(feature="pocket-tts"), "reverb_tts": cfg!(feature="reverb-tts"), "qwen_gguf": cfg!(feature="qwen-gguf")}
     });
     if let Some(Ok(loaded)) = loaded {
         let c = loaded.config;
-        report["enabled_providers"] = serde_json::json!({"supertonic": true, "pocket_tts": c.providers.pocket_tts.enabled, "qwen_gguf": c.providers.qwen3_gguf.enabled});
+        report["enabled_providers"] = serde_json::json!({"supertonic": true, "pocket_tts": c.providers.pocket_tts.enabled, "reverb_tts": c.providers.reverb_tts.enabled, "qwen_gguf": c.providers.qwen3_gguf.enabled});
         report["model_cache_path"] = serde_json::json!(c.model.cache_dir);
         report["port_available"] = serde_json::json!(
             tokio::net::TcpListener::bind((c.server.bind, c.server.port))

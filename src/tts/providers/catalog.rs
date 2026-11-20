@@ -10,6 +10,7 @@ pub const POCKET_TTS_MODELS: &[&str] = &[
     "pocket-tts-it",
     "pocket-tts-fr-24l",
 ];
+pub const REVERB_TTS_MODELS: &[&str] = &["reverb-tts"];
 pub const SUPPORTED_OPENAI_MODELS: &[&str] = &[
     "tts-1",
     "tts-1-hd",
@@ -17,6 +18,7 @@ pub const SUPPORTED_OPENAI_MODELS: &[&str] = &[
     QWEN_GGUF_MODELS[0],
     POCKET_TTS_MODELS[0],
     POCKET_TTS_MODELS[1],
+    REVERB_TTS_MODELS[0],
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +26,7 @@ pub enum ModelProvider {
     Supertonic,
     QwenGguf,
     PocketTts,
+    ReverbTts,
 }
 
 impl ModelProvider {
@@ -32,6 +35,7 @@ impl ModelProvider {
             Self::Supertonic => "supertonic",
             Self::QwenGguf => "qwen3-gguf",
             Self::PocketTts => "pocket-tts",
+            Self::ReverbTts => "reverb-tts",
         }
     }
 
@@ -40,6 +44,7 @@ impl ModelProvider {
             Self::Supertonic => true,
             Self::QwenGguf => cfg!(feature = "qwen-gguf"),
             Self::PocketTts => cfg!(feature = "pocket-tts"),
+            Self::ReverbTts => cfg!(feature = "reverb-tts"),
         }
     }
 }
@@ -49,6 +54,8 @@ pub fn model_provider(model: &str) -> Option<ModelProvider> {
         Some(ModelProvider::QwenGguf)
     } else if POCKET_TTS_MODELS.contains(&model) {
         Some(ModelProvider::PocketTts)
+    } else if REVERB_TTS_MODELS.contains(&model) {
+        Some(ModelProvider::ReverbTts)
     } else if ["tts-1", "tts-1-hd", "supertonic-3"].contains(&model) {
         Some(ModelProvider::Supertonic)
     } else {

@@ -315,6 +315,8 @@ fn synchronous_http_budget(configured: u64, path: &str, query: Option<&str>) -> 
     let budget = match provider {
         "qwen3-gguf" => 180,
         "pocket-tts" => 60,
+        // Masked-diffusion passes: slower than real time on the CPU.
+        "reverb-tts" => 120,
         _ => 15,
     };
     if configured == 120 {
@@ -336,6 +338,10 @@ mod synchronous_budget_tests {
         assert_eq!(
             budget(120, "/api/tts/play", Some("provider=pocket-tts")),
             60
+        );
+        assert_eq!(
+            budget(120, "/api/tts/play", Some("provider=reverb-tts")),
+            120
         );
         assert_eq!(
             budget(120, "/api/tts/play", Some("provider=supertonic")),

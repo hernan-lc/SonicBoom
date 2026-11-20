@@ -68,6 +68,7 @@ Performance work planned after this Vulkan rollout is tracked in
 | `qwen-gguf` | Qwen3-TTS 1.7B GGUF/ONNX provider, CPU (`device=cpu\|auto`) |
 | `qwen-gguf-vulkan` | Allow GGUF `device=vulkan` on Vulkan-capable GPUs (implies `qwen-gguf`; ships in `default`) |
 | `qwen-gguf-cuda` | Additionally allow GGUF `device=cuda` (NVIDIA only; implies `qwen-gguf`) |
+| `reverb-tts` | Reverb-TTS ONNX provider (ships in `default`, disabled by default; **weights are CC BY-NC 4.0, non-commercial**). CPU by default, `device = "auto"` runs the transformer on Vulkan |
 | `pocket-tts` | Pocket TTS ONNX provider, CPU by default (`SONICBOOM_POCKET_EP=auto` opts into Vulkan-first, see `webgpu` above) |
 | `cuda` / `rocm` / `coreml` | Alternative ORT EPs for Supertonic. `cuda`/`rocm` require `--no-default-features` (no combined prebuilt with WebGPU); `coreml` is chosen automatically on macOS |
 
@@ -120,6 +121,9 @@ effective selection without reading CMake output.
   Chinese (`zh`), Japanese (`ja`), Dutch (`nl`), and other unverified bundles
   return explicit unsupported-language/model errors. No language falls back
   to English or another provider. Existing Qwen language support is unchanged.
+- Reverb-TTS: `de`, `en`, `es`, `fr`, `it`, `pl`, `pt` with one multilingual
+  model (`reverb-tts`). Other languages (including Japanese and Chinese)
+  return an explicit unsupported-language error.
 - GPT-SoVITS is retired: its model IDs return an explicit retired-model
   error and its old voice profiles are unavailable (recreate as Pocket).
 - Supertonic: unchanged (English synthesis; legacy voice aliases).
@@ -308,6 +312,59 @@ CPU at ~1.5x real time (see `benchmarks/providers.md`). Concurrency
 isolation (distinct references under simultaneous requests,
 missing/broken bundle handling) is covered by unit tests.
 
+## Reverb-TTS setup (non-commercial)
+
+Reverb-TTS (Software Mansion, derived from OmniVoice and Qwen3) clones a voice from a
+**3-10 s reference recording plus its exact transcript** (`icl` mode) in seven languages. In
+tests it reads Spanish with 0.00-0.03 word error rate where Pocket TTS scored 0.17 on the same
+reference (`docs/future-optimizations.md`).
+
+> **License.** The Reverb weights are **CC BY-NC 4.0** (non-commercial, attribution) and the
+> audio codec follows the **Boson Higgs Audio 2 Community License** (Meta Llama 3 terms;
+> products above 100,000 annual active users need an expanded license). The provider is
+> disabled by default and nothing is downloaded until you enable it. Do not enable it in a
+> commercial product.
+
+1. Set `[providers.reverb_tts] enabled = true` (or the **Engines** toggle). SonicBoom downloads
+   about 1.9 GB from three pinned Hugging Face revisions and verifies each file's SHA-256:
+   `melser/Reverb-TTS-onnx` (transformer), `melser/Higgs-Audio-2-Tokenizer-onnx` (codec) and
+   the original `software-mansion/Reverb-TTS` (tokenizer). Conversion scripts and parity checks:
+   <https://github.com/nglmercer/Reverb-TTS-onnx>.
+2. Watch `/api/providers/reverb-tts/status` until `ready`.
+3. Create a profile with the reference WAV **and its transcript** (`mode=icl` is the only mode;
+   the transcript must be the exact words spoken, in the reference's language):
+
+```bash
+curl -X POST 'http://127.0.0.1:17842/api/voices/clones?name=ana&provider=reverb-tts&model=reverb-tts&language=es&mode=icl&consent_basis=owner&transcript=Hola%2C%20me%20llamo%20Ana.' \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: audio/wav' \
+  --data-binary @reference.wav
+```
+
+```json
+{ "model": "reverb-tts", "voice": "<profile-id>", "language": "es",
+  "input": "El tren sale a las ocho de la mañana.", "response_format": "wav" }
+```
+
+Notes:
+- **Reference quality dominates.** Use 3-10 s of clean speech from one speaker in the language
+  you will synthesize (longer than 15 s makes worse takes). A short or cross-language clip is the
+  most common cause of poor output, for every cloning provider.
+- **Devices.** `device = "cpu"` (default) is about 1.4-1.6x slower than real time on a 12-thread
+  APU. `device = "auto"` runs the embedding, transformer and head graphs on Vulkan (ORT WebGPU
+  EP): about 0.6x real time on an AMD BC-250 (2.8 s for 4.8 s of audio) with identical output.
+  The codec encoder/decoder always run on the CPU because the convolution decoder returns
+  near-silence on RADV. `SONICBOOM_REVERB_EP=cpu` forces the CPU. Reverb holds a process-wide
+  GPU lock while loading and sampling, but Supertonic's sessions are not behind it yet: avoid
+  enabling several GPU providers at once (see Pocket's Dawn crash in
+  `docs/future-optimizations.md`).
+- **Cost.** Peak resident memory measured at 2.6 GB on the CPU and 1.9 GB with Vulkan. `steps` (default 8, upstream's tuned value) trades
+  speed for fidelity; seeds are reproducible per request.
+- **Text.** The request text is normalized by SonicBoom's own normalizer (not Verbalis).
+  Texts estimated over 30 s are split at sentence ends into pieces of about 15 s; a single
+  sentence over about 90 s is rejected: add punctuation.
+- **Not provided.** No built-in preset voices yet (upstream ships 16 as code files) and no
+  per-request speed control.
+
 ## GPT-SoVITS retirement
 
 GPT-SoVITS was removed and replaced by Pocket TTS. Its model IDs
@@ -348,6 +405,20 @@ cpu_threads = 4          # 1-32
 [voices]
 store_dir = "./voices"
 max_upload_bytes = 8388608
+```
+
+### Reverb-TTS (`reverb-tts`, non-commercial weights)
+
+```toml
+[providers.reverb_tts]
+enabled = false
+model_dir = "./models/reverb-tts"
+model_id = "reverb-tts"
+revision = "ca95b327a5624f0988511e192510970885430421"
+device = "cpu"           # cpu | auto (Vulkan for the transformer; codec stays on the CPU)
+cache_entries = 16       # reference-code cache (1-1024)
+steps = 8                # main sampler passes (1-64); upstream default 8
+cpu_threads = 4          # 1-32
 ```
 
 ### Native GGUF/ONNX backend (`qwen3-gguf`, opt-in build)

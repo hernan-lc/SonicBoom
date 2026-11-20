@@ -428,6 +428,34 @@ fn validate_providers(config: &AppConfig) -> Result<(), String> {
     if pocket.model_dir.as_os_str().is_empty() {
         return Err("providers.pocket_tts.model_dir must not be empty".to_string());
     }
+    validate_reverb(&config.providers.reverb_tts)
+}
+
+fn validate_reverb(reverb: &crate::config::model::ReverbTtsConfig) -> Result<(), String> {
+    if !["cpu", "auto"].contains(&reverb.device.as_str()) {
+        return Err("providers.reverb_tts.device must be one of: cpu, auto".to_string());
+    }
+    if !sonicboom::tts::providers::catalog::REVERB_TTS_MODELS.contains(&reverb.model_id.as_str()) {
+        return Err(format!(
+            "providers.reverb_tts.model_id must be one of: {}",
+            sonicboom::tts::providers::catalog::REVERB_TTS_MODELS.join(", ")
+        ));
+    }
+    if reverb.revision.trim().is_empty() || reverb.revision.len() > 128 {
+        return Err("providers.reverb_tts.revision must be 1-128 characters".to_string());
+    }
+    if !(1..=1024).contains(&reverb.cache_entries) {
+        return Err("providers.reverb_tts.cache_entries must be between 1 and 1024".to_string());
+    }
+    if !(1..=64).contains(&reverb.steps) {
+        return Err("providers.reverb_tts.steps must be between 1 and 64".to_string());
+    }
+    if !(1..=32).contains(&reverb.cpu_threads) {
+        return Err("providers.reverb_tts.cpu_threads must be between 1 and 32".to_string());
+    }
+    if reverb.model_dir.as_os_str().is_empty() {
+        return Err("providers.reverb_tts.model_dir must not be empty".to_string());
+    }
     Ok(())
 }
 

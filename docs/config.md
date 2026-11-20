@@ -147,12 +147,16 @@ device = "auto"            # cpu | auto | vulkan (needs qwen-gguf-vulkan) | cuda
 enabled = false            # Pocket TTS ONNX, CPU only (cpu|auto)
 model_id = "pocket-tts-en"
 
+[providers.reverb_tts]
+enabled = false            # Reverb-TTS ONNX (CC BY-NC 4.0 weights: non-commercial), device cpu|auto
+model_id = "reverb-tts"
+
 [voices]
 store_dir = "./voices"
 max_upload_bytes = 8388608
 ```
 
-Both providers default to `enabled = false`: existing builds boot
+All optional providers default to `enabled = false`: existing builds boot
 Supertonic exactly as before and fetch no extra weights. See
 [providers.md](providers.md).
 

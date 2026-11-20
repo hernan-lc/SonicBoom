@@ -42,7 +42,7 @@ pub const RETIRED_GPT_SOVITS_MODELS: &[&str] = &[
 pub fn is_cloning_model(model: &str) -> bool {
     matches!(
         model_provider(model),
-        Some(ModelProvider::QwenGguf | ModelProvider::PocketTts)
+        Some(ModelProvider::QwenGguf | ModelProvider::PocketTts | ModelProvider::ReverbTts)
     )
 }
 
@@ -427,6 +427,7 @@ pub async fn get_models() -> impl IntoResponse {
             let owned_by = match model_provider(id) {
                 Some(ModelProvider::QwenGguf) => "local:qwen3-gguf",
                 Some(ModelProvider::PocketTts) => "local:pocket-tts",
+                Some(ModelProvider::ReverbTts) => "local:reverb-tts",
                 _ => "local",
             };
             serde_json::json!({

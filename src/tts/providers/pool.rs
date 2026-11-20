@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use super::TtsProviderRegistry;
 use super::pocket_tts::{PocketTtsConfig, PocketTtsProvider};
+use super::reverb_tts::{ReverbTtsConfig, ReverbTtsProvider};
 #[cfg(feature = "qwen-gguf")]
 use super::qwen_gguf::provider::{QwenGgufConfig, QwenGgufProvider};
 use super::supertonic::SupertonicProvider;
@@ -23,6 +24,8 @@ pub struct ProviderPool {
     retrying: Arc<std::sync::atomic::AtomicBool>,
     /// Pocket TTS singleton (sessions + voice embeddings behind one lock).
     pub pocket: Arc<PocketTtsProvider>,
+    /// Reverb-TTS singleton (ONNX sessions + cached reference codes behind one lock).
+    pub reverb: Arc<ReverbTtsProvider>,
     /// Qwen3-TTS 1.7B GGUF/ONNX singleton (native worker, cached
     /// reference conditioning). Compiled only with `qwen-gguf`.
     #[cfg(feature = "qwen-gguf")]
@@ -35,6 +38,7 @@ impl Default for ProviderPool {
             desired: Arc::new(std::sync::Mutex::new(None)),
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             pocket: PocketTtsProvider::new(PocketTtsConfig::default()),
+            reverb: ReverbTtsProvider::new(ReverbTtsConfig::default()),
             #[cfg(feature = "qwen-gguf")]
             qwen_gguf: QwenGgufProvider::new(QwenGgufConfig::default()),
         }
@@ -52,6 +56,12 @@ impl ProviderPool {
     /// serving.
     pub fn sync_pocket_config(&self, pocket: PocketTtsConfig) {
         self.pocket.sync_config(pocket);
+    }
+
+    /// Sync the Reverb-TTS singleton configuration. A reload deferred because a
+    /// synthesis holds the model is retried by the next registry build.
+    pub fn sync_reverb_config(&self, reverb: ReverbTtsConfig) {
+        self.reverb.sync_config(reverb);
     }
 
     /// Sync the GGUF singleton configuration (reconfiguration drops its
@@ -127,6 +137,7 @@ impl ProviderPool {
     /// public bundles need none.
     pub fn kick_ensure_if_needed(&self, hf_token: Option<String>) {
         self.pocket.kick_ensure_if_needed(hf_token.clone());
+        self.reverb.kick_ensure_if_needed(hf_token.clone());
         #[cfg(feature = "qwen-gguf")]
         self.qwen_gguf.kick_ensure_if_needed(hf_token);
     }
@@ -137,6 +148,7 @@ impl ProviderPool {
         let registry = TtsProviderRegistry::new();
         registry.register(supertonic);
         registry.register(Arc::clone(&self.pocket) as Arc<dyn super::TtsProvider>);
+        registry.register(Arc::clone(&self.reverb) as Arc<dyn super::TtsProvider>);
         #[cfg(feature = "qwen-gguf")]
         registry.register(Arc::clone(&self.qwen_gguf) as Arc<dyn super::TtsProvider>);
         registry
@@ -174,10 +186,10 @@ mod tests {
         #[cfg(feature = "qwen-gguf")]
         assert_eq!(
             registry.provider_ids(),
-            vec!["pocket-tts", "qwen3-gguf", "supertonic"]
+            vec!["pocket-tts", "qwen3-gguf", "reverb-tts", "supertonic"]
         );
         #[cfg(not(feature = "qwen-gguf"))]
-        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "supertonic"]);
+        assert_eq!(registry.provider_ids(), vec!["pocket-tts", "reverb-tts", "supertonic"]);
     }
 
     #[test]

@@ -69,7 +69,7 @@ Synthesizes text and adds it directly to the server's playback queue in a single
 
 | Parameter  | Type    | Required | Default | Description                            |
 | ---------- | ------- | -------- | ------- | -------------------------------------- |
-| `provider` | string | No | `supertonic` | `supertonic`, `pocket-tts`, or `qwen3-gguf`; empty preserves legacy routing |
+| `provider` | string | No | `supertonic` | `supertonic`, `pocket-tts`, `reverb-tts`, or `qwen3-gguf`; empty preserves legacy routing |
 | `voice` | string | For cloning | `M1` (Supertonic) | Built-in style or token-owned clone profile UUID; matching `provider:voice` option IDs accepted |
 | `lang`     | string  | No       | `en`    | Language code                          |
 | `play_now` | boolean | No       | `false` | If `true`, clears queue and plays now  |

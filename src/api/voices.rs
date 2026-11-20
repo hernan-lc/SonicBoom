@@ -793,18 +793,18 @@ async fn post_clones_inner(
     let provider = query.provider.trim().to_ascii_lowercase();
     // The Candle provider is gone: Qwen cloning means the GGUF/ONNX backend.
     #[cfg(feature = "qwen-gguf")]
-    let cloning = provider == "qwen3-gguf" || provider == "pocket-tts";
+    let cloning = provider == "qwen3-gguf" || provider == "pocket-tts" || provider == "reverb-tts";
     #[cfg(not(feature = "qwen-gguf"))]
-    let cloning = provider == "pocket-tts";
+    let cloning = provider == "pocket-tts" || provider == "reverb-tts";
     if !cloning {
         return Err(AppError::BadRequest(format!(
             "unsupported provider '{}' for voice cloning \
              (expected one of: {}; supertonic uses built-in style voices)",
             query.provider,
             if cfg!(feature = "qwen-gguf") {
-                "qwen3-gguf, pocket-tts"
+                "qwen3-gguf, pocket-tts, reverb-tts"
             } else {
-                "pocket-tts"
+                "pocket-tts, reverb-tts"
             }
         )));
     }
@@ -812,6 +812,12 @@ async fn post_clones_inner(
     if provider == "pocket-tts" && mode != CloneMode::AudioPrompt {
         return Err(AppError::BadRequest(
             "pocket-tts supports only audio_prompt mode (reference WAV, no transcript needed)"
+                .to_string(),
+        ));
+    }
+    if provider == "reverb-tts" && mode != CloneMode::Icl {
+        return Err(AppError::BadRequest(
+            "reverb-tts supports only icl mode (reference WAV plus its exact transcript)"
                 .to_string(),
         ));
     }
@@ -893,6 +899,14 @@ async fn post_clones_inner(
         )
         .map_err(provider_error_to_app)?;
     }
+    if provider == "reverb-tts" {
+        sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::check_model_language(
+            &query.model,
+            &query.language,
+        )
+        .map_err(provider_error_to_app)?;
+    }
+    let transcript_for_validation = transcript.map(str::to_string);
     let preparation_lease = super::jobs::preparation_lease();
     let reference_lease = super::jobs::reference_lease();
     let (pcm, rate, health, warnings, defects, guidance) = tokio::task::spawn_blocking(move || {
@@ -919,6 +933,15 @@ async fn post_clones_inner(
         "pocket-tts" => {
             sonicboom::tts::providers::pocket_tts::PocketTtsProvider::validate_reference(&pcm, rate)
                 .map_err(provider_error_to_app)?
+        }
+        "reverb-tts" => {
+            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::validate_reference(&pcm, rate)
+                .map_err(provider_error_to_app)?;
+            // The transcript is mandatory for icl; make sure it survives cleanup.
+            sonicboom::tts::providers::reverb_tts::ReverbTtsProvider::prepare_transcript(
+                transcript_for_validation.as_deref().unwrap_or(""),
+            )
+            .map_err(provider_error_to_app)?;
         }
         _ => {}
     }
@@ -973,6 +996,7 @@ pub(crate) fn config_revision_for(
         #[cfg(feature = "qwen-gguf")]
         "qwen3-gguf" => sonicboom::tts::providers::qwen_gguf::models::REVISION.to_string(),
         "pocket-tts" => config.providers.pocket_tts.revision.clone(),
+        "reverb-tts" => config.providers.reverb_tts.revision.clone(),
         // Retired providers (GPT-SoVITS) and anything unknown: a revision
         // that matches nothing, so legacy profiles fail closed with an
         // explicit retired/incompatible error instead of being reused.
@@ -1068,6 +1092,10 @@ pub async fn delete_voice(
         ),
         "pocket-tts" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
             state.providers.pocket.as_ref(),
+            id.trim(),
+        ),
+        "reverb-tts" => sonicboom::tts::providers::TtsProvider::invalidate_voice(
+            state.providers.reverb.as_ref(),
             id.trim(),
         ),
         _ => {}
