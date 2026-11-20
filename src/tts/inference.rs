@@ -28,8 +28,13 @@ pub(crate) const MAX_REQUEST_DURATION_SECS: f64 = 600.0;
 /// Upper bound on the latent tensor (`latent_dim_eff × latent_len` f32
 /// elements) allocated per chunk, in bytes.
 pub(crate) const MAX_LATENT_BYTES: usize = 256 * 1024 * 1024;
-/// Silence inserted between chunks, in seconds.
-const INTER_CHUNK_SILENCE_SECS: f64 = 0.2;
+/// Silence inserted between chunks, in seconds (upstream Supertonic
+/// `silence_duration` default).
+const INTER_CHUNK_SILENCE_SECS: f64 = 0.3;
+/// Upstream Supertonic default speaking rate: the predicted duration is
+/// divided by this (`dur_onnx / speed`, default `1.05`). SonicBoom used 1.0,
+/// which made speech slightly slower and draggier than the reference.
+const SUPERTONIC_SPEED: f32 = 1.05;
 /// Sanity range for model-declared sample rates (1 Hz – 192 kHz).
 const MAX_SAMPLE_RATE: u32 = 192_000;
 /// Sanity range for the effective latent channel dimension.
@@ -227,20 +232,68 @@ pub fn synthesize(
     Ok(all_samples)
 }
 
-/// Simplified version of preprocess_text from reference (helper.rs)
+/// Emoji and pictograph ranges removed by upstream `_preprocess_text`.
+fn is_emoji(c: char) -> bool {
+    matches!(c as u32,
+        0x1F600..=0x1F64F
+        | 0x1F300..=0x1F5FF
+        | 0x1F680..=0x1F6FF
+        | 0x1F700..=0x1F77F
+        | 0x1F780..=0x1F7FF
+        | 0x1F800..=0x1F8FF
+        | 0x1F900..=0x1F9FF
+        | 0x1FA00..=0x1FA6F
+        | 0x1FA70..=0x1FAFF
+        | 0x2600..=0x26FF
+        | 0x2700..=0x27BF
+        | 0x1F1E6..=0x1F1FF)
+}
+
+/// Port of upstream Supertonic `_preprocess_text` (py/helper.py,
+/// rust/src/helper.rs): drop emoji and unsupported symbols, map dashes,
+/// curly quotes and separators, fix spacing before punctuation, collapse
+/// duplicate quotes and whitespace, end on punctuation, and add the language
+/// tags. NFKD is applied later by the text encoder. The English-only
+/// expressions (`@` -> " at ", `e.g.,`, `i.e.,`) are applied for `en` only,
+/// since SonicBoom's locale normalizer already handles them per language.
 fn preprocess_chunk(text: &str, lang: &str) -> String {
-    let text = text.trim();
-    // Add period at the end if no punctuation exists
-    let needs_period = !text.ends_with([
-        '.', '!', '?', ';', ':', ',', '\'', '"', ')', ']', '}', '…', '。',
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if is_emoji(c) || matches!(c, '♥' | '☆' | '♡' | '©' | '\\') {
+            continue;
+        }
+        match c {
+            '\u{2013}' | '\u{2011}' | '\u{2014}' => out.push('-'),
+            '\u{201C}' | '\u{201D}' => out.push('"'),
+            '\u{2018}' | '\u{2019}' | '\u{00B4}' | '`' => out.push('\''),
+            '_' | '[' | ']' | '|' | '/' | '#' | '\u{2192}' | '\u{2190}' => out.push(' '),
+            _ => out.push(c),
+        }
+    }
+    let mut text = out;
+    if lang == "en" {
+        text = text
+            .replace('@', " at ")
+            .replace("e.g.,", "for example, ")
+            .replace("i.e.,", "that is, ");
+    }
+    for mark in [",", ".", "!", "?", ";", ":", "'"] {
+        text = text.replace(&format!(" {mark}"), mark);
+    }
+    for (double, single) in [("\"\"", "\""), ("''", "'")] {
+        while text.contains(double) {
+            text = text.replace(double, single);
+        }
+    }
+    let mut text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let terminated = text.ends_with([
+        '.', '!', '?', ';', ':', ',', '\'', '"', ')', ']', '}', '…', '。', '」', '』', '】', '〉',
+        '》', '›', '»',
     ]);
-    let body = if needs_period {
-        format!("{text}.")
-    } else {
-        text.to_string()
-    };
-    // Language tag wrapping
-    format!("<{lang}>{body}</{lang}>")
+    if !terminated {
+        text.push('.');
+    }
+    format!("<{lang}>{text}</{lang}>")
 }
 
 fn synthesize_chunk(
@@ -282,7 +335,7 @@ fn synthesize_chunk(
             "text_mask" => Tensor::from_array(text_mask.clone())?,
         ])?;
         let (_, data) = outputs["duration"].try_extract_tensor::<f32>()?;
-        data.iter().sum()
+        data.iter().sum::<f32>() / SUPERTONIC_SPEED
     };
 
     // Validate the predictor output *before* allocating any tensor:
@@ -417,6 +470,30 @@ mod tests {
     }
 
     #[test]
+    fn preprocess_chunk_matches_upstream_cleanup() {
+        assert_eq!(
+            preprocess_chunk("Hola 😀 mundo — “sí” ", "es"),
+            "<es>Hola mundo - \"sí\"</es>"
+        );
+        assert_eq!(
+            preprocess_chunk("a/b #tag_x ,ok ?", "es"),
+            "<es>a b tag x,ok?</es>"
+        );
+        assert_eq!(
+            preprocess_chunk("mail me @ home, e.g., now", "en"),
+            "<en>mail me at home, for example, now.</en>"
+        );
+        assert_eq!(
+            preprocess_chunk("dijo \"\"hola\"\"", "es"),
+            "<es>dijo \"hola\"</es>"
+        );
+        assert_eq!(
+            preprocess_chunk("「こんにちは」", "ja"),
+            "<ja>「こんにちは」</ja>"
+        );
+    }
+
+    #[test]
     fn valid_durations_derive_exact_lengths() {
         // 1.0 s at 24 kHz, chunk 480 → 24000 samples, 50 latents.
         let out = chunk_lengths_from_duration(1.0, RATE, CHUNK, LATENT_DIM).unwrap();
@@ -531,7 +608,7 @@ mod tests {
 
     #[test]
     fn silence_and_request_budgets_use_checked_arithmetic() {
-        assert_eq!(inter_chunk_silence_samples(24_000).unwrap(), 4800);
+        assert_eq!(inter_chunk_silence_samples(24_000).unwrap(), 7200);
         assert_eq!(inter_chunk_silence_samples(1).unwrap(), 1);
         assert!(inter_chunk_silence_samples(0).is_err());
         assert!(inter_chunk_silence_samples(1_000_000).is_err());

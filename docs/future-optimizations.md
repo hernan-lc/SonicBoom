@@ -294,3 +294,18 @@ seed): output WAV hash unchanged (`ce3d5a83...`), RTF 0.85 -> 0.50.
 Not done (evaluated): decoding in a parallel thread like upstream (little gain
 on 2 cores, where the LM already uses both), teacher forcing between chunks
 (upstream TODO, not in the ONNX export).
+
+## Supertonic upstream parity (2026-11-20)
+
+`preprocess_chunk` was a simplified copy of upstream `_preprocess_text`. It now
+ports the full cleanup (emoji/pictograph removal, dash/curly-quote/separator
+mapping, removal of `♥☆♡©\`, spacing before punctuation, duplicate quotes,
+CJK/guillemet closers as terminators; `@`/`e.g.,`/`i.e.,` for English only).
+Upstream defaults are also applied: speaking rate `1.05` (`duration / speed`)
+and `0.3 s` between chunks (was `1.0` and `0.2 s`). Spot check with Whisper
+small: Spanish and English sentences (with an emoji and an em dash)
+transcribed word-for-word.
+
+Qwen3-TTS GGUF: the `balanced` sampling preset already equals the pinned
+upstream defaults (talker 0.9/50/1.0/1.05, predictor 0.9/50/1.0/1.0); no
+change.
