@@ -1332,6 +1332,55 @@ fn take_f32(outputs: &SessionOutputs<'_>, name: &str) -> Result<Vec<f32>, Provid
     Ok(values.to_vec())
 }
 
+/// Build owned ORT state values from host tensors (one copy, done once per
+/// chunk). The AR and decode loops then carry these values between steps.
+#[cfg(feature = "pocket-tts")]
+fn state_values(
+    manifest: &[StateEntry],
+    states: &[StateTensor],
+) -> Result<Vec<Value>, ProviderError> {
+    let mut named: Vec<(String, Value)> = Vec::with_capacity(manifest.len());
+    push_states(&mut named, manifest, states)?;
+    Ok(named.into_iter().map(|(_, value)| value).collect())
+}
+
+/// Append carried state values as named inputs (moves, no tensor copy).
+#[cfg(feature = "pocket-tts")]
+fn push_state_values(
+    inputs: &mut Vec<(String, Value)>,
+    manifest: &[StateEntry],
+    values: Vec<Value>,
+) {
+    inputs.extend(
+        manifest
+            .iter()
+            .zip(values)
+            .map(|(entry, value)| (entry.input_name.clone(), value)),
+    );
+}
+
+/// Take the updated state outputs as the next step's inputs. `remove`
+/// hands back a reference-counted handle to ORT's output buffer, so the
+/// ~49 MB flow-LM KV cache is no longer copied out and back in on every
+/// 80 ms frame (and the ~16 MB Mimi state on every decode group).
+#[cfg(feature = "pocket-tts")]
+fn take_state_values(
+    manifest: &[StateEntry],
+    outputs: &mut SessionOutputs<'_>,
+) -> Result<Vec<Value>, ProviderError> {
+    manifest
+        .iter()
+        .map(|entry| {
+            outputs.remove(entry.output_name.as_str()).ok_or_else(|| {
+                ProviderError::inference_failed(format!(
+                    "pocket-tts state output '{}' missing",
+                    entry.output_name
+                ))
+            })
+        })
+        .collect()
+}
+
 #[cfg(feature = "pocket-tts")]
 impl PocketNative {
     fn open(model_dir: &Path, model_id: &str, cpu_threads: usize) -> Result<Self, ProviderError> {
@@ -1761,7 +1810,7 @@ impl PocketNative {
         let text_emb = take_f32(&outputs, "embeddings")?;
         drop(outputs);
         // Prefill with the text embeddings over a clone of the voice state.
-        let mut states: Vec<StateTensor> = base_state.to_vec();
+        let states = state_values(&self.meta.flow_state_manifest, base_state)?;
         let mut inputs: Vec<(String, Value)> = vec![
             (
                 "sequence".to_string(),
@@ -1780,11 +1829,11 @@ impl PocketNative {
                     .into(),
             ),
         ];
-        push_states(&mut inputs, &self.meta.flow_state_manifest, &states)?;
-        let outputs = self.lm_main.run(inputs).map_err(|e| {
+        push_state_values(&mut inputs, &self.meta.flow_state_manifest, states);
+        let mut outputs = self.lm_main.run(inputs).map_err(|e| {
             ProviderError::inference_failed(format!("pocket-tts text prefill failed: {e}"))
         })?;
-        extract_states(&self.meta.flow_state_manifest, &mut states, &outputs)?;
+        let mut states = take_state_values(&self.meta.flow_state_manifest, &mut outputs)?;
         drop(outputs);
 
         let frame_limit = max_gen_frames(token_ids.len(), self.meta.frame_rate);
@@ -1824,13 +1873,17 @@ impl PocketNative {
                         .into(),
                 ),
             ];
-            push_states(&mut inputs, &self.meta.flow_state_manifest, &states)?;
-            let outputs = self.lm_main.run(inputs).map_err(|e| {
+            push_state_values(
+                &mut inputs,
+                &self.meta.flow_state_manifest,
+                std::mem::take(&mut states),
+            );
+            let mut outputs = self.lm_main.run(inputs).map_err(|e| {
                 ProviderError::inference_failed(format!("pocket-tts AR step failed: {e}"))
             })?;
             let conditioning = take_f32(&outputs, "conditioning")?;
             let eos_logit = take_f32(&outputs, "eos_logit")?;
-            extract_states(&self.meta.flow_state_manifest, &mut states, &outputs)?;
+            states = take_state_values(&self.meta.flow_state_manifest, &mut outputs)?;
             drop(outputs);
             // Guard the first frames exactly like upstream Kyutai's
             // `_MIN_FRAMES_BEFORE_EOS = 6`. Without it the EOS logit of this
@@ -1936,7 +1989,10 @@ impl PocketNative {
             ));
         }
         let frames = latents.len() / latent_dim;
-        let mut states = init_states(&self.meta.mimi_state_manifest);
+        let mut states = state_values(
+            &self.meta.mimi_state_manifest,
+            &init_states(&self.meta.mimi_state_manifest),
+        )?;
         let mut pcm = Vec::with_capacity(frames * self.meta.samples_per_frame);
         for group in latents.chunks(15 * latent_dim) {
             let group_frames = group.len() / latent_dim;
@@ -1948,12 +2004,16 @@ impl PocketNative {
                     })?
                     .into(),
             )];
-            push_states(&mut inputs, &self.meta.mimi_state_manifest, &states)?;
-            let outputs = self.decoder.run(inputs).map_err(|e| {
+            push_state_values(
+                &mut inputs,
+                &self.meta.mimi_state_manifest,
+                std::mem::take(&mut states),
+            );
+            let mut outputs = self.decoder.run(inputs).map_err(|e| {
                 ProviderError::inference_failed(format!("pocket-tts decode failed: {e}"))
             })?;
             let frame = take_f32(&outputs, "audio_frame")?;
-            extract_states(&self.meta.mimi_state_manifest, &mut states, &outputs)?;
+            states = take_state_values(&self.meta.mimi_state_manifest, &mut outputs)?;
             drop(outputs);
             pcm.extend_from_slice(&frame);
         }

@@ -278,3 +278,19 @@ modes (`simple`, `disabled`) did not avoid it.
 Follow-up if GPU Pocket is wanted again: serialize every Dawn session `run`
 (Supertonic and Pocket) behind one process-wide lock, not just Pocket's loads.
 Until then, `auto` stays opt-in.
+
+## Pocket TTS: zero-copy KV state carry (2026-11-20)
+
+Every AR frame copied the whole flow-LM state (18 tensors, ~49 MB, KV cache
+`[2, 1, 1000, 16, 64]` per layer) into new input tensors and copied the outputs
+back out; the Mimi decoder did the same with ~16 MB per 15-frame group. The
+loops now pass ORT's output values straight back as the next inputs
+(`SessionOutputs::remove` returns a reference-counted handle), so only the
+per-chunk base voice state is materialized once.
+
+Measured on the 2-core dev box (debug build, Spanish, temperature 0, same
+seed): output WAV hash unchanged (`ce3d5a83...`), RTF 0.85 -> 0.50.
+
+Not done (evaluated): decoding in a parallel thread like upstream (little gain
+on 2 cores, where the LM already uses both), teacher forcing between chunks
+(upstream TODO, not in the ONNX export).
