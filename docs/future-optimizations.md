@@ -67,8 +67,14 @@ Next, in order of expected gain:
 2. Find why each decoder call costs ~1 s regardless of frame count (profile the
    ONNX graph with `with_profiling`; look at the dynamic-quantize/attention nodes
    and the zero-length history inputs). Fixing that beats any chunk tuning.
-3. Look for an fp32/fp16 decoder (Qwen3-TTS-ONNX publishes only int8 here); on
-   the GPU it may beat int8 on CPU, but its growing KV inputs are dynamic shapes.
+3. ~~Adopt the published fp16 decoder~~ done (2026-11-20): `qwen3_tts_decoder.fp16.onnx`
+   replaces the int8 decoder in the manifest (230 MB vs 222 MB), with fp16 tensor I/O
+   through the `ort` `half` feature. Same codes and seeds: decode 1.7-1.9 s for
+   2.7 s of audio (was ~4 s), noise floor -85.6 vs -60.1 dBFS in the production
+   pipeline, ASR WER unchanged at 0.026. The encoders stay int8 (the fp32 exports
+   have no external weight files, and the fp16 speaker export is invalid).
+   Untested follow-ups: fp32 weights rebuilt from the fp16 ones (~460 MB, may avoid
+   fp16 casts on CPU), mixed int8 transformer + fp16 convolutions.
 4. Stream decoded chunks to the client as they are produced instead of waiting
    for the whole decode (time to first audio, not total time).
 5. Talker q5_k -> q4_k only if generation (1.3 s) becomes the bottleneck.
@@ -96,6 +102,30 @@ resampler for sources up to 36 kHz (decoded Opus: 12-16 kHz energy -32.7 dB ->
 
 Not measurable here: timbre and naturalness for real, noisy or non-English
 references (ICL clones the reference's noise and room), which ASR cannot score.
+
+## Where the Qwen hiss comes from (2026-11-20)
+
+A faint broadband floor remains in Qwen output (about -66 dBFS in the quietest
+frames; Supertonic writes exact zeros in pauses). Isolating it:
+
+| Stage tested | Noise floor | Verdict |
+|---|---|---|
+| Reference: original / trimmed / 75 dB dither / 12 s long | -66.5 / -63.9 / -64.2 / -63.0 dBFS | not the reference |
+| Talker on Vulkan vs CPU | -66.5 vs -62.9 dBFS | not Vulkan |
+| Decoder chunk 12 vs 48 | -66.5 vs -65.4 dBFS | not our chunking |
+| 24 kHz -> 48 kHz Opus resampling | fixed separately (images -33 dB -> -78 dB) | was ours, fixed |
+| **Same codes, int8 vs fp16 decoder** | **-66.5 vs -74.4 dBFS** | int8 quantization adds ~8 dB |
+| Exact silence through encoder+decoder (int8) | decodes to -26 dBFS noise | digital silence is out of distribution for the codec |
+
+So the remaining floor is the codec model itself (about -74 dBFS), plus ~8 dB that
+comes from the int8 decoder asset we pinned. The fp16 decoder is also 2x faster on
+CPU (1.97 s vs 4.12 s for 2.7 s of audio) and closer to the reference voice
+(speaker similarity 0.981 vs 0.965), with the same ASR WER. The experiment wrapped
+the fp16 graph with Cast nodes at its inputs/outputs; production now feeds fp16
+tensors directly and ships the fp16 decoder (see next steps, item 3).
+
+Reference tips: avoid references with exact digital silence (e.g. raw TTS output);
+the codec turns zeros into noise. Real recordings with a little room tone are fine.
 
 ## Candidates
 

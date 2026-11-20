@@ -1,15 +1,16 @@
-//! ONNX codec components (int8-quantized graphs).
+//! ONNX codec components: int8 speaker/codec encoders and an FP16 decoder.
 //!
 //! These run on the CPU EP. On the WebGPU EP (AMD BC-250 / RADV) the int8
 //! graphs are not just slower, they are wrong: with identical input codes the
-//! decoder output had RMS 0.003 against 0.26 on CPU (0 dB SNR, nearly silent
-//! low-frequency rumble) and the encoder reproduced only ~50 % of the CPU
-//! codes (`examples/qwen_codec_gpu_check.rs`). Setting
+//! (then int8) decoder output had RMS 0.003 against 0.26 on CPU (0 dB SNR,
+//! nearly silent low-frequency rumble) and the encoder reproduced only ~50 %
+//! of the CPU codes (`examples/qwen_codec_gpu_check.rs`). Setting
 //! `SONICBOOM_QWEN_CODEC_EP=gpu` is kept only to reproduce that; do not use it
 //! for real synthesis. llama.cpp's GGUF device selection is independent of
 //! these sessions.
-use super::models::{CODEBOOK_SIZE, CODEBOOKS};
+use super::models::{CODEBOOK_SIZE, CODEBOOKS, DECODER_FILE};
 use anyhow::{Context, Result, bail, ensure};
+use half::f16;
 use ort::{
     session::Session,
     value::{DynValue, Tensor},
@@ -24,10 +25,10 @@ pub struct Codec {
 
 /// Intra-op threads for the codec sessions (`SONICBOOM_QWEN_CODEC_THREADS`).
 ///
-/// The int8 decoder dominates a Qwen request (~80 % of it with 2 threads) and
+/// The decoder dominates a Qwen request (~80 % of it with 2 threads) and
 /// scales with cores while producing bit-identical audio: on a 12-thread
-/// RADV box a 31-frame decode took 3.3 s with 2 threads, 2.8 s with 4, 2.6 s
-/// with 6 and 2.35 s with 12. The default uses up to 6 of the available cores.
+/// RADV box a 31-frame int8 decode took 3.3 s with 2 threads, 2.8 s with 4,
+/// 2.6 s with 6 and 2.35 s with 12. The default uses up to 6 of the available cores.
 fn codec_threads() -> usize {
     std::env::var("SONICBOOM_QWEN_CODEC_THREADS")
         .ok()
@@ -45,9 +46,8 @@ fn codec_threads() -> usize {
 /// Frames per decoder call (`SONICBOOM_QWEN_DECODER_CHUNK`, default 12).
 ///
 /// Each call has a large fixed cost, so bigger chunks decode faster (31
-/// frames: 5.2 s at 12, 3.9 s at 24, 3.3 s at 48 with 2 threads). Chunking
-/// also changes the audio slightly (int8 dynamic quantization and decoder
-/// state are per call): ~22.6 dB SNR against the 12-frame output. The default
+/// int8 frames: 5.2 s at 12, 3.9 s at 24, 3.3 s at 48 with 2 threads).
+/// Chunking also changes the audio slightly (decoder state is per call): ~22.6 dB SNR against the 12-frame output. The default
 /// keeps the established audio; raise it after listening to the difference.
 fn decoder_chunk() -> usize {
     std::env::var("SONICBOOM_QWEN_DECODER_CHUNK")
@@ -86,7 +86,7 @@ impl Codec {
     pub fn load(dir: &Path) -> Result<Self> {
         // Independent graphs: create them concurrently (slowest decides).
         std::thread::scope(|scope| {
-            let decoder = scope.spawn(|| session(dir, "qwen3_tts_decoder.int8.onnx"));
+            let decoder = scope.spawn(|| session(dir, DECODER_FILE));
             let encoder = scope.spawn(|| session(dir, "qwen3_tts_codec_encoder.int8.onnx"));
             let speaker = session(dir, "qwen3_tts_speaker_encoder.int8.onnx")?;
             let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>| {
@@ -183,7 +183,8 @@ impl Codec {
                 ),
                 (
                     "is_last".into(),
-                    Tensor::from_array(([1], vec![if is_last { 1.0f32 } else { 0.0 }]))?.into_dyn(),
+                    Tensor::from_array(([1], vec![if is_last { f16::ONE } else { f16::ZERO }]))?
+                        .into_dyn(),
                 ),
             ];
             inputs.append(&mut state.inputs);
@@ -191,7 +192,7 @@ impl Codec {
             let output = outputs
                 .get("final_wav")
                 .context("decoder final_wav missing")?;
-            let (shape, wav) = output.try_extract_tensor::<f32>()?;
+            let (shape, wav) = output.try_extract_tensor::<f16>()?;
             ensure!(
                 shape.len() == 2 && shape[0] == 1 && wav.iter().all(|v| v.is_finite()),
                 "invalid decoder PCM output"
@@ -210,7 +211,7 @@ impl Codec {
             } else {
                 valid[0] as usize
             };
-            audio.extend_from_slice(&wav[..len]);
+            audio.extend(wav[..len].iter().map(|v| v.to_f32()));
             if !is_last {
                 // Input names are fixed by the decoder graph: reuse the
                 // precomputed table instead of formatting 19 strings per
@@ -234,7 +235,7 @@ impl Codec {
 }
 
 fn copy_tensor(value: &DynValue) -> Result<DynValue> {
-    let (shape, data) = value.try_extract_tensor::<f32>()?;
+    let (shape, data) = value.try_extract_tensor::<f16>()?;
     ensure!(
         data.iter().all(|v| v.is_finite()),
         "non-finite decoder state"
@@ -277,12 +278,12 @@ impl DecoderState {
         for (input, _) in DECODER_STATE_NAMES {
             let value = match input {
                 "pre_conv_history" => {
-                    Tensor::from_array(([1, 512, 0], Vec::<f32>::new()))?.into_dyn()
+                    Tensor::from_array(([1, 512, 0], Vec::<f16>::new()))?.into_dyn()
                 }
                 "latent_buffer" | "conv_history" => {
-                    Tensor::from_array(([1, 1024, 0], Vec::<f32>::new()))?.into_dyn()
+                    Tensor::from_array(([1, 1024, 0], Vec::<f16>::new()))?.into_dyn()
                 }
-                _ => Tensor::from_array(([1, 16, 0, 64], Vec::<f32>::new()))?.into_dyn(),
+                _ => Tensor::from_array(([1, 16, 0, 64], Vec::<f16>::new()))?.into_dyn(),
             };
             inputs.push((input.to_owned(), value));
         }

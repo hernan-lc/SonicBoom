@@ -6,9 +6,9 @@ use sonicboom::tts::providers::qwen_gguf::{
     codec::Codec,
     conditioning::{self, MelExtractor, Reference},
     generation::{self, Sampling},
-    sampling,
     models::{self, Embeddings},
     runtime::Runtime,
+    sampling,
     tokenizer::TextTokenizer,
 };
 use sonicboom::tts::providers::types::SamplingPreset;
@@ -77,7 +77,12 @@ fn main() -> Result<()> {
     };
     let (talker_params, predictor_params) = sampling::preset_params(preset);
     let mut runtime = Runtime::load(&dir, device_id, gpu_layers, threads)?;
-    let mut codec = Codec::load(&dir)?;
+    // QWEN_CODEC_DIR swaps only the ONNX codec (precision experiments); the
+    // pinned integrity check above still covers the main model directory.
+    let codec_dir = std::env::var("QWEN_CODEC_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| dir.clone());
+    let mut codec = Codec::load(&codec_dir)?;
     let mut assets = Embeddings::load(&dir)?;
     let tokenizer = TextTokenizer::load(&dir)?;
     let load_secs = started.elapsed().as_secs_f64();

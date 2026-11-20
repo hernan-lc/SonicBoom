@@ -19,9 +19,10 @@ fn session(dir: &Path, name: &str) -> anyhow::Result<Session> {
         .commit_from_file(dir.join(name))?)
 }
 
+#[cfg(feature = "qwen-gguf")]
 #[test]
 #[ignore = "requires pinned real ONNX model files; tests CPU execution, not speech quality"]
-fn int8_onnx_components_execute_on_shared_runtime() -> anyhow::Result<()> {
+fn onnx_codec_components_execute_on_shared_runtime() -> anyhow::Result<()> {
     let dir = model_dir();
     let mut speaker = session(&dir, "qwen3_tts_speaker_encoder.int8.onnx")?;
     let mels = Tensor::from_array(([1, 93, 128], vec![-4.0f32; 93 * 128]))?;
@@ -49,7 +50,7 @@ fn int8_onnx_components_execute_on_shared_runtime() -> anyhow::Result<()> {
     drop(result);
     drop(codec);
 
-    let mut decoder = session(&dir, "qwen3_tts_decoder.int8.onnx")?;
+    let mut decoder = session(&dir, "qwen3_tts_decoder.fp16.onnx")?;
     let mut inputs = vec![
         (
             "audio_codes".to_owned(),
@@ -57,31 +58,31 @@ fn int8_onnx_components_execute_on_shared_runtime() -> anyhow::Result<()> {
         ),
         (
             "pre_conv_history".to_owned(),
-            Tensor::from_array(([1, 512, 0], Vec::<f32>::new()))?.into_dyn(),
+            Tensor::from_array(([1, 512, 0], Vec::<half::f16>::new()))?.into_dyn(),
         ),
         (
             "latent_buffer".to_owned(),
-            Tensor::from_array(([1, 1024, 0], Vec::<f32>::new()))?.into_dyn(),
+            Tensor::from_array(([1, 1024, 0], Vec::<half::f16>::new()))?.into_dyn(),
         ),
         (
             "conv_history".to_owned(),
-            Tensor::from_array(([1, 1024, 0], Vec::<f32>::new()))?.into_dyn(),
+            Tensor::from_array(([1, 1024, 0], Vec::<half::f16>::new()))?.into_dyn(),
         ),
         (
             "is_last".to_owned(),
-            Tensor::from_array(([1], vec![1.0f32]))?.into_dyn(),
+            Tensor::from_array(([1], vec![half::f16::ONE]))?.into_dyn(),
         ),
     ];
     for kind in ["key", "value"] {
         for layer in 0..8 {
             inputs.push((
                 format!("past_{kind}_{layer}"),
-                Tensor::from_array(([1, 16, 0, 64], Vec::<f32>::new()))?.into_dyn(),
+                Tensor::from_array(([1, 16, 0, 64], Vec::<half::f16>::new()))?.into_dyn(),
             ));
         }
     }
     let result = decoder.run(inputs)?;
-    let (shape, pcm) = result["final_wav"].try_extract_tensor::<f32>()?;
+    let (shape, pcm) = result["final_wav"].try_extract_tensor::<half::f16>()?;
     let (_, valid) = result["valid_samples"].try_extract_tensor::<i64>()?;
     assert_eq!(shape[0], 1);
     assert!(!pcm.is_empty());

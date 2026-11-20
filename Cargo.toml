@@ -234,14 +234,14 @@ required-features = ["qwen-gguf"]
 
 # Keep desktop ORT defaults, including its binary distribution strategy.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-ort = { version = "=2.0.0-rc.13", features = ["ndarray"] }
+ort = { version = "=2.0.0-rc.13", features = ["ndarray", "half"] }
 reqwest = { version = "0.12", features = ["stream"] }
 
 # rc.13 defaults to API 27. Android's pinned 1.24.3 AAR supplies API 24;
 # select that API explicitly rather than loading an incompatible runtime.
 [target.'cfg(target_os = "android")'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "tracing", "api-24", "load-dynamic"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "half", "tracing", "api-24", "load-dynamic"] }
 
 [[example]]
 name = "pocket_smoke"

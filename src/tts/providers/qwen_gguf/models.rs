@@ -8,9 +8,14 @@ pub const LLAMA_REVISION: &str = "c1d0e7a004015f23bc0233470b747b596f29b264";
 pub const SAMPLE_RATE: u32 = 24_000;
 pub const CODEBOOKS: usize = 16;
 pub const CODEBOOK_SIZE: i64 = 2048;
+/// Stateful FP16 codec decoder (FP16 inputs, outputs and history tensors).
+pub const DECODER_FILE: &str = "qwen3_tts_decoder.fp16.onnx";
 
 /// Selected precision set only. FP32 exports have missing external data;
-/// the FP16 speaker export is structurally invalid at this revision.
+/// the FP16 speaker export is structurally invalid at this revision. The
+/// decoder is the FP16 export: it is 2x faster on CPU than int8, ~8 dB
+/// quieter (dynamic int8 quantization noise) and closer to the reference
+/// voice. The encoders stay int8 because their FP16 exports are not usable.
 pub fn manifest() -> Vec<PinnedFile> {
     MANIFEST
         .iter()
@@ -125,9 +130,9 @@ const MANIFEST: &[(&str, &str, u64)] = &[
         108829582,
     ),
     (
-        "qwen3_tts_decoder.int8.onnx",
-        "4e13954107651a7a7c0ecfa8b34cf82c686c386634b2043d1214f0357933be2f",
-        221682275,
+        DECODER_FILE,
+        "98fc6cd579fe57144ccd6792930e0ca8e7ca97aac3d8f0a7b35f60d97961a793",
+        229914656,
     ),
     (
         "qwen3_tts_predictor.q8_0.gguf",
