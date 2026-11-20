@@ -242,59 +242,91 @@ impl State {
             runtime.reset()?;
             Ok(runtime)
         };
-        // Try each permitted device in order. An explicit device that fails
-        // without `allow_cpu_fallback` returns an actionable error instead of
-        // quietly switching to CPU.
-        let (candidates, allow_cpu_fallback) = device_plan(
-            settings.device,
-            settings.allow_cpu_fallback,
-            cfg!(feature = "qwen-gguf-vulkan"),
-            cfg!(feature = "qwen-gguf-cuda"),
-        );
-        let mut last_gpu_error: Option<String> = None;
-        let mut selected: Option<(Runtime, i32, Option<String>)> = None;
-        for candidate in candidates {
-            match load(candidate) {
-                Ok(runtime) => {
-                    // Report a fallback only when a GPU was attempted first.
-                    let fallback_reason = (candidate == 0)
-                        .then(|| last_gpu_error.take())
-                        .flatten()
-                        .map(|error| {
-                            format!(
-                                "GPU initialization failed; CPU selected before synthesis: {error}"
-                            )
-                        });
-                    selected = Some((runtime, candidate, fallback_reason));
-                    break;
-                }
-                Err(error) => {
-                    let text = format!("{error:#}");
-                    if candidate == 0 {
-                        // CPU is the last resort: its failure is terminal.
-                        return Err(error);
+        // The ONNX codec, embedding tables and tokenizer do not depend on the
+        // GGUF runtime or its device choice, so load them on a helper thread
+        // while llama.cpp uploads the talker/predictor weights. The two are
+        // independent GPU contexts; wall-clock load becomes the slower of the
+        // two instead of their sum.
+        let (aux, selected_runtime) = std::thread::scope(|scope| {
+            let aux = scope.spawn(|| -> Result<(Codec, Embeddings, TextTokenizer)> {
+                let t = Instant::now();
+                let codec = Codec::load(&settings.dir)?;
+                tracing::info!(
+                    elapsed_ms = t.elapsed().as_millis() as u64,
+                    "Qwen ONNX codec sessions ready"
+                );
+                let t = Instant::now();
+                let assets = Embeddings::load(&settings.dir)?;
+                let tokenizer = TextTokenizer::load(&settings.dir)?;
+                tracing::info!(
+                    elapsed_ms = t.elapsed().as_millis() as u64,
+                    "Qwen embeddings and tokenizer ready"
+                );
+                Ok((codec, assets, tokenizer))
+            });
+            let selected_runtime = (|| -> Result<(Runtime, i32, Option<String>)> {
+                // Try each permitted device in order. An explicit device that
+                // fails without `allow_cpu_fallback` returns an actionable
+                // error instead of quietly switching to CPU.
+                let (candidates, allow_cpu_fallback) = device_plan(
+                    settings.device,
+                    settings.allow_cpu_fallback,
+                    cfg!(feature = "qwen-gguf-vulkan"),
+                    cfg!(feature = "qwen-gguf-cuda"),
+                );
+                let mut last_gpu_error: Option<String> = None;
+                let mut selected: Option<(Runtime, i32, Option<String>)> = None;
+                for candidate in candidates {
+                    let attempt = Instant::now();
+                    match load(candidate) {
+                        Ok(runtime) => {
+                            tracing::info!(
+                                device = device_name(candidate),
+                                elapsed_ms = attempt.elapsed().as_millis() as u64,
+                                "Qwen GGUF runtime ready"
+                            );
+                            // Report a fallback only when a GPU was attempted first.
+                            let fallback_reason = (candidate == 0)
+                                .then(|| last_gpu_error.take())
+                                .flatten()
+                                .map(|error| {
+                                    format!(
+                                        "GPU initialization failed; CPU selected before synthesis: {error}"
+                                    )
+                                });
+                            selected = Some((runtime, candidate, fallback_reason));
+                            break;
+                        }
+                        Err(error) => {
+                            let text = format!("{error:#}");
+                            if candidate == 0 {
+                                // CPU is the last resort: its failure is terminal.
+                                return Err(error);
+                            }
+                            if !allow_cpu_fallback {
+                                return Err(anyhow!(
+                                    "requested device `{}` could not be initialized: {text}; \
+                                     set providers.qwen3_gguf.allow_cpu_fallback = true to run on \
+                                     CPU instead, or use device = \"auto\"",
+                                    device_name(candidate)
+                                ));
+                            }
+                            last_gpu_error = Some(text);
+                        }
                     }
-                    if !allow_cpu_fallback {
-                        return Err(anyhow!(
-                            "requested device `{}` could not be initialized: {text}; \
-                             set providers.qwen3_gguf.allow_cpu_fallback = true to run on \
-                             CPU instead, or use device = \"auto\"",
-                            device_name(candidate)
-                        ));
-                    }
-                    last_gpu_error = Some(text);
                 }
-            }
-        }
-        let (runtime, device, fallback_reason) = selected.ok_or_else(|| {
-            anyhow!(
-                "no usable native device could be initialized: {}",
-                last_gpu_error.unwrap_or_else(|| "unknown native failure".into())
-            )
-        })?;
-        let codec = Codec::load(&settings.dir)?;
-        let assets = Embeddings::load(&settings.dir)?;
-        let tokenizer = TextTokenizer::load(&settings.dir)?;
+                selected.ok_or_else(|| {
+                    anyhow!(
+                        "no usable native device could be initialized: {}",
+                        last_gpu_error.unwrap_or_else(|| "unknown native failure".into())
+                    )
+                })
+            })();
+            (aux.join(), selected_runtime)
+        });
+        let (runtime, device, fallback_reason) = selected_runtime?;
+        let (codec, assets, tokenizer) =
+            aux.map_err(|_| anyhow!("Qwen codec loading thread panicked"))??;
         let ready = Ready {
             effective_device: match device {
                 1 => "vulkan",

@@ -1,5 +1,13 @@
-//! ONNX codec components. They follow the shared Vulkan-first / CPU-fallback
-//! policy; llama.cpp's GGUF device selection is independent of these sessions.
+//! ONNX codec components (int8-quantized graphs).
+//!
+//! These run on the CPU EP. On the WebGPU EP (AMD BC-250 / RADV) the int8
+//! graphs are not just slower, they are wrong: with identical input codes the
+//! decoder output had RMS 0.003 against 0.26 on CPU (0 dB SNR, nearly silent
+//! low-frequency rumble) and the encoder reproduced only ~50 % of the CPU
+//! codes (`examples/qwen_codec_gpu_check.rs`). Setting
+//! `SONICBOOM_QWEN_CODEC_EP=gpu` is kept only to reproduce that; do not use it
+//! for real synthesis. llama.cpp's GGUF device selection is independent of
+//! these sessions.
 use super::models::{CODEBOOK_SIZE, CODEBOOKS};
 use anyhow::{Context, Result, bail, ensure};
 use ort::{
@@ -14,15 +22,55 @@ pub struct Codec {
     decoder: Session,
 }
 
+/// Intra-op threads for the codec sessions (`SONICBOOM_QWEN_CODEC_THREADS`).
+///
+/// The int8 decoder dominates a Qwen request (~80 % of it with 2 threads) and
+/// scales with cores while producing bit-identical audio: on a 12-thread
+/// RADV box a 31-frame decode took 3.3 s with 2 threads, 2.8 s with 4, 2.6 s
+/// with 6 and 2.35 s with 12. The default uses up to 6 of the available cores.
+fn codec_threads() -> usize {
+    std::env::var("SONICBOOM_QWEN_CODEC_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map_or_else(
+            || {
+                std::thread::available_parallelism()
+                    .map_or(2, |n| n.get())
+                    .clamp(2, 6)
+            },
+            |n| n.clamp(1, 32),
+        )
+}
+
+/// Frames per decoder call (`SONICBOOM_QWEN_DECODER_CHUNK`, default 12).
+///
+/// Each call has a large fixed cost, so bigger chunks decode faster (31
+/// frames: 5.2 s at 12, 3.9 s at 24, 3.3 s at 48 with 2 threads). Chunking
+/// also changes the audio slightly (int8 dynamic quantization and decoder
+/// state are per call): ~22.6 dB SNR against the 12-frame output. The default
+/// keeps the established audio; raise it after listening to the difference.
+fn decoder_chunk() -> usize {
+    std::env::var("SONICBOOM_QWEN_DECODER_CHUNK")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map_or(12, |n| n.clamp(4, 256))
+}
+
 fn session(dir: &Path, file: &str) -> Result<Session> {
     crate::onnx_runtime::initialize()?;
     let path = dir.join(file);
     let builder = Session::builder()?
-        .with_intra_threads(2)
+        .with_intra_threads(codec_threads())
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .with_inter_threads(1)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    crate::onnx_runtime::with_gpu(builder, &path)
+    let mut builder =
+        if std::env::var("SONICBOOM_QWEN_CODEC_EP").is_ok_and(|v| v.eq_ignore_ascii_case("gpu")) {
+            crate::onnx_runtime::with_gpu(builder, &path)
+        } else {
+            builder
+        };
+    builder
         .commit_from_file(&path)
         .with_context(|| format!("loading {file} with ONNX Runtime"))
 }
@@ -36,10 +84,21 @@ pub fn check_cancelled() -> Result<()> {
 
 impl Codec {
     pub fn load(dir: &Path) -> Result<Self> {
-        Ok(Self {
-            speaker: session(dir, "qwen3_tts_speaker_encoder.int8.onnx")?,
-            encoder: session(dir, "qwen3_tts_codec_encoder.int8.onnx")?,
-            decoder: session(dir, "qwen3_tts_decoder.int8.onnx")?,
+        // Independent graphs: create them concurrently (slowest decides).
+        std::thread::scope(|scope| {
+            let decoder = scope.spawn(|| session(dir, "qwen3_tts_decoder.int8.onnx"));
+            let encoder = scope.spawn(|| session(dir, "qwen3_tts_codec_encoder.int8.onnx"));
+            let speaker = session(dir, "qwen3_tts_speaker_encoder.int8.onnx")?;
+            let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>| {
+                handle
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("codec session creation panicked"))?
+            };
+            Ok(Self {
+                speaker,
+                encoder: join(encoder)?,
+                decoder: join(decoder)?,
+            })
         })
     }
 
@@ -108,8 +167,9 @@ impl Codec {
         );
         let mut state = DecoderState::empty()?;
         let mut audio = Vec::with_capacity(codes.len() * 1920);
-        let count = codes.len().div_ceil(12);
-        for (index, chunk) in codes.chunks(12).enumerate() {
+        let chunk_n = decoder_chunk();
+        let count = codes.len().div_ceil(chunk_n);
+        for (index, chunk) in codes.chunks(chunk_n).enumerate() {
             check_cancelled()?;
             let is_last = index + 1 == count;
             let mut inputs = vec![
