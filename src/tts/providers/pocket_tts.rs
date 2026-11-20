@@ -832,13 +832,17 @@ pub enum PocketEp {
 pub const POCKET_DECODER_PROBE_MIN_RMS: f32 = 0.015;
 
 /// Per-graph EP selection. `SONICBOOM_POCKET_EP` accepts:
-/// * `auto` (default) - Vulkan first for the four conditioning/flow graphs,
-///   CPU for the decoder. A load-time probe checks output RMS and real-time
-///   factor; a request-time retry covers reference-dependent EOS failures.
-///   GPU session creation is serialized because Dawn is not thread-safe on
-///   some drivers. On AMD RADV the probe downgrades everything to CPU;
-/// * `hybrid` - same as `auto`, explicit;
-/// * `cpu` - every graph on CPU (skips the GPU probe entirely);
+/// * `cpu` (default) - every graph on CPU; no GPU session and no GPU probe.
+///   This must stay the default while Supertonic also runs on WebGPU in the
+///   same process: Dawn is not thread-safe, and a Vulkan-first Pocket probe
+///   that overlaps Supertonic's warm-up segfaulted inside
+///   `dawn::native::ComputePassEncoder::APISetPipeline` (3 of 3 startups on
+///   AMD RADV, 2026-11-20). `gpu_session_lock` only serializes Pocket's own
+///   loads, not Supertonic's GPU work;
+/// * `auto` / `hybrid` - opt-in Vulkan first for the four conditioning/flow
+///   graphs, CPU for the decoder. A load-time probe checks output RMS and
+///   real-time factor; a request-time retry covers reference-dependent EOS
+///   failures. GPU session creation is serialized, but the crash above applies;
 /// * `gpu` - every graph on the Vulkan/WebGPU EP (reproduction/debug);
 /// * `custom` - use the comma-separated graph list in
 ///   `SONICBOOM_POCKET_GPU_GRAPHS`.
@@ -855,7 +859,7 @@ pub fn graph_ep(graph: &str) -> PocketEp {
 fn graph_ep_from(mode: &str, list: &str, graph: &str) -> PocketEp {
     match mode.trim().to_ascii_lowercase().as_str() {
         "gpu" | "vulkan" => PocketEp::Gpu,
-        "" | "auto" | "hybrid" => {
+        "auto" | "hybrid" => {
             if graph == "mimi_decoder_int8" {
                 PocketEp::Cpu
             } else {
@@ -872,8 +876,7 @@ fn graph_ep_from(mode: &str, list: &str, graph: &str) -> PocketEp {
                 PocketEp::Cpu
             }
         }
-        // Empty (default), `auto` already matched above; `cpu` and unknown
-        // values stay on CPU.
+        // Default (empty), `cpu` and unknown values stay on CPU.
         _ => PocketEp::Cpu,
     }
 }
@@ -3088,10 +3091,15 @@ mod tests {
     #[test]
     #[cfg(feature = "pocket-tts")]
     fn graph_ep_policy_keeps_decoder_on_cpu() {
-        // Empty env means the default `auto` policy.
-        assert_eq!(graph_ep_from("", "", "flow_lm_main_int8"), PocketEp::Gpu);
+        // Empty env means the default: CPU only, so Pocket never creates a
+        // WebGPU session that could overlap Supertonic's Dawn work.
+        assert_eq!(graph_ep_from("", "", "flow_lm_main_int8"), PocketEp::Cpu);
         assert_eq!(graph_ep_from("", "", "mimi_decoder_int8"), PocketEp::Cpu);
         assert_eq!(graph_ep_from("cpu", "", "flow_lm_main_int8"), PocketEp::Cpu);
+        assert_eq!(
+            graph_ep_from("bogus", "", "flow_lm_main_int8"),
+            PocketEp::Cpu
+        );
         assert_eq!(graph_ep_from("gpu", "", "flow_lm_main_int8"), PocketEp::Gpu);
         assert_eq!(
             graph_ep_from("auto", "", "flow_lm_main_int8"),
