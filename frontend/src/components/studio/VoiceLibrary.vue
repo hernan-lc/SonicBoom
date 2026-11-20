@@ -10,6 +10,7 @@ import { useTask } from '../../composables/useTask';
 import VoiceCard from './VoiceCard.vue';
 import VoiceCreatorDialog from './VoiceCreatorDialog.vue';
 import FeedbackNotice from '../FeedbackNotice.vue';
+import GuideHint from '../GuideHint.vue';
 const emit = defineEmits<{ compose: []; engines: [] }>();
 const studio = useStudio(); const { voices, errors } = studio;
 const task = useTask(); const { pending, feedback } = task;
@@ -47,9 +48,9 @@ async function remove() {
 </script>
 <template>
   <FeedbackNotice :feedback="errors.voices ? { kind: 'error', message: errors.voices } : null"/>
-  <div class="voice-toolbar"><p role="status">{{ t('{count} voices', { count: filtered.length }) }}</p><button v-if="voices.length" type="button" class="primary" @click="creatorOpen = true">{{ t('New voice') }}</button></div>
-  <div class="voice-search"><label class="sr-only" for="voiceSearch">{{ t('Search voices') }}</label><input id="voiceSearch" v-model="query" type="search" :placeholder="t('Search voices')"></div>
-  <DisclosurePanel class="voice-filters" :badge="activeFilters || undefined">
+  <div class="voice-toolbar"><p role="status">{{ t('{count} voices', { count: filtered.length }) }}</p><div class="voice-toolbar-actions"><button v-if="voices.length" data-guide="voice-new" type="button" class="primary" @click="creatorOpen = true">{{ t('New voice') }}</button><GuideHint guide-id="clone-voice"/><GuideHint guide-id="library"/></div></div>
+  <div class="voice-search"><label class="sr-only" for="voiceSearch">{{ t('Search voices') }}</label><input id="voiceSearch" data-guide="voice-search" v-model="query" type="search" :placeholder="t('Search voices')"></div>
+  <DisclosurePanel class="voice-filters" data-guide="voice-filters" :badge="activeFilters || undefined">
     <template #label>{{ t('Filters') }}</template>
     <div class="voice-filters-grid">
       <label>{{ t('Engine') }}<select v-model="provider"><option value="">{{ t('All providers') }}</option><option v-for="item in providerOptions" :key="item">{{ item }}</option></select></label>
@@ -58,7 +59,7 @@ async function remove() {
       <label>{{ t('Sort') }}<select v-model="sort"><option value="newest">{{ t('Newest first') }}</option><option value="oldest">{{ t('Oldest first') }}</option><option value="name">{{ t('Name') }}</option></select></label>
     </div>
   </DisclosurePanel>
-  <div id="voicesList" class="voice-list voice-grid"><EmptyState v-if="!voices.length && !errors.voices" :title="t('No cloned voices yet')"><button type="button" class="primary" @click="creatorOpen = true">{{ t('New voice') }}</button></EmptyState><VoiceCard v-for="voice in filtered" :key="voice.id" :voice="voice" :disabled="pending" :usable="usable(voice)" :compatible="studio.profileCompatible(voice)" :model-ready="ready(voice)" @use="select(voice, false)" @preview="select(voice, true)" @delete="deleting = voice" @engines="emit('engines')"/></div>
+  <div id="voicesList" class="voice-list voice-grid"><EmptyState v-if="!voices.length && !errors.voices" :title="t('No voices yet.')"><button data-guide="voice-new" type="button" class="primary" @click="creatorOpen = true">{{ t('New voice') }}</button></EmptyState><VoiceCard v-for="voice in filtered" :key="voice.id" :voice="voice" :disabled="pending" :usable="usable(voice)" :compatible="studio.profileCompatible(voice)" :model-ready="ready(voice)" @use="select(voice, false)" @preview="select(voice, true)" @delete="deleting = voice" @engines="emit('engines')"/></div>
   <FeedbackNotice :feedback="feedback"/>
   <ConfirmDialog v-model="dialogOpen" :title="t('Delete {name}?', { name: deleting?.name || '' })" :description="t('Voice deletion cannot be undone. Its stored reference audio is deleted. Existing generated files remain available; future requests using this profile will fail.')" :pending="pending" @confirm="remove"/>
   <VoiceCreatorDialog v-model="creatorOpen" @created="created" @engines="openEngines"/>

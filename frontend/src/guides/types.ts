@@ -3,6 +3,8 @@ export interface GuideStep {
   titleKey: string;
   textKey: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
+  /** Selector of a control to press before showing this step. */
+  opens?: string;
 }
 
 export interface Guide {

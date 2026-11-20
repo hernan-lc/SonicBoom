@@ -495,9 +495,6 @@ onBeforeUnmount(() => {
       </dl>
 
       <DisclosurePanel class="health-notes disclosure-plain" :label="t('Recording health notes')">
-        <p class="help-note">
-          {{ t('Select original sample frames without resampling or changing encoding. Your original file is kept until you apply a trim. Export omits ancillary WAV metadata.') }}
-        </p>
         <p class="help-note">{{ t('Local measurements cover original channels. Server measurements use the mono mix.') }}</p>
         <p v-if="health.silence > 0.95" role="status" class="help-note">
           {{ t('The reference recording is nearly silent. Choose a clearer recording.') }}

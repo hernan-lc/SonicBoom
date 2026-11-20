@@ -58,6 +58,49 @@
   background: var(--accent-hover);
   color: var(--on-accent);
 }
+.guide-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.guide-hint:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+.guide-hint:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.label-with-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.voice-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dialog-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 
 /* driver.css is injected at tour start, so these overrides need more specificity. */
 body .driver-popover {

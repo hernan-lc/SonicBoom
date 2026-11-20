@@ -14,8 +14,7 @@ const picker = ref<{ open: () => void } | null>(null);
 function select(file: File | null) { emit('select', file); }
 function trim(file: File) { emit('trim', file); }
 function modeLabel(value: string) { const key = `mode.${value}`; const label = t(key); return label === key ? value : label; }
-function modeHint(value: string) { const key = `mode.${value}.hint`; const hint = t(key); return hint === key ? '' : hint; }
-const modeOptions = computed(() => props.modes.map(value => ({ value, label: modeLabel(value), hint: modeHint(value) })));
+const modeOptions = computed(() => props.modes.map(value => ({ value, label: modeLabel(value) })));
 const metaText = computed(() => {
   if (!props.file) return '';
   if (!props.metadata) return `${props.file.size} bytes`;
@@ -40,7 +39,7 @@ const uploadLimit = computed(() => {
 const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size}', { size: uploadLimit.value }) : t('WAV only'));
 </script>
 <template><fieldset class="reference-step" :disabled="disabled"><legend class="sr-only">{{ t('Reference recording') }}</legend>
-  <p class="step-intro">{{ t('Upload 3–10 seconds of clear speech. Only use a voice you own or have permission to use.') }}</p>
+  <p class="step-intro">{{ t('Use only voices you own or may use.') }}</p>
 
   <FileDropzone id="cloneFile" ref="picker" :label="t('Reference recording (WAV, 3–10 s recommended)')" :help="uploadHelp" :error="errors.cloneFile" :disabled="disabled" :filled="!!file" @select="select">
     <div v-if="!file" class="dropzone-empty">
@@ -75,18 +74,15 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
 
   <fieldset id="cloneMode" class="mode-picker" tabindex="-1">
     <legend>{{ t('Mode') }}</legend>
-    <p class="field-intro">{{ t('How the engine uses your recording') }}</p>
     <label v-for="option in modeOptions" :key="option.value" class="mode-option" :class="{ selected: mode === option.value }">
       <input type="radio" v-model="mode" :value="option.value" :name="'cloneMode-' + provider" :disabled="disabled" :aria-invalid="errors.cloneMode ? 'true' : undefined" :aria-describedby="errors.cloneMode ? 'cloneMode-error' : undefined">
-      <span class="mode-text"><span class="mode-label">{{ option.label }}</span><span v-if="option.hint" class="mode-hint">{{ option.hint }}</span></span>
+      <span class="mode-text"><span class="mode-label">{{ option.label }}</span></span>
     </label>
     <p v-if="errors.cloneMode" id="cloneMode-error" class="field-error" role="alert">{{ errors.cloneMode }}</p>
   </fieldset>
 
-  <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb works best with 3-10 s of clean speech from one speaker and needs its exact transcript. Its weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
+  <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
 
-  <BaseTextarea v-if="needsTranscript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required>
-    <template #hint><p class="field-hint-text">{{ t('Type exactly what the reference audio says') }}</p></template>
-  </BaseTextarea>
+  <BaseTextarea v-if="needsTranscript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required/>
   <p v-if="needsTranscript && originalFile && file !== originalFile" class="callout warn"><span class="callout-icon" aria-hidden="true">!</span><span>{{ t('Review the transcript to match the trimmed recording. The transcript has not been rewritten.') }}</span></p>
 </fieldset></template>

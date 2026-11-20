@@ -15,11 +15,15 @@ watch([step, created], () => {
 });
 </script>
 <template>
-  <section ref="wizard" class="clone-wizard" aria-labelledby="clone-heading"><h2 id="clone-heading" class="sr-only">{{ t('Add a voice') }}</h2>
-    <ol class="stepper" :aria-label="t('Voice setup progress')"><li v-for="(label, index) in ['Choose an engine', 'Reference recording', 'Review and save']" :key="label" :aria-current="step === index ? 'step' : undefined" :class="{ current: step === index }">{{ index + 1 }}. {{ t(label) }}</li></ol>
+  <section ref="wizard" data-guide="clone-wizard" class="clone-wizard" aria-labelledby="clone-heading"><h2 id="clone-heading" class="sr-only">{{ t('Add a voice') }}</h2>
+    <ol class="stepper" :aria-label="t('Voice setup progress')">
+      <li :aria-current="step === 0 ? 'step' : undefined" :class="{ current: step === 0 }">1. {{ t('Choose an engine') }}</li>
+      <li data-guide="clone-step-reference" :aria-current="step === 1 ? 'step' : undefined" :class="{ current: step === 1 }">2. {{ t('Reference recording') }}</li>
+      <li data-guide="clone-step-review" :aria-current="step === 2 ? 'step' : undefined" :class="{ current: step === 2 }">3. {{ t('Review and save') }}</li>
+    </ol>
     <FeedbackNotice :feedback="feedback"/>
     <form v-if="!created" id="cloneForm" :aria-busy="pending" @submit.prevent="step < 2 ? next() : save()">
-      <CloneEngineStep v-show="step === 0" v-model:provider="provider" v-model:model="model" v-model:language="language" :choices="choices" :providers="providers" :cap="cap" :languages="languages" :ready="engineReady" :disabled="step !== 0 || pending"/>
+      <CloneEngineStep v-show="step === 0" v-model:provider="provider" v-model:model="model" v-model:language="language" :choices="choices" :providers="providers" :cap="cap" :languages="languages" :disabled="step !== 0 || pending"/>
       <CloneReferenceStep v-show="step === 1" v-model:mode="mode" v-model:transcript="transcript" :disabled="step !== 1 || pending" :analyzing="pending && step === 1" :provider="provider" :modes="cap?.clone_modes || []" :file="file" :original-file="originalFile" :metadata="metadata" :limits="limits" :errors="fieldErrors" :needs-transcript="needsTranscript" @select="selectFile" @trim="applyTrim" @restore="restoreOriginal"/>
       <CloneReviewStep v-show="step === 2" v-model:name="name" v-model:consent="consent" :disabled="step !== 2 || pending" :model="model" :language="language" :file-name="file?.name" :errors="fieldErrors"/>
       <div class="toolbar"><button v-if="pending && step === 1" type="button" @click="cancelAnalysis">{{ t('Cancel') }}</button><button v-if="step > 0"  type="button" :disabled="pending" @click="step--; feedback = null">{{ t('Back') }}</button><BaseButton v-if="step < 2" type="submit" variant="primary" :disabled="pending || !cap">{{ t('Continue') }}</BaseButton><BaseButton v-else id="cloneSubmit" type="submit" variant="primary" :loading="pending">{{ t(pending ? 'Cloning…' : 'Clone voice') }}</BaseButton><button v-if="step === 0 && !engineReady" type="button" class="btn-inline" @click="emit('engines')">{{ t('Manage engines') }}</button></div>

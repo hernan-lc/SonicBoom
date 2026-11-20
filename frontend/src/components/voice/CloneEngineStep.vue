@@ -10,7 +10,6 @@ const props = defineProps<{
   providers: ProviderStatus[];
   cap?: Capabilities;
   languages: string[];
-  ready: boolean;
   disabled: boolean;
 }>();
 
@@ -83,7 +82,7 @@ watch(engineOpen, (open) => {
   <fieldset :disabled="disabled">
     <legend class="sr-only">{{ t('Choose an engine') }}</legend>
     <div class="row">
-      <div class="field">
+      <div class="field" data-guide="clone-provider">
         <SearchableSelect
           v-model="provider"
           v-model:query="engineQuery"
@@ -159,8 +158,5 @@ watch(engineOpen, (open) => {
         </template>
       </SearchableSelect>
     </div>
-    <p v-if="!ready" class="help-note">
-      {{ t('You can save a reference now. Enable its engine before previewing or generating audio.') }}
-    </p>
   </fieldset>
 </template>

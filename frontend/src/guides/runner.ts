@@ -13,6 +13,7 @@ export interface RunnerDeps {
   loadDriver?: () => Promise<DriverModule>;
   sleep?: (ms: number) => Promise<void>;
   waitMs?: number;
+  step?: number;
 }
 
 const pollMs = 50;
@@ -52,6 +53,28 @@ async function waitForTarget(
   }
 }
 
+function press(selector: string, doc: RunnerDeps['doc']): void {
+  const element = doc?.querySelector(selector) as HTMLElement | null;
+  if (typeof element?.click === 'function') element.click();
+}
+
+async function prepareSteps(
+  guide: (typeof guides)[number],
+  doc: RunnerDeps['doc'],
+  isVisible: NonNullable<RunnerDeps['isVisible']>,
+  sleep: NonNullable<RunnerDeps['sleep']>,
+  waitMs: number,
+): Promise<boolean[]> {
+  const ready: boolean[] = [];
+  for (const step of guide.steps) {
+    if (step.opens) press(step.opens, doc);
+    ready.push(
+      step.opens ? await waitForTarget(step.target, doc, isVisible, sleep, waitMs) : !!doc?.querySelector(step.target),
+    );
+  }
+  return ready;
+}
+
 export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boolean> {
   const guide = guides.find((item) => item.id === id);
   if (!guide) return false;
@@ -64,8 +87,10 @@ export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boo
 
   if (location.hash !== guide.route) location.hash = guide.route;
 
-  const first = guide.steps[0]?.target;
-  if (first && !(await waitForTarget(first, doc, isVisible, sleep, waitMs))) return false;
+  const ready = await prepareSteps(guide, doc, isVisible, sleep, waitMs);
+  const requested = Number.isInteger(deps.step) ? deps.step! : 0;
+  const start = Math.min(Math.max(requested, 0), Math.max(guide.steps.length - 1, 0));
+  if (!ready.slice(start).some(Boolean)) return false;
 
   let module: DriverModule;
   try {
@@ -75,8 +100,9 @@ export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boo
   }
 
   const steps: DriveStep[] = guide.steps
-    .filter((step) => doc.querySelector(step.target))
-    .map((step) => ({
+    .map((step, index) => ({ step, index }))
+    .filter(({ index }) => index >= start && ready[index])
+    .map(({ step }) => ({
       element: step.target,
       popover: {
         title: t(step.titleKey),

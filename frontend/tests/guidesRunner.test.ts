@@ -125,3 +125,100 @@ test('a failing driver import is handled without rejecting', async () => {
   assert.equal(await startGuide('first-audio', deps), false);
   assert.equal(h.drives.length, 0);
 });
+
+interface OpensHarnessOptions {
+  reveal?: 'now' | 'after-poll' | 'never';
+  step?: number;
+}
+
+function opensHarness(options: OpensHarnessOptions = {}) {
+  const openerSelector = '[data-guide="voice-new"]';
+  const targetSelector = '[data-guide="clone-provider"]';
+  const clicks: string[] = [];
+  const polls: number[] = [];
+  const elements = new Map<string, object>();
+  for (const guide of guides) {
+    for (const step of guide.steps) {
+      if (step.target !== targetSelector) elements.set(step.target, {});
+    }
+  }
+  const opener = {
+    click() {
+      clicks.push(openerSelector);
+      if (options.reveal === 'now') elements.set(targetSelector, {});
+    },
+  };
+  const doc = {
+    querySelector: (selector: string) => (selector === openerSelector ? opener : (elements.get(selector) ?? null)),
+  };
+  const captured: Config[] = [];
+  const drives: number[] = [];
+  const location = { hash: '#/guides' };
+  const loadDriver = async () => ({
+    driver(config: Config) {
+      captured.push(config);
+      return {
+        drive() {
+          drives.push(1);
+          config.onDestroyed?.(undefined, undefined, { reason: 'done' });
+        },
+      };
+    },
+  });
+  return {
+    clicks,
+    polls,
+    captured,
+    drives,
+    location,
+    deps: {
+      doc,
+      location,
+      loadDriver,
+      isVisible: () => true,
+      sleep: async (ms: number) => {
+        polls.push(ms);
+        if (options.reveal === 'after-poll' && polls.length === 2) elements.set(targetSelector, {});
+      },
+      matchMedia: () => ({ matches: false }),
+      waitMs: 100,
+      step: options.step,
+    },
+  };
+}
+
+test('presses opens and waits with 50 ms polls until the step target appears', async () => {
+  localStorage.removeItem(doneKey);
+  const h = opensHarness({ reveal: 'after-poll' });
+  assert.equal(await startGuide('clone-voice', h.deps), true);
+  assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
+  assert.deepEqual(h.polls, [50, 50]);
+  assert.equal(h.location.hash, '#/voices');
+  assert.deepEqual(
+    h.captured[0].steps.map((step) => step.element),
+    guides.find((guide) => guide.id === 'clone-voice')!.steps.map((step) => step.target),
+  );
+});
+
+test('skips a step whose target never appears after pressing opens', async () => {
+  localStorage.removeItem(doneKey);
+  const h = opensHarness({ reveal: 'never' });
+  assert.equal(await startGuide('clone-voice', h.deps), true);
+  assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
+  assert.ok(h.polls.length > 0);
+  assert.deepEqual(
+    h.captured[0].steps.map((step) => step.element),
+    ['[data-guide="voice-new"]', '[data-guide="clone-step-reference"]', '[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]'],
+  );
+});
+
+test('starts a guide at the requested step index', async () => {
+  localStorage.removeItem(doneKey);
+  const h = opensHarness({ reveal: 'now', step: 3 });
+  assert.equal(await startGuide('clone-voice', h.deps), true);
+  assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
+  assert.deepEqual(
+    h.captured[0].steps.map((step) => step.element),
+    ['[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]'],
+  );
+});

@@ -42,20 +42,20 @@ const readiness = computed(() =>
         >{{ provider.effective_device }}</span
       >
     </div>
-    <p class="engine-readiness" :title="readiness">{{ readiness }}</p>
-    <p v-if="provider.active_model" class="engine-active-model">
+    <p data-guide="engine-status" class="engine-readiness" :title="readiness">{{ readiness }}</p>
+    <p v-if="provider.active_model" data-guide="engine-active-model" class="engine-active-model">
       <code>{{ provider.active_model }}</code>
     </p>
     <EngineModelList v-if="models.length" :models="models" :active-model="provider.active_model" />
     <p v-if="switching" role="status" class="help-note">
-      {{ t('Preparing the selected model. This page updates automatically; the first download may take a few minutes.') }}
+      {{ t('Preparing model…') }}
     </p>
     <p v-if="provider.detail" class="engine-detail">{{ t(provider.detail) }}</p>
     <div v-if="studio.schema.value[togglePath]" class="provider-actions">
       <span v-if="capabilities?.languages.length" class="muted">{{
         t('{count} audio languages', { count: capabilities.languages.length })
       }}</span
-      ><button type="button" :disabled="pending" @click="task.run(() => studio.toggleProvider(provider))">
+      ><button data-guide="engine-toggle" type="button" :disabled="pending" @click="task.run(() => studio.toggleProvider(provider))">
         {{ t(pending ? (provider.enabled ? 'Stopping…' : 'Starting…') : provider.enabled ? 'Disable' : 'Enable') }}
       </button>
     </div>
