@@ -260,3 +260,21 @@ skips the GPU probe entirely. `POCKET_GPU_DIAG=1` prints probe RMS/RTF. The
 `disabled`) and did not change the decoder result; it remains for tuning.
 Remaining cost: attempting Vulkan on AMD RADV adds its load/session time (~2 s)
 before falling back, even though no request uses it.
+
+**Superseded (2026-11-20): the default is `cpu` again.** With `auto` as the
+default, the server crashed on startup on AMD RADV: 3 of 3 runs with
+`[providers.pocket_tts] enabled = true` exited with SIGSEGV (139, 139) or
+SIGABRT (134). The gdb backtrace places the fault in Dawn's
+`ComputePassEncoder::APISetPipeline`, called from Pocket's load-time
+`pipeline_probe` → `prefill_voice` (ScatterND kernel). The Supertonic warm-up
+was running Dawn work on another thread at the same moment. The `gpu_session_lock`
+added in this commit only covers Pocket's own loads, so the two WebGPU users
+still overlap. With `SONICBOOM_POCKET_EP=cpu` the same binary started and
+completed Supertonic's warm-up in 2 of 2 runs. Apart from the buffer-cache option,
+this commit leaves the Supertonic path unchanged: the pre-commit `onnx_runtime.rs`,
+combined with the same Pocket code, also crashed with `auto`, and the buffer-cache
+modes (`simple`, `disabled`) did not avoid it.
+
+Follow-up if GPU Pocket is wanted again: serialize every Dawn session `run`
+(Supertonic and Pocket) behind one process-wide lock, not just Pocket's loads.
+Until then, `auto` stays opt-in.

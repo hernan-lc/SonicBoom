@@ -473,7 +473,7 @@ where
         // Reuse only files verified against the trusted manifest.
         match verify_cached_file(filename, &local_path, expected) {
             Ok(true) => {
-                tracing::info!("Already cached (verified): {filename}");
+                tracing::debug!("Already cached (verified): {filename}");
                 paths.insert(filename.to_string(), local_path);
                 downloaded += 1;
                 on_progress(downloaded as f32 / total as f32);

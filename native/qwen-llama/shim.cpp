@@ -3,7 +3,9 @@
 #include "llama.h"
 #include "ggml-backend.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -24,9 +26,23 @@ struct State {
     bool talker = false;
     ~State() { if (ctx) llama_free(ctx); if (model) llama_model_free(model); }
 };
+// llama.cpp prints its model-loading tables (~1,300 lines per start) at INFO
+// straight to stderr, outside SonicBoom's log pipeline. Keep WARN and ERROR,
+// with continuation lines (CONT) following the level of the message they
+// belong to; drop the rest. Backend discovery is reported by sb_qwen_backends.
+void quiet_llama_log(ggml_log_level level, const char * text, void *) {
+    static std::atomic<int> current{GGML_LOG_LEVEL_INFO};
+    if (level != GGML_LOG_LEVEL_CONT) current.store(level);
+    const int shown = current.load();
+    if (shown == GGML_LOG_LEVEL_WARN || shown == GGML_LOG_LEVEL_ERROR) std::fputs(text, stderr);
+}
 void initialize() {
     static std::once_flag once;
-    std::call_once(once, [] { ggml_backend_load_all(); llama_backend_init(); });
+    std::call_once(once, [] {
+        llama_log_set(quiet_llama_log, nullptr);
+        ggml_backend_load_all();
+        llama_backend_init();
+    });
 }
 }
 extern "C" {

@@ -14,7 +14,7 @@ use axum::Router;
 use axum::response::IntoResponse;
 use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::task::JoinHandle;
-use tower_http::trace::{DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer};
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use crate::admin::handlers::AdminState;
@@ -95,8 +95,10 @@ impl ApiServerManager {
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(|request: &axum::http::Request<axum::body::Body>| tracing::info_span!("http_request", method = %request.method(), path = request.uri().path()))
-                    .on_request(DefaultOnRequest::new())
-                    .on_response(DefaultOnResponse::new())
+                    // One access line per request (status + latency) at INFO.
+                    // The start-of-request DEBUG line duplicated it.
+                    .on_request(())
+                    .on_response(DefaultOnResponse::new().level(tracing::Level::INFO))
                     .on_failure(DefaultOnFailure::new()),
             )
     }

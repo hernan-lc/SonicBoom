@@ -318,7 +318,7 @@ pub async fn ensure_pinned_files(
             }
         }
         if valid {
-            tracing::info!("{provider} already cached (verified): '{}'", file.path);
+            tracing::debug!("{provider} already cached (verified): '{}'", file.path);
             done += file.size;
             on_progress(done as f32 / total as f32);
             continue;

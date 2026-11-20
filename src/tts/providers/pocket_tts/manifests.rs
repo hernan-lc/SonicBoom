@@ -12,9 +12,9 @@ pub const POCKET_TTS_PT_MANIFEST: &[(&str, &str, u64)] = &[
         24371,
     ),
     (
-        "onnx/portuguese/flow_lm_flow_int8.onnx",
-        "53c50fc75f892687920c316513715bfbefbdb3b7642786e287c7971df53edb26",
-        9962530,
+        "onnx/portuguese/flow_lm_flow.onnx",
+        "41134866b54ac5d64dda6482a423b09158790f262880286643bdfa3c3929cfd0",
+        39097095,
     ),
     (
         "onnx/portuguese/flow_lm_main_int8.onnx",
@@ -22,9 +22,9 @@ pub const POCKET_TTS_PT_MANIFEST: &[(&str, &str, u64)] = &[
         76341079,
     ),
     (
-        "onnx/portuguese/mimi_decoder_int8.onnx",
-        "691f89f074585c828914cecd5396e30e0e2a14dbfa4890bd1b5806d303daeb4e",
-        22684077,
+        "onnx/portuguese/mimi_decoder.onnx",
+        "e396510a578a817735107c13503e51ca5078ab7ae72a6d9426e33557d4fd3cf9",
+        41471926,
     ),
     (
         "onnx/portuguese/mimi_encoder.onnx",
@@ -55,9 +55,9 @@ pub const POCKET_TTS_DE_MANIFEST: &[(&str, &str, u64)] = &[
         24362,
     ),
     (
-        "onnx/german/flow_lm_flow_int8.onnx",
-        "2b0eb8381c49672ac1050c50221db02033b5dc6c346ab45c67bd05344257f06c",
-        9962530,
+        "onnx/german/flow_lm_flow.onnx",
+        "3b6dceddb6ea594f25d871d5466112b1c7a18bad0ef43b967a7a857b518143a1",
+        39097095,
     ),
     (
         "onnx/german/flow_lm_main_int8.onnx",
@@ -65,9 +65,9 @@ pub const POCKET_TTS_DE_MANIFEST: &[(&str, &str, u64)] = &[
         76341079,
     ),
     (
-        "onnx/german/mimi_decoder_int8.onnx",
-        "3fe868810d66fa0c26bb3ae0d5ee65cae83028c0fe83398bcf3d96478f68083b",
-        22684077,
+        "onnx/german/mimi_decoder.onnx",
+        "e068e4b2a30e721a48171f15f09bdc082ad9f531434e9e2bcee2b2cd4e3e77f6",
+        41471926,
     ),
     (
         "onnx/german/mimi_encoder.onnx",
@@ -98,9 +98,9 @@ pub const POCKET_TTS_IT_MANIFEST: &[(&str, &str, u64)] = &[
         24365,
     ),
     (
-        "onnx/italian/flow_lm_flow_int8.onnx",
-        "21b2bec2f9ae4323fc545a0c7ffb274bdfa925a699fd304ed03aba53e4ca9129",
-        9962530,
+        "onnx/italian/flow_lm_flow.onnx",
+        "3646665d2b64f829d30bb8e6bdcf71802ee16dee8ae9af1ee460510eb8d9898f",
+        39097095,
     ),
     (
         "onnx/italian/flow_lm_main_int8.onnx",
@@ -108,9 +108,9 @@ pub const POCKET_TTS_IT_MANIFEST: &[(&str, &str, u64)] = &[
         76341079,
     ),
     (
-        "onnx/italian/mimi_decoder_int8.onnx",
-        "f120bc5cddca9514c511f128786f5d9e6e6893b067faae5e30f5b2bd5643aa03",
-        22684077,
+        "onnx/italian/mimi_decoder.onnx",
+        "f474670d1494cd8ed43b610c68c90203a01211fac50086ae2aaf3d691af4efbb",
+        41471926,
     ),
     (
         "onnx/italian/mimi_encoder.onnx",
@@ -141,9 +141,9 @@ pub const POCKET_TTS_FR_MANIFEST: &[(&str, &str, u64)] = &[
         42235,
     ),
     (
-        "onnx/french_24l/flow_lm_flow_int8.onnx",
-        "d340c549d5a1e0e7b88a0fb26fcae53c3b76486872f4418398a395bb1bc88701",
-        9962530,
+        "onnx/french_24l/flow_lm_flow.onnx",
+        "0a098e70f4848eac523c27c6719b16aea2ac380abd82595624c397df7f0a4d4a",
+        39097095,
     ),
     (
         "onnx/french_24l/flow_lm_main_int8.onnx",
@@ -151,9 +151,9 @@ pub const POCKET_TTS_FR_MANIFEST: &[(&str, &str, u64)] = &[
         305144125,
     ),
     (
-        "onnx/french_24l/mimi_decoder_int8.onnx",
-        "b329ff3de3aa95455d2dee1cf371943dec269dd8711008017501ca129cb18d8c",
-        22684077,
+        "onnx/french_24l/mimi_decoder.onnx",
+        "7c46912a3e2bf5a6fe372b5f86ff70ea2f5bab26dcc28f6f9603b2b24b3d714a",
+        41471926,
     ),
     (
         "onnx/french_24l/mimi_encoder.onnx",

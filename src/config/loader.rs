@@ -99,13 +99,25 @@ pub fn parse_toml(text: &str) -> Result<AppConfig, ConfigError> {
             }
         }
     }
-    let config: AppConfig = toml::from_str(text).map_err(|e| {
+    let mut config: AppConfig = toml::from_str(text).map_err(|e| {
         ConfigError::invalid(
             "config.toml",
             format!("invalid configuration: {}", e.message()),
         )
     })?;
+    migrate_legacy_defaults(&mut config);
     Ok(config)
+}
+
+/// Replace values that earlier releases persisted as defaults and that are
+/// now known to be wrong. Every settings save writes the whole config, so a
+/// stored `0.7` Pocket temperature is almost always the old default, not a
+/// choice: it made speech noisier than upstream Kyutai's `0.3`.
+fn migrate_legacy_defaults(config: &mut AppConfig) {
+    let pocket = &mut config.providers.pocket_tts;
+    if (pocket.temperature - crate::config::model::LEGACY_POCKET_TEMPERATURE).abs() < 1e-4 {
+        pocket.temperature = AppConfig::default().providers.pocket_tts.temperature;
+    }
 }
 
 fn record_default_sources(sources: &mut HashMap<String, ConfigSource>) {
@@ -946,6 +958,24 @@ strictness = 3
             Some("qwen3-tts-0.6b-base")
         );
         assert!(!config.providers.qwen3_gguf.enabled);
+    }
+
+    #[test]
+    fn legacy_pocket_temperature_default_migrates_to_upstream() {
+        let legacy = "[providers.pocket_tts]\ntemperature = 0.699999988079071\n";
+        assert_eq!(
+            parse_toml(legacy).unwrap().providers.pocket_tts.temperature,
+            0.3
+        );
+        let chosen = "[providers.pocket_tts]\ntemperature = 0.5\n";
+        assert_eq!(
+            parse_toml(chosen).unwrap().providers.pocket_tts.temperature,
+            0.5
+        );
+        assert_eq!(
+            parse_toml("").unwrap().providers.pocket_tts.temperature,
+            0.3
+        );
     }
 
     #[test]
