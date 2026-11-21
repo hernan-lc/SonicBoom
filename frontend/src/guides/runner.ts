@@ -2,6 +2,7 @@ import { t } from '../i18n';
 import { markGuideDone } from './progress';
 import { guides } from './registry';
 import type { Config, DriveStep, Driver } from 'driver.js';
+import type { GuideStep } from './types';
 
 type DriverModule = typeof import('driver.js');
 
@@ -37,42 +38,45 @@ function visible(element: Element): boolean {
   }
 }
 
-async function waitForTarget(
-  target: string,
-  doc: RunnerDeps['doc'],
-  isVisible: NonNullable<RunnerDeps['isVisible']>,
-  sleep: NonNullable<RunnerDeps['sleep']>,
-  waitMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    const element = doc?.querySelector(target);
-    if (element && isVisible(element)) return true;
-    if (Date.now() >= deadline) return false;
-    await sleep(pollMs);
-  }
-}
-
 function press(selector: string, doc: RunnerDeps['doc']): void {
   const element = doc?.querySelector(selector) as HTMLElement | null;
   if (typeof element?.click === 'function') element.click();
 }
 
-async function prepareSteps(
-  guide: (typeof guides)[number],
-  doc: RunnerDeps['doc'],
-  isVisible: NonNullable<RunnerDeps['isVisible']>,
-  sleep: NonNullable<RunnerDeps['sleep']>,
-  waitMs: number,
-): Promise<boolean[]> {
-  const ready: boolean[] = [];
-  for (const step of guide.steps) {
-    if (step.opens) press(step.opens, doc);
-    ready.push(
-      step.opens ? await waitForTarget(step.target, doc, isVisible, sleep, waitMs) : !!doc?.querySelector(step.target),
-    );
+interface Ctx {
+  doc: NonNullable<RunnerDeps['doc']>;
+  isVisible: NonNullable<RunnerDeps['isVisible']>;
+  sleep: NonNullable<RunnerDeps['sleep']>;
+  waitMs: number;
+}
+
+/**
+ * Wait for a step's target to be visible. If it has an opener (a dialog button, a collapsed
+ * panel), press it once, as soon as the opener itself is on screen: after a route change the
+ * page may not have rendered yet, and pressing twice would close what the first press opened.
+ */
+async function reveal(step: GuideStep, opener: string | undefined, ctx: Ctx): Promise<boolean> {
+  const deadline = Date.now() + ctx.waitMs;
+  let pressed = false;
+  for (;;) {
+    const target = ctx.doc.querySelector(step.target);
+    if (target && ctx.isVisible(target)) return true;
+    if (opener && !pressed) {
+      const control = ctx.doc.querySelector(opener);
+      if (control && ctx.isVisible(control)) {
+        press(opener, ctx.doc);
+        pressed = true;
+      }
+    }
+    if (Date.now() >= deadline) return false;
+    await ctx.sleep(pollMs);
   }
-  return ready;
+}
+
+/** The control that must be pressed to reach `index`: its own opener or the closest earlier one. */
+function openerFor(steps: GuideStep[], index: number): string | undefined {
+  for (let i = index; i >= 0; i--) if (steps[i].opens) return steps[i].opens;
+  return undefined;
 }
 
 export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boolean> {
@@ -87,10 +91,14 @@ export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boo
 
   if (location.hash !== guide.route) location.hash = guide.route;
 
-  const ready = await prepareSteps(guide, doc, isVisible, sleep, waitMs);
-  const requested = Number.isInteger(deps.step) ? deps.step! : 0;
+  const ctx: Ctx = { doc, isVisible, sleep, waitMs };
+  const requested = Number.isInteger(deps.step) ? (deps.step as number) : 0;
   const start = Math.min(Math.max(requested, 0), Math.max(guide.steps.length - 1, 0));
-  if (!ready.slice(start).some(Boolean)) return false;
+  let first = -1;
+  for (let index = start; index < guide.steps.length && first < 0; index++) {
+    if (await reveal(guide.steps[index], openerFor(guide.steps, index), ctx)) first = index;
+  }
+  if (first < 0) return false;
 
   let module: DriverModule;
   try {
@@ -99,18 +107,28 @@ export async function startGuide(id: string, deps: RunnerDeps = {}): Promise<boo
     return false;
   }
 
-  const steps: DriveStep[] = guide.steps
-    .map((step, index) => ({ step, index }))
-    .filter(({ index }) => index >= start && ready[index])
-    .map(({ step }) => ({
+  const shown = guide.steps.slice(first);
+  const steps: DriveStep[] = shown.map((step, index) => {
+    const next = shown[index + 1];
+    return {
       element: step.target,
       popover: {
         title: t(step.titleKey),
         description: t(step.textKey),
         side: step.side,
+        // A later step may live behind a control (a dialog, a collapsed panel): press it only
+        // now, so the steps before it still point at what the reader is looking at.
+        ...(next?.opens
+          ? {
+              onNextClick: async (_element, _step, { driver }) => {
+                await reveal(next, next.opens, ctx);
+                driver.moveNext();
+              },
+            }
+          : {}),
       },
-    }));
-  if (!steps.length) return false;
+    };
+  });
 
   const query = '(prefers-reduced-motion: reduce)';
   const reduceMotion = deps.matchMedia

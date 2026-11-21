@@ -117,6 +117,7 @@ export const guides: Guide[] = [
         target: '[data-guide="pronunciation-mode"]',
         titleKey: 'Pronunciation mode',
         textKey: 'Choose automatic normalization or keep the original text.',
+        opens: '[data-guide="pronunciation-toggle"]',
         side: 'bottom',
       },
       {

@@ -83,14 +83,14 @@ test('a missing first target ends the guide without loading driver.js', async ()
   assert.equal(h.captured.length, 0);
 });
 
-test('steps without a target are ignored and the rest still run', async () => {
+test('steps that are not on screen yet stay in the tour and Driver skips them if they never appear', async () => {
   localStorage.removeItem(doneKey);
   const h = harness({ available: ['[data-guide="first-audio-text"]', '[data-guide="first-audio-generate"]'] });
   assert.equal(await startGuide('first-audio', h.deps), true);
-  assert.deepEqual(
-    h.captured[0].steps.map((step) => step.element),
-    ['[data-guide="first-audio-text"]', '[data-guide="first-audio-generate"]'],
-  );
+  const guide = guides.find((item) => item.id === 'first-audio')!;
+  // The result player only exists after generating, so every step is kept for Driver to resolve.
+  assert.deepEqual(h.captured[0].steps.map((step) => step.element), guide.steps.map((step) => step.target));
+  assert.equal(h.captured[0].skipMissingElement, true);
   assert.deepEqual(completedGuides(), ['first-audio']);
 });
 
@@ -126,99 +126,115 @@ test('a failing driver import is handled without rejecting', async () => {
   assert.equal(h.drives.length, 0);
 });
 
-interface OpensHarnessOptions {
-  reveal?: 'now' | 'after-poll' | 'never';
+interface OpensOptions {
+  /** `visible`: the target is already on screen; `hidden`: pressing the opener reveals it; `never`: it never appears. */
+  state: 'visible' | 'hidden' | 'never';
   step?: number;
 }
 
-function opensHarness(options: OpensHarnessOptions = {}) {
-  const openerSelector = '[data-guide="voice-new"]';
-  const targetSelector = '[data-guide="clone-provider"]';
-  const clicks: string[] = [];
-  const polls: number[] = [];
+/** A page where `voice-new` opens the dialog that holds the later steps, with a mocked Driver. */
+function opensHarness({ state, step }: OpensOptions) {
+  const opener = '[data-guide="voice-new"]';
+  const modalSelectors = new Set(['[data-guide="clone-provider"]', '[data-guide="clone-step-reference"]', '[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]']);
   const elements = new Map<string, object>();
-  for (const guide of guides) {
-    for (const step of guide.steps) {
-      if (step.target !== targetSelector) elements.set(step.target, {});
-    }
-  }
-  const opener = {
-    click() {
-      clicks.push(openerSelector);
-      if (options.reveal === 'now') elements.set(targetSelector, {});
-    },
-  };
-  const doc = {
-    querySelector: (selector: string) => (selector === openerSelector ? opener : (elements.get(selector) ?? null)),
-  };
+  for (const guide of guides) for (const item of guide.steps) elements.set(item.target, {});
+  if (state !== 'visible') for (const selector of modalSelectors) elements.delete(selector);
+  const clicks: string[] = [];
+  const moves: number[] = [];
   const captured: Config[] = [];
-  const drives: number[] = [];
   const location = { hash: '#/guides' };
+  const doc = {
+    querySelector: (selector: string) =>
+      selector === opener
+        ? { click: () => { clicks.push(opener); if (state === 'hidden') for (const m of modalSelectors) elements.set(m, {}); } }
+        : (elements.get(selector) ?? null),
+  };
   const loadDriver = async () => ({
     driver(config: Config) {
       captured.push(config);
-      return {
-        drive() {
-          drives.push(1);
-          config.onDestroyed?.(undefined, undefined, { reason: 'done' });
-        },
-      };
+      return { drive() {}, moveNext() { moves.push(1); } };
     },
   });
-  return {
-    clicks,
-    polls,
-    captured,
-    drives,
-    location,
-    deps: {
-      doc,
-      location,
-      loadDriver,
-      isVisible: () => true,
-      sleep: async (ms: number) => {
-        polls.push(ms);
-        if (options.reveal === 'after-poll' && polls.length === 2) elements.set(targetSelector, {});
-      },
-      matchMedia: () => ({ matches: false }),
-      waitMs: 100,
-      step: options.step,
-    },
+  const deps = {
+    doc, location, loadDriver, isVisible: () => true, sleep: async () => {}, matchMedia: () => ({ matches: false }), waitMs: 100, step,
   };
+  const guide = guides.find((item) => item.id === 'clone-voice')!;
+  let result: Promise<boolean> = Promise.resolve(false);
+  /** Starts the guide and returns once Driver has been created (the guide itself stays open). */
+  async function begin() {
+    result = startGuide('clone-voice', deps);
+    while (!captured.length) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  async function pressNext(index: number) {
+    const hook = captured[0].steps![index].popover!.onNextClick as (e: undefined, s: object, o: { driver: { moveNext(): void } }) => Promise<void>;
+    await hook(undefined, {}, { driver: { moveNext: () => moves.push(1) } });
+  }
+  return { clicks, moves, captured, location, begin, pressNext, guide, finish: async () => { captured[0].onDestroyed?.(undefined, undefined, { reason: 'done' } as never); await result; } };
 }
 
-test('presses opens and waits with 50 ms polls until the step target appears', async () => {
+test('nothing is pressed when the guide starts, so the first step still shows the opener', async () => {
   localStorage.removeItem(doneKey);
-  const h = opensHarness({ reveal: 'after-poll' });
-  assert.equal(await startGuide('clone-voice', h.deps), true);
-  assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
-  assert.deepEqual(h.polls, [50, 50]);
+  const h = opensHarness({ state: 'hidden' });
+  await h.begin();
+  assert.deepEqual(h.clicks, [], 'the dialog must stay closed under step 1');
   assert.equal(h.location.hash, '#/voices');
-  assert.deepEqual(
-    h.captured[0].steps.map((step) => step.element),
-    guides.find((guide) => guide.id === 'clone-voice')!.steps.map((step) => step.target),
-  );
+  assert.deepEqual(h.captured[0].steps!.map((step) => step.element), h.guide.steps.map((step) => step.target));
+  assert.equal(typeof h.captured[0].steps![0].popover!.onNextClick, 'function', 'the step before an opener presses it');
+  assert.equal(h.captured[0].steps![1].popover!.onNextClick, undefined, 'only steps before an opener are intercepted');
+  await h.finish();
 });
 
-test('skips a step whose target never appears after pressing opens', async () => {
-  localStorage.removeItem(doneKey);
-  const h = opensHarness({ reveal: 'never' });
-  assert.equal(await startGuide('clone-voice', h.deps), true);
+test('moving to a step with opens presses the control, then advances', async () => {
+  const h = opensHarness({ state: 'hidden' });
+  await h.begin();
+  await h.pressNext(0);
   assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
-  assert.ok(h.polls.length > 0);
-  assert.deepEqual(
-    h.captured[0].steps.map((step) => step.element),
-    ['[data-guide="voice-new"]', '[data-guide="clone-step-reference"]', '[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]'],
-  );
+  assert.equal(h.moves.length, 1);
+  await h.finish();
 });
 
-test('starts a guide at the requested step index', async () => {
-  localStorage.removeItem(doneKey);
-  const h = opensHarness({ reveal: 'now', step: 3 });
-  assert.equal(await startGuide('clone-voice', h.deps), true);
+test('an opener is not pressed when the target is already visible (no toggling a panel shut)', async () => {
+  const h = opensHarness({ state: 'visible' });
+  await h.begin();
+  await h.pressNext(0);
+  assert.deepEqual(h.clicks, []);
+  assert.equal(h.moves.length, 1);
+  await h.finish();
+});
+
+test('a target that never appears still lets the guide move on (Driver skips the missing step)', async () => {
+  const h = opensHarness({ state: 'never' });
+  await h.begin();
+  await h.pressNext(0);
   assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
-  assert.deepEqual(
-    h.captured[0].steps.map((step) => step.element),
-    ['[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]'],
-  );
+  assert.equal(h.moves.length, 1);
+  assert.equal(h.captured[0].skipMissingElement, true);
+  await h.finish();
+});
+
+test('starting inside a dialog presses the closest earlier opener first', async () => {
+  const h = opensHarness({ state: 'hidden', step: 3 });
+  await h.begin();
+  assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
+  assert.deepEqual(h.captured[0].steps!.map((step) => step.element), ['[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]']);
+  await h.finish();
+});
+
+test('a collapsed panel is opened by the pronunciation guide and left alone when already open', async () => {
+  const toggle = '[data-guide="pronunciation-toggle"]';
+  const first = '[data-guide="pronunciation-mode"]';
+  for (const open of [false, true]) {
+    const clicks: string[] = [];
+    const elements = new Map<string, object>();
+    for (const guide of guides) for (const item of guide.steps) if (open || item.target !== first) elements.set(item.target, {});
+    const doc = {
+      querySelector: (selector: string) =>
+        selector === toggle ? { click: () => { clicks.push(toggle); elements.set(first, {}); } } : (elements.get(selector) ?? null),
+    };
+    const captured: Config[] = [];
+    const loadDriver = async () => ({ driver(config: Config) { captured.push(config); return { drive() { config.onDestroyed?.(undefined, undefined, { reason: 'done' } as never); }, moveNext() {} }; } });
+    const result = await startGuide('pronunciation', { doc, location: { hash: '' }, loadDriver, isVisible: () => true, sleep: async () => {}, matchMedia: () => ({ matches: false }), waitMs: 100 });
+    assert.equal(result, true);
+    assert.deepEqual(clicks, open ? [] : [toggle]);
+  }
 });
