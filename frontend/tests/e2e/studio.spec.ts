@@ -36,6 +36,17 @@ test('the reference editor draws the waveform and its trim handles navigate by k
   await expect(start).toHaveAttribute('aria-valuenow', '0');
   await expect(page.getByRole('button', { name: 'Preview selection', exact: true })).toBeVisible();
 });
+test('reference transcript can be filled from the WAV', async ({ page }) => {
+  const fixture = await studioFixtures(page);
+  await page.goto('/tests/e2e/index.html');
+  await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
+  await page.getByRole('button', { name: 'New voice', exact: true }).first().click();
+  await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'reference.wav', mimeType: 'audio/wav', buffer: wav(5) });
+  await page.getByRole('button', { name: 'Transcribe', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Exact transcript', exact: false })).toHaveValue('Transcribed reference');
+  expect(fixture.asrCalls()).toBe(1);
+  expect((await analyze(page)).violations).toEqual([]);
+});
 test('cloning upload, retained report and keyboard delete dialog', async ({ page }) => {
   const fixture = await studioFixtures(page);
   await page.goto('/tests/e2e/index.html');

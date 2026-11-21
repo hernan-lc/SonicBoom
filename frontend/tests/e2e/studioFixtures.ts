@@ -24,6 +24,8 @@ export async function studioFixtures(page: Page) {
     { path: 'providers.reverb_tts.model_id', description: 'Model', type: 'string', apply: 'reload_model', allowed_values: ['reverb-tts'], nullable: false, secret: false },
   ];
   const requests: { url: string; body?: string }[] = [];
+  let asrCalls = 0;
+  const asrStatus = { state: 'ready', model: 'fluid-speech-pro', revision: 'test', progress: null, error: null, max_duration_seconds: 30 };
   await page.route(/\/(api|v1)\//, async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
@@ -38,6 +40,11 @@ export async function studioFixtures(page: Page) {
       patches++;
       config.model.inference_steps = 7; revision++;
       return json({ error: 'conflict', message: 'Revision changed', status: 409, request_id: 'test-config-conflict' }, 409);
+    }
+    if (path === '/api/asr/status' || path === '/api/asr/prepare') return json(asrStatus);
+    if (path === '/api/asr') {
+      asrCalls++;
+      return json({ text: 'Transcribed reference', language: 'en', duration: 5, model: 'fluid-speech-pro' });
     }
     if (path === '/api/voices/constraints') return json({ version: 1, max_upload_bytes: config.voices.max_upload_bytes, min_sample_rate: 8000, max_sample_rate: 192000, max_channels: 2, name_max_chars: 64, transcript_max_chars: 10000, providers: { 'reverb-tts': { duration_seconds: [1, 30], clone_modes: ['icl'], models: ['reverb-tts'], languages: ['en'], transcript_required_for: ['icl'] } } });
     if (path === '/api/voices') return json({ data: voices });
@@ -55,5 +62,5 @@ export async function studioFixtures(page: Page) {
     if (/\/api\/tts\/jobs\/[^/]+$/.test(path)) return json({ id: path.split('/').pop(), stage: 'completed', audio_secs: 1, elapsed_secs: 1, frames: 1, context: { provider: 'supertonic', model: 'supertonic-3', voice: 'builtin', effective_device: 'cpu' } });
     return json({ error: 'not_found', message: path }, 404);
   });
-  return { requests, jobs: () => jobs, patches: () => patches };
+  return { requests, jobs: () => jobs, patches: () => patches, asrCalls: () => asrCalls };
 }

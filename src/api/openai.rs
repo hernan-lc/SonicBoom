@@ -401,7 +401,7 @@ async fn post_speech_inner(
 /// is not compiled or ready. This endpoint is not a readiness guarantee.
 /// Synthesis returns 503 for feature-disabled providers.
 pub async fn get_models() -> impl IntoResponse {
-    let data: Vec<serde_json::Value> = SUPPORTED_OPENAI_MODELS
+    let mut data: Vec<serde_json::Value> = SUPPORTED_OPENAI_MODELS
         .iter()
         .map(|id| {
             let owned_by = match model_provider(id) {
@@ -419,6 +419,18 @@ pub async fn get_models() -> impl IntoResponse {
             })
         })
         .collect();
+    // ASR is additive metadata: it is not in SUPPORTED_OPENAI_MODELS, so TTS
+    // clients never resolve it as a speech model and existing ids are unchanged.
+    data.push(serde_json::json!({
+        "id": sonicboom::asr::MODEL_ID,
+        "object": "model",
+        "created": 1704067200,
+        "owned_by": "local:asr",
+        "capabilities": ["asr"],
+        "permission": [],
+        "root": sonicboom::asr::MODEL_ID,
+        "parent": null,
+    }));
     let body = serde_json::json!({ "object": "list", "data": data }).to_string();
     (
         StatusCode::OK,

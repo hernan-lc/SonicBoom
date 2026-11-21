@@ -5,6 +5,7 @@
 //! inference, and audio encoding for other runtimes such as the TikTools
 //! process plugin.
 
+pub mod asr;
 pub mod engine;
 pub mod native_log;
 pub mod onnx_runtime;

@@ -633,25 +633,6 @@ pub async fn get_constraints(
         "recommended_audio_seconds":[5,10],"providers":providers}))
 }
 
-/// Media type without parameters, lowercased (`Audio/Vnd.Wave; charset=binary` -> `audio/vnd.wave`).
-fn media_essence(media: &str) -> String {
-    media
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase()
-}
-
-/// Names clients use for a WAV file. Firefox on Linux reports `.wav` as `audio/vnd.wave`,
-/// other systems use `audio/wave` or `audio/x-wav`; the contents are validated afterwards.
-fn is_wav_media_type(media: &str) -> bool {
-    matches!(
-        media,
-        "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" | "audio/x-pn-wav"
-    )
-}
-
 /// `POST /api/voices/clones?name=..&provider=..&model=..&language=..`: upload
 /// a reference WAV (`Content-Type: audio/wav`) and create a voice profile.
 pub async fn post_clones(
@@ -703,8 +684,13 @@ async fn post_clone_upload(
             let name = field.name().unwrap_or("").to_string();
             if name == "file"
                 && !field.content_type().is_none_or(|media| {
-                    let media = media_essence(media);
-                    media == "application/octet-stream" || is_wav_media_type(&media)
+                    super::is_wav_media_type(media)
+                        || media
+                            .split(';')
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .eq_ignore_ascii_case("application/octet-stream")
                 })
             {
                 return Err(AppError::UnsupportedMediaType(
@@ -815,7 +801,7 @@ async fn post_clones_inner(
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    if !is_wav_media_type(&content_type) {
+    if !super::is_wav_media_type(&content_type) {
         return Err(AppError::UnsupportedMediaType(format!(
             "unsupported reference media '{content_type}' \
              (expected Content-Type: audio/wav with WAV contents; \

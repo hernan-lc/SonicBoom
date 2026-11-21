@@ -288,6 +288,25 @@ curl http://localhost:17842/api/status
 
 ---
 
+## Speech-to-Text API
+
+Requires Bearer token. WAV only (aliases `audio/wav`, `audio/x-wav`,
+`audio/wave`, `audio/vnd.wave`); multipart `file` plus optional `language`.
+See [ASR](asr.md) for limits, license and benchmarks.
+
+| Method | Endpoint | Response |
+| ------ | -------- | -------- |
+| `POST` | `/api/asr` | `{ "text": "...", "language": "es", "duration": 5.9, "model": "fluid-speech-pro" }` |
+| `POST` | `/v1/audio/transcriptions` | OpenAI-compatible; `response_format` = `json` (default), `text`, `verbose_json` |
+| `GET`  | `/api/asr/status` | `{ state: absent\|downloading\|loading\|ready\|failed, ... }` |
+| `POST` | `/api/asr/prepare` | Starts the lazy download/load; returns the status |
+
+Over 30 s returns `400` (configurable with `SONICBOOM_ASR_MAX_SECONDS`); body
+over 8 MiB returns `413`; non-WAV media returns `415`. Missing/invalid token
+is `401`, rate-limited requests are `429`. One transcription runs at a time.
+
+---
+
 ## Audio Queue API
 
 The Audio Queue API allows you to play audio files directly on the server's audio output (e.g., speakers) and manage a playback queue.

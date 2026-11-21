@@ -1,3 +1,4 @@
+pub mod asr;
 #[cfg(feature = "playback")]
 pub mod audio;
 pub mod config_api;
@@ -21,6 +22,21 @@ use axum::{
     extract::DefaultBodyLimit,
     routing::{get, post},
 };
+
+/// WAV media-type aliases accepted by upload endpoints. Compares the MIME
+/// type without parameters, case-insensitively.
+pub(crate) fn is_wav_media_type(value: &str) -> bool {
+    let mime = value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    matches!(
+        mime.as_str(),
+        "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" | "audio/x-pn-wav"
+    )
+}
 
 /// Build the API router. Body limits are read live
 /// from the configuration so limit changes apply
@@ -74,10 +90,21 @@ pub async fn router(state: AppState) -> Router {
         .route("/api/tts/jobs/{id}/cancel", post(jobs::cancel))
         .route("/api/tts/jobs/{id}/audio", get(jobs::audio))
         .route("/api/status", get(tts::get_status))
+        // Local speech-to-text (lazy model, one transcription at a time).
+        .route(
+            "/api/asr",
+            post(asr::post_asr).route_layer(DefaultBodyLimit::max(asr::ASR_BODY_LIMIT)),
+        )
+        .route("/api/asr/status", get(asr::get_status))
+        .route("/api/asr/prepare", post(asr::post_prepare))
         // OpenAI-compatible endpoints
         .route(
             "/v1/audio/speech",
             post(openai::post_speech).route_layer(DefaultBodyLimit::max(openai_body_limit)),
+        )
+        .route(
+            "/v1/audio/transcriptions",
+            post(asr::post_transcription).route_layer(DefaultBodyLimit::max(asr::ASR_BODY_LIMIT)),
         )
         .route("/v1/models", get(openai::get_models))
         .route("/v1/models/list", get(openai::get_models))
@@ -1179,11 +1206,24 @@ mod tests {
         let metadata = serde_json::json!({"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"hello there","expected_revision":0}).to_string();
         // A stale revision answers 409 only after the media type was accepted, so the status
         // tells the aliases apart from a rejected type without needing a real recording.
-        for mime in ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave", "Audio/Vnd.Wave; charset=binary", "application/octet-stream"] {
+        for mime in [
+            "audio/wav",
+            "audio/x-wav",
+            "audio/wave",
+            "audio/vnd.wave",
+            "Audio/Vnd.Wave; charset=binary",
+            "application/octet-stream",
+        ] {
             let body = multipart_body(&metadata, b"invalid", mime, "");
             let response = app
                 .clone()
-                .oneshot(raw_request("POST", "/api/voices/clones", Some(&token), "multipart/form-data; boundary=bound", &body))
+                .oneshot(raw_request(
+                    "POST",
+                    "/api/voices/clones",
+                    Some(&token),
+                    "multipart/form-data; boundary=bound",
+                    &body,
+                ))
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::CONFLICT, "{mime}");
@@ -1192,10 +1232,20 @@ mod tests {
             let body = multipart_body(&metadata, b"invalid", mime, "");
             let response = app
                 .clone()
-                .oneshot(raw_request("POST", "/api/voices/clones", Some(&token), "multipart/form-data; boundary=bound", &body))
+                .oneshot(raw_request(
+                    "POST",
+                    "/api/voices/clones",
+                    Some(&token),
+                    "multipart/form-data; boundary=bound",
+                    &body,
+                ))
                 .await
                 .unwrap();
-            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE, "{mime}");
+            assert_eq!(
+                response.status(),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "{mime}"
+            );
         }
         // The raw-body route accepts the same names.
         let url = "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=ja&mode=icl&consent_basis=owner&transcript=hello";
@@ -1856,5 +1906,272 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn asr_multipart(parts: &[(&str, &str, &[u8])]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (name, mime, value) in parts {
+            body.extend(
+                format!(
+                    "--asr\r\nContent-Disposition: form-data; name=\"{name}\"\r\nContent-Type: {mime}\r\n\r\n"
+                )
+                .as_bytes(),
+            );
+            body.extend(*value);
+            body.extend(b"\r\n");
+        }
+        body.extend(b"--asr--\r\n");
+        body
+    }
+
+    const ASR_FORM: &str = "multipart/form-data; boundary=asr";
+
+    #[test]
+    fn wav_media_type_accepts_all_aliases_and_rejects_others() {
+        for alias in [
+            "audio/wav",
+            "AUDIO/X-WAV",
+            "audio/wave; charset=binary",
+            "audio/vnd.wave",
+        ] {
+            assert!(super::is_wav_media_type(alias), "{alias}");
+        }
+        for other in [
+            "audio/mpeg",
+            "application/json",
+            "audio/flac",
+            "audio/wavish",
+        ] {
+            assert!(!super::is_wav_media_type(other), "{other}");
+        }
+    }
+
+    #[tokio::test]
+    async fn asr_routes_require_authentication() {
+        let (app, _) = test_app().await;
+        for (method, uri) in [
+            ("POST", "/api/asr"),
+            ("POST", "/api/asr/prepare"),
+            ("GET", "/api/asr/status"),
+            ("POST", "/v1/audio/transcriptions"),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(
+                app.clone().oneshot(request).await.unwrap().status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn asr_validates_media_types_and_fields_before_loading_the_model() {
+        let (app, valid) = test_app().await;
+        let post = |uri: &'static str, mime: &'static str, body: Vec<u8>| {
+            raw_request("POST", uri, Some(&valid), mime, &body)
+        };
+        // Top-level media type must be WAV (or multipart); JSON is 415.
+        assert_eq!(
+            app.clone()
+                .oneshot(post("/api/asr", "application/json", b"{}".to_vec()))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        // All four WAV aliases reach WAV validation (400), not 415.
+        for mime in ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(post("/api/asr", mime, b"garbage".to_vec()))
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::BAD_REQUEST,
+                "alias {mime}"
+            );
+        }
+        assert_eq!(
+            app.clone()
+                .oneshot(post(
+                    "/v1/audio/transcriptions",
+                    ASR_FORM,
+                    asr_multipart(&[("file", "audio/mpeg", b"garbage")]),
+                ))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "non-WAV multipart part"
+        );
+        let cases: Vec<(&'static str, Vec<u8>)> = vec![
+            ("missing file", asr_multipart(&[])),
+            (
+                "undecodable WAV",
+                asr_multipart(&[("file", "audio/wav", b"garbage")]),
+            ),
+            (
+                "bad response_format",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("response_format", "text/plain", b"srt"),
+                ]),
+            ),
+            (
+                "unsupported temperature",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("temperature", "text/plain", b"0.5"),
+                ]),
+            ),
+            (
+                "streaming",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("stream", "text/plain", b"true"),
+                ]),
+            ),
+            (
+                "timestamps",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("timestamp_granularities[]", "text/plain", b"word"),
+                ]),
+            ),
+            (
+                "bad model",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("model", "text/plain", b"tts-1"),
+                ]),
+            ),
+            (
+                "bad language",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("language", "text/plain", b"xx"),
+                ]),
+            ),
+            (
+                "duplicate file",
+                asr_multipart(&[
+                    ("file", "audio/wav", b"garbage"),
+                    ("file", "audio/wav", b"garbage"),
+                ]),
+            ),
+        ];
+        for (name, body) in cases {
+            let request = post("/v1/audio/transcriptions", ASR_FORM, body);
+            assert_eq!(
+                app.clone().oneshot(request).await.unwrap().status(),
+                StatusCode::BAD_REQUEST,
+                "{name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn asr_oversized_upload_is_413() {
+        let (app, valid) = test_app().await;
+        let big = vec![0u8; asr::ASR_BODY_LIMIT + 1];
+        let request = raw_request("POST", "/api/asr", Some(&valid), "audio/wav", &big);
+        assert_eq!(
+            app.oneshot(request).await.unwrap().status(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[tokio::test]
+    async fn asr_rate_limit_carries_retry_headers() {
+        let path = std::env::temp_dir().join(format!(
+            "sonicboom-asr-ratelimit-{}-{}.json",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let store = TokenStore::load(path.to_str().unwrap()).await.unwrap();
+        let (_token, raw) = store.create(None).await.unwrap();
+        let mut config = test_config();
+        config.rate_limit.requests = 1;
+        config.rate_limit.burst = 1;
+        let state = AppState {
+            model_status: Arc::new(RwLock::new(ModelStatus::Idle)),
+            token_store: Arc::new(store),
+            config: ConfigManager::in_memory(config),
+            audio_manager: Arc::new(None),
+            inference_gate: Arc::new(InferenceGateManager::new(gate::InferenceGate::new(1, 8))),
+            rate_limiter: Arc::new(RateLimiterManager::new(rate_limit::RateLimiter::new(1, 60))),
+            model_service: Arc::new(ModelService::new(Arc::new(RwLock::new(ModelStatus::Idle)))),
+            providers: Arc::new(sonicboom::tts::providers::ProviderPool::new()),
+            secrets: Arc::new(MemorySecretStore::default()),
+        };
+        let _ = std::fs::remove_file(&path);
+        let app = router(state).await;
+        let request = raw_request("POST", "/api/asr", Some(&raw), "application/json", b"{}");
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        let request = raw_request("POST", "/api/asr", Some(&raw), "application/json", b"{}");
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get("retry-after").unwrap(), "60");
+        assert_eq!(body_json(response).await["error"], "too_many_requests");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs pinned ASR weights in SONICBOOM_ASR_MODEL_DIR"]
+    async fn asr_endpoints_with_real_model() {
+        let wav = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ldc93s1.wav"
+        ))
+        .unwrap();
+        let (app, valid) = test_app().await;
+        let form = asr_multipart(&[
+            ("file", "audio/wav", &wav),
+            ("language", "text/plain", b"en"),
+        ]);
+        let request = raw_request("POST", "/api/asr", Some(&valid), ASR_FORM, &form);
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(
+            body["text"],
+            "She had your duck suit and greasy washwater all year."
+        );
+        assert_eq!(body["language"], "en");
+        assert_eq!(body["model"], "fluid-speech-pro");
+        assert!(body["duration"].as_f64().unwrap() > 2.9);
+
+        let form = asr_multipart(&[
+            ("file", "audio/wav", &wav),
+            ("model", "text/plain", b"whisper-1"),
+            ("response_format", "text/plain", b"verbose_json"),
+            ("prompt", "text/plain", b"ignored"),
+        ]);
+        let request = raw_request(
+            "POST",
+            "/v1/audio/transcriptions",
+            Some(&valid),
+            ASR_FORM,
+            &form,
+        );
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["model"], "fluid-speech-pro");
+        assert_eq!(body["segments"].as_array().unwrap().len(), 0);
+
+        let request = Request::get("/api/asr/status")
+            .header("authorization", format!("Bearer {valid}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_json(response).await["state"], "ready");
     }
 }

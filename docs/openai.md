@@ -14,6 +14,7 @@ The OpenAI-compatible API follows the same request/response format as OpenAI's `
 | `GET` | `/v1/models` | List available models |
 | `GET` | `/v1/models/list` | List available models (alias) |
 | `GET` | `/v1/voices` | List available voices |
+| `POST` | `/v1/audio/transcriptions` | Transcribe WAV (multipart); see [ASR](asr.md) |
 
 ---
 
@@ -91,6 +92,29 @@ curl -X POST http://localhost:17842/v1/audio/speech \
     "response_format": "opus"
   }' \
   --output audio.ogg
+```
+
+---
+
+## Transcribe Audio
+
+### POST /v1/audio/transcriptions
+
+Multipart form (Bearer token required):
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `file` | Yes | WAV (`audio/wav`, `audio/x-wav`, `audio/wave`, `audio/vnd.wave`) |
+| `model` | No | `fluid-speech-pro` or OpenAI aliases `whisper-1`, `whisper-large-v3*` |
+| `language` | No | Supported language code; omitted → automatic detection |
+| `response_format` | No | `json` (default), `text`, `verbose_json`; anything else → `400` |
+
+`prompt` and `user` are ignored. `temperature != 0`, `stream=true` and word/segment timestamps are rejected with `400`. Maximum 30 s per clip, 8 MiB body. Responses use the standard error envelope; see [ASR](asr.md).
+
+```bash
+curl -X POST http://localhost:17842/v1/audio/transcriptions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F 'file=@audio.wav;type=audio/wav' -F 'model=whisper-1'
 ```
 
 ---

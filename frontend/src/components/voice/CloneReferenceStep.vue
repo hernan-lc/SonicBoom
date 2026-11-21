@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue';
 import { t } from '../../i18n';
+import { useStudio } from '../../composables/useStudio';
 import AppIcon from '../ui/AppIcon.vue';
 import BaseTextarea from '../ui/BaseTextarea.vue';
 import DisclosurePanel from '../ui/DisclosurePanel.vue';
@@ -12,6 +13,24 @@ const props = defineProps<{ disabled: boolean; analyzing?: boolean; provider: st
 const emit = defineEmits<{ select: [file: File | null]; trim: [file: File]; restore: [] }>();
 const transcript = defineModel<string>('transcript', { required: true }), mode = defineModel<string>('mode', { required: true });
 const picker = ref<{ open: () => void } | null>(null);
+const studio = useStudio();
+const asrPhase = ref<'idle' | 'preparing' | 'transcribing' | 'error'>('idle');
+const asrError = ref('');
+const asrBusy = computed(() => asrPhase.value === 'preparing' || asrPhase.value === 'transcribing');
+async function transcribeReference() {
+  if (!props.file || asrBusy.value) return;
+  asrError.value = '';
+  asrPhase.value = 'preparing';
+  try {
+    await studio.api.prepareAsr();
+    asrPhase.value = 'transcribing';
+    transcript.value = (await studio.api.transcribe(props.file)).text;
+    asrPhase.value = 'idle';
+  } catch (error) {
+    asrPhase.value = 'error';
+    asrError.value = error instanceof Error ? error.message : t('Transcription failed.');
+  }
+}
 function select(file: File | null) { emit('select', file); }
 function trim(file: File) { emit('trim', file); }
 function modeLabel(value: string) { const key = `mode.${value}`; const label = t(key); return label === key ? value : label; }
@@ -78,6 +97,10 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
 
   <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
 
+  <div v-if="needsTranscript && file" class="transcript-actions">
+    <button type="button" class="btn-inline" :disabled="disabled || asrBusy" @click="transcribeReference">{{ t(asrPhase === 'preparing' ? 'Preparing model…' : asrPhase === 'transcribing' ? 'Transcribing…' : 'Transcribe') }}</button>
+    <span v-if="asrPhase === 'error'" class="field-error" role="alert">{{ asrError }}</span>
+  </div>
   <BaseTextarea v-if="needsTranscript" data-guide="clone-transcript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required/>
   <p v-if="needsTranscript && originalFile && file !== originalFile" class="callout warn"><span class="callout-icon" aria-hidden="true">!</span><span>{{ t('Review the transcript to match the trimmed recording. The transcript has not been rewritten.') }}</span></p>
 </fieldset></template>
