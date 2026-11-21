@@ -151,7 +151,7 @@ the codec turns zeros into noise. Real recordings with a little room tone are fi
 ## Reproducing the baseline
 
 ```sh
-cargo build --release --no-default-features --features webgpu,server,pocket-tts \
+cargo build --release --no-default-features --features webgpu,server \
   --example supertonic_vulkan_bench
 LD_LIBRARY_PATH=$PWD/target/release/examples \
   ./target/release/examples/supertonic_vulkan_bench "Your sentence" 5 3
@@ -166,63 +166,10 @@ Any optimization that changes numerical output must keep CPU/Vulkan waveform
 difference in the same range as today (`~1e-4` max, `~1e-6` mean) or document
 an explicit, audible quality trade-off.
 
-## Pocket TTS on the WebGPU EP (2026-11-20)
-
-Since the Vulkan-first commit (`ffac36e`) all five Pocket graphs were created with
-the GPU policy. On AMD BC-250 / RADV that produced near-silent audio (RMS 0.0055
-against 0.045 on CPU, ASR transcribed nothing). Bisecting one graph at a time on GPU
-with the rest on CPU: text conditioner, Mimi encoder, `flow_lm_main` and
-`flow_lm_flow` are correct; **only `mimi_decoder_int8` is wrong**. The GPU did not
-help either (same 2.2 s clip: all CPU 3.3 s; `flow_lm_main` on GPU 5.5 s; default
-all-GPU 7.9 s). Pocket now runs on CPU by default; `SONICBOOM_POCKET_EP=gpu`
-restores the old policy to reproduce the failure. Same failure class as the Qwen
-int8 codec. Not caused by the startup or Qwen changes of this session
-(`pocket_tts.rs` and `onnx_runtime.rs` are identical to `ffac36e`).
-
-## Short Pocket requests ended before the words were spoken (2026-11-20)
-
-The remaining "bad audio" reports came from an **early-EOS defect in the pinned
-ONNX exporter**, not from the Rust driver. Evidence chain:
-
-- The same three Spanish texts through the unmodified Python
-  `pocket_tts_onnx.py` (revision `58a6d00`) produced 0.32 s / 9.44 s / 0.48 s;
-  the Rust driver produced 0.40 s / 6.08 s / 0.48 s. Both truncate short input,
-  so replacing int8 graphs with the exporter's FP32 graphs and changing
-  temperature/steps cannot be the fix (FP32 was tried: 0.32 s / 5.20 s / 0.48 s).
-- Logging `eos_logit` per frame for a 9-word text showed `-6.86, -4.24, -3.87,
-  -3.78, ...`: the logit crosses the `-4.0` threshold at step 2-3 during normal
-  speech and then falls back below it. The exporter latches EOS immediately,
-  so generation stops after `2 + frames_after_eos` = 5 frames (0.4 s).
-- Upstream Kyutai's pinned `tts_model.py` defines
-  `_MIN_FRAMES_BEFORE_EOS = 6` with the comment "EOS is ignored on the first
-  frames: before speech starts, the EOS logit of some voices can cross the
-  threshold, and a short text then ends before the word is spoken." The ONNX
-  export dropped that guard; `pocket_tts.rs` copied the exporter verbatim.
-
-`run_chunk` now ignores EOS for the first 6 frames
-(`POCKET_MIN_FRAMES_BEFORE_EOS`), matching upstream. The same three texts now
-produce 0.72 s / 6.08 s / 4.40 s in the real CPU runner; the unmodified Python
-exporter with the guard produces 4.88 s / 7.28 s / 3.76 s (different RNG, same
-qualitative fix). Offline Whisper Tiny on the guarded exporter output
-transcribes the long text as " Los días, como estás hoy y me llamo anay, voy a
-contarte un historia... sobre el mercado de la ciudad" and the number list as
-"1, 2, 3, 4, 5, 6, 7, 8 ...". The exporter-parity fixture intentionally uses
-`min_frames_before_eos = 0` so it still validates the original exporter byte
-for byte. A second fidelity fix rounds `_estimate_max_gen_len` only after
-scaling by `frame_rate` (16 tokens: 92 frames instead of 100).
-
-The 6-frame guard is a floor, not a duration guarantee: if the logit keeps
-crossing after step 6, a short sentence can still stop near 0.72 s. Tuning the
-`-4.0` threshold higher would lengthen those cases but is not upstream
-behavior and was not adopted. Reference echo and cross-build ORT numeric drift
-remain separate, previously documented issues.
-
 ### Vulkan-first with CPU fallback (2026-11-20)
 
-Per-graph EP selection was added (`graph_ep`): `SONICBOOM_POCKET_EP=auto` (or
-`hybrid`) puts the four conditioning/flow graphs on Vulkan and keeps the
-decoder on CPU; `gpu` forces everything on Vulkan; `custom` reads the
-comma-separated graph list from `SONICBOOM_POCKET_GPU_GRAPHS`. Bisect with the
+Per-graph EP selection was added (`graph_ep`): puts the four conditioning/flow graphs on Vulkan and keeps the
+decoder on CPU; `gpu` forces everything on Vulkan; Bisect with the
 same text/reference (output RMS):
 
 | Graph on GPU | RMS | Verdict |
@@ -260,47 +207,6 @@ Two automatic fallbacks when `auto`/`gpu` is used:
    reproduce every voice's failure, so the request-time retry remains as the
    final safety net.
 
-Default is now `auto` (Vulkan-first with CPU fallback). `SONICBOOM_POCKET_EP=cpu`
-skips the GPU probe entirely. `POCKET_GPU_DIAG=1` prints probe RMS/RTF. The
-`SONICBOOM_WEBGPU_BUFFER_CACHE` option was tested (`bucket`/`simple`/`lazy`/
-`disabled`) and did not change the decoder result; it remains for tuning.
-Remaining cost: attempting Vulkan on AMD RADV adds its load/session time (~2 s)
-before falling back, even though no request uses it.
-
-**Superseded (2026-11-20): the default is `cpu` again.** With `auto` as the
-default, the server crashed on startup on AMD RADV: 3 of 3 runs with
-`[providers.pocket_tts] enabled = true` exited with SIGSEGV (139, 139) or
-SIGABRT (134). The gdb backtrace places the fault in Dawn's
-`ComputePassEncoder::APISetPipeline`, called from Pocket's load-time
-`pipeline_probe` → `prefill_voice` (ScatterND kernel). The Supertonic warm-up
-was running Dawn work on another thread at the same moment. The `gpu_session_lock`
-added in this commit only covers Pocket's own loads, so the two WebGPU users
-still overlap. With `SONICBOOM_POCKET_EP=cpu` the same binary started and
-completed Supertonic's warm-up in 2 of 2 runs. Apart from the buffer-cache option,
-this commit leaves the Supertonic path unchanged: the pre-commit `onnx_runtime.rs`,
-combined with the same Pocket code, also crashed with `auto`, and the buffer-cache
-modes (`simple`, `disabled`) did not avoid it.
-
-Follow-up if GPU Pocket is wanted again: serialize every Dawn session `run`
-(Supertonic and Pocket) behind one process-wide lock, not just Pocket's loads.
-Until then, `auto` stays opt-in.
-
-## Pocket TTS: zero-copy KV state carry (2026-11-20)
-
-Every AR frame copied the whole flow-LM state (18 tensors, ~49 MB, KV cache
-`[2, 1, 1000, 16, 64]` per layer) into new input tensors and copied the outputs
-back out; the Mimi decoder did the same with ~16 MB per 15-frame group. The
-loops now pass ORT's output values straight back as the next inputs
-(`SessionOutputs::remove` returns a reference-counted handle), so only the
-per-chunk base voice state is materialized once.
-
-Measured on the 2-core dev box (debug build, Spanish, temperature 0, same
-seed): output WAV hash unchanged (`ce3d5a83...`), RTF 0.85 -> 0.50.
-
-Not done (evaluated): decoding in a parallel thread like upstream (little gain
-on 2 cores, where the LM already uses both), teacher forcing between chunks
-(upstream TODO, not in the ONNX export).
-
 ## Supertonic upstream parity (2026-11-20)
 
 `preprocess_chunk` was a simplified copy of upstream `_preprocess_text`. It now
@@ -331,7 +237,15 @@ codes 100 %).
 | CPU (6 threads) | 7.8 s |
 | Vulkan, transformer only (codec on CPU) | 2.8 s |
 
-Open items, not done: share one process-wide GPU lock with Supertonic's sessions; IO-binding
+Done since: Supertonic's loads and runs take the same GPU lock; the codec graphs use all cores when
+the transformer is on the GPU; sessions load concurrently; the reference/output resampler is
+tabulated per phase (about 55x faster, same samples); `/api/providers` no longer waits for a
+running take. Vulkan now measures 4.5 s of audio in about 2.1 s warm. Profiling the CPU path
+(ORT profile, 22 runs) put 81 % of the core graph in fp32 `MatMul` and showed no effect from
+thread counts above 4, memory-pattern, flush-to-zero or spinning options (measured on a loaded
+machine, load average 6-8): it is compute-bound.
+
+Open items, not done: IO-binding
 to keep the KV cache on the device between passes; fp16 weights (halves the 1.9 GB download,
 untested on RADV); the 16 upstream preset voices (codes, not audio, so they need a profile
 path that accepts codes); Verbalis-grade text verbalization for the languages SonicBoom's

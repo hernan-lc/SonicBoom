@@ -5,6 +5,7 @@
 //! Graph contracts are documented in the ONNX repository's model card.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use ort::session::{Session, SessionInputValue};
 use ort::value::{Tensor, TensorRef};
@@ -28,7 +29,6 @@ fn fail(context: &str, error: impl std::fmt::Display) -> ProviderError {
 }
 
 fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<Session, ProviderError> {
-    crate::onnx_runtime::initialize().map_err(|e| fail("runtime", format!("{e:#}")))?;
     let builder = Session::builder()
         .map_err(|e| fail("session setup", e))?
         .with_intra_threads(threads.clamp(1, 32))
@@ -41,6 +41,27 @@ fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<Session, Provider
     builder
         .commit_from_file(&path)
         .map_err(|e| fail(&format!("load {}", path.display()), e))
+}
+
+fn joined<T>(
+    handle: std::thread::ScopedJoinHandle<'_, Result<T, ProviderError>>,
+) -> Result<T, ProviderError> {
+    handle
+        .join()
+        .unwrap_or_else(|_| Err(fail("load", "worker panicked")))
+}
+
+/// Wall time per stage, summed since the last [`ReverbNative::take_timings`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Timings {
+    pub encode: Duration,
+    pub prefix: Duration,
+    pub embed: Duration,
+    pub core: Duration,
+    pub heads: Duration,
+    pub decode: Duration,
+    /// Target passes (`embed -> core -> heads`) run.
+    pub passes: usize,
 }
 
 type Inputs<'a> = Vec<(&'static str, SessionInputValue<'a>)>;
@@ -111,24 +132,76 @@ pub struct ReverbNative {
     decoder: Session,
     /// Whether the embedding/core/head graphs run on the GPU EP.
     pub gpu: bool,
+    timings: Timings,
 }
 
 impl ReverbNative {
     pub fn open(dir: &Path, threads: usize, gpu: bool) -> Result<Self, ProviderError> {
         let _gpu_guard = gpu.then(crate::onnx_runtime::gpu_lock);
-        let tokenizer = tokenizers::Tokenizer::from_file(dir.join("model/tokenizer.json"))
-            .map_err(|e| ProviderError::model_missing(format!("reverb-tts tokenizer: {e}")))?;
+        crate::onnx_runtime::initialize().map_err(|e| fail("runtime", format!("{e:#}")))?;
         let onnx = |name: &str| dir.join("onnx").join(name);
+        // The codec always runs on the CPU. With the transformer on the GPU the cores are
+        // otherwise idle, so the codec may use them all (decode ~900 -> ~600 ms at 12 threads).
+        let codec_threads = if gpu {
+            let cores = std::thread::available_parallelism().map_or(threads, |n| n.get());
+            threads.max(cores.min(12))
+        } else {
+            threads
+        };
+        // Sessions are built concurrently: graph optimization of the 1 GB core dominates the
+        // load and is single threaded, so the codec graphs and the small graphs are built
+        // in its shadow. Dawn (the GPU EP) is not safe against overlapping session creation,
+        // so GPU sessions are created one after another on a single thread.
+        let (tokenizer, embed_prefix, core, embed_target, heads, encoder, decoder) =
+            std::thread::scope(|scope| {
+                let encoder =
+                    scope.spawn(|| session(onnx("codec_encoder.onnx"), codec_threads, false));
+                let decoder =
+                    scope.spawn(|| session(onnx("codec_decoder.onnx"), codec_threads, false));
+                let tokenizer = scope.spawn(|| {
+                    tokenizers::Tokenizer::from_file(dir.join("model/tokenizer.json")).map_err(
+                        |e| ProviderError::model_missing(format!("reverb-tts tokenizer: {e}")),
+                    )
+                });
+                let core = scope.spawn(|| session(onnx("core.onnx"), threads, gpu));
+                let (embed_prefix, embed_target, heads) = if gpu {
+                    (
+                        session(onnx("embed_prefix.onnx"), threads, gpu),
+                        session(onnx("embed_target.onnx"), threads, gpu),
+                        session(onnx("heads.onnx"), threads, gpu),
+                    )
+                } else {
+                    let small = |name: &'static str| {
+                        scope.spawn(move || session(onnx(name), threads, false))
+                    };
+                    let (a, b, c) = (
+                        small("embed_prefix.onnx"),
+                        small("embed_target.onnx"),
+                        small("heads.onnx"),
+                    );
+                    (joined(a), joined(b), joined(c))
+                };
+                (
+                    joined(tokenizer),
+                    embed_prefix,
+                    joined(core),
+                    embed_target,
+                    heads,
+                    joined(encoder),
+                    joined(decoder),
+                )
+            });
         let mut native = Self {
-            tokenizer,
-            embed_prefix: session(onnx("embed_prefix.onnx"), threads, gpu)?,
-            core: session(onnx("core.onnx"), threads, gpu)?,
-            embed_target: session(onnx("embed_target.onnx"), threads, gpu)?,
-            heads: session(onnx("heads.onnx"), threads, gpu)?,
+            tokenizer: tokenizer?,
+            embed_prefix: embed_prefix?,
+            core: core?,
+            embed_target: embed_target?,
+            heads: heads?,
             // The codec graphs are convolutional and stay on the CPU.
-            encoder: session(onnx("codec_encoder.onnx"), threads, false)?,
-            decoder: session(onnx("codec_decoder.onnx"), threads, false)?,
+            encoder: encoder?,
+            decoder: decoder?,
             gpu,
+            timings: Timings::default(),
         };
         if gpu && !native.self_check() {
             tracing::warn!("reverb-tts GPU self-check failed; rebuilding the graphs on the CPU");
@@ -164,6 +237,11 @@ impl ReverbNative {
             })
     }
 
+    /// Stage timings since the previous call.
+    pub fn take_timings(&mut self) -> Timings {
+        std::mem::take(&mut self.timings)
+    }
+
     pub fn tokenize(&self, prompt: &str) -> Result<Vec<i64>, ProviderError> {
         let encoding = self
             .tokenizer
@@ -174,6 +252,13 @@ impl ReverbNative {
 
     /// Encode 24 kHz mono reference PCM to codec codes (upstream `TTS.voice`).
     pub fn encode_reference(&mut self, pcm24: &[f32]) -> Result<VoiceCodes, ProviderError> {
+        let started = Instant::now();
+        let voice = self.encode_reference_inner(pcm24);
+        self.timings.encode += started.elapsed();
+        voice
+    }
+
+    fn encode_reference_inner(&mut self, pcm24: &[f32]) -> Result<VoiceCodes, ProviderError> {
         let mut wav = audio::raise_quiet(pcm24);
         // Whole codec frames, as the training references were.
         let padded = wav.len().div_ceil(SAMPLES_PER_FRAME) * SAMPLES_PER_FRAME;
@@ -211,6 +296,17 @@ impl ReverbNative {
 
     /// Run the prompt prefix once and keep its keys and values.
     pub fn run_prefix(
+        &mut self,
+        text_ids: &[i64],
+        voice: &VoiceCodes,
+    ) -> Result<Prefix, ProviderError> {
+        let started = Instant::now();
+        let prefix = self.run_prefix_inner(text_ids, voice);
+        self.timings.prefix += started.elapsed();
+        prefix
+    }
+
+    fn run_prefix_inner(
         &mut self,
         text_ids: &[i64],
         voice: &VoiceCodes,
@@ -315,6 +411,7 @@ impl ReverbNative {
         bias: &[f32],
         _polish: bool,
     ) -> Result<Vec<f32>, ProviderError> {
+        let t0 = Instant::now();
         let tokens_t = TensorRef::from_array_view(([1usize, CODEBOOKS, frames], tokens))
             .map_err(|e| fail("target input", e))?;
         let inputs: Inputs = vec![("tokens", tokens_t.into())];
@@ -328,16 +425,24 @@ impl ReverbNative {
             .1
             .to_vec();
         drop(outputs);
+        let t1 = Instant::now();
         let (hidden, _) = self.core_run(&x, frames, past, past_k, past_v, bias, false)?;
+        let t2 = Instant::now();
         let hidden_t = Tensor::from_array(([1usize, frames, HIDDEN], hidden))
             .map_err(|e| fail("heads input", e))?;
         let inputs: Inputs = vec![("hidden", hidden_t.into())];
         let outputs = self.heads.run(inputs).map_err(|e| fail("heads pass", e))?;
-        Ok(outputs["log_probs"]
+        let log_probs = outputs["log_probs"]
             .try_extract_tensor::<f32>()
             .map_err(|e| fail("heads output", e))?
             .1
-            .to_vec())
+            .to_vec();
+        let t3 = Instant::now();
+        self.timings.embed += t1 - t0;
+        self.timings.core += t2 - t1;
+        self.timings.heads += t3 - t2;
+        self.timings.passes += 1;
+        Ok(log_probs)
     }
 
     /// Run the sampler over `frames` target frames. `progress(pass)` returns `false`
@@ -378,6 +483,13 @@ impl ReverbNative {
 
     /// Decode `[8, frames]` codes to 24 kHz mono samples.
     pub fn decode(&mut self, codes: &[i64], frames: usize) -> Result<Vec<f32>, ProviderError> {
+        let started = Instant::now();
+        let audio = self.decode_inner(codes, frames);
+        self.timings.decode += started.elapsed();
+        audio
+    }
+
+    fn decode_inner(&mut self, codes: &[i64], frames: usize) -> Result<Vec<f32>, ProviderError> {
         let codes_t = TensorRef::from_array_view(([1usize, CODEBOOKS, frames], codes))
             .map_err(|e| fail("decoder input", e))?;
         let inputs: Inputs = vec![("codes", codes_t.into())];

@@ -202,6 +202,12 @@ strip = true
 panic = "unwind"
 codegen-units = 1
 
+# Debug builds run synthesis through dependencies (libopus, sha2, tokenizers, rand, ndarray):
+# at opt-level 0 they are 10-50x slower than release and dominated the Reverb-TTS timings.
+# Only third-party crates are optimized; this crate keeps full debug info and fast rebuilds.
+[profile.dev.package."*"]
+opt-level = 3
+
 # esaxx 0.1.10 forces /MT; match Rust, knf and ORT /MD on MSVC.
 [patch.crates-io]
 # Android: release ORT environment before the Android AAR C++ destructors.

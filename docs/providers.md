@@ -163,15 +163,29 @@ Notes:
 - **Reference quality dominates.** Use 3-10 s of clean speech from one speaker in the language
   you will synthesize (longer than 15 s makes worse takes). A short or cross-language clip is the
   most common cause of poor output, for every cloning provider.
-- **Devices.** `device = "cpu"` (default) is about 1.4-1.6x slower than real time on a 12-thread
-  APU. `device = "auto"` runs the embedding, transformer and head graphs on Vulkan (ORT WebGPU
-  EP): about 0.6x real time on an AMD BC-250 (2.8 s for 4.8 s of audio) with identical output.
-  The codec encoder/decoder always run on the CPU because the convolution decoder returns
-  near-silence on RADV. `SONICBOOM_REVERB_EP=cpu` forces the CPU. Reverb holds a process-wide
-  GPU lock while loading and sampling, but Supertonic's sessions are not behind it yet: avoid
-  enabling several GPU providers at once (an archived Pocket TTS startup crash inside
-  Dawn is described in `docs/future-optimizations.md`).
-- **Cost.** Peak resident memory measured at 2.6 GB on the CPU and 1.9 GB with Vulkan. `steps` (default 8, upstream's tuned value) trades
+- **Devices.** `device = "cpu"` (default) runs about 0.5-0.65x real time on a 12-thread APU:
+  the transformer is plain fp32 matrix multiplication (81 % of the time in an ORT profile), so
+  neither more threads nor session options help. `device = "auto"` runs the embedding,
+  transformer and head graphs on Vulkan (ORT WebGPU EP): about 2x real time on an AMD BC-250
+  (4.5 s of audio in 2.1 s, warm) with a bit-identical take. **Use `auto` when a Vulkan GPU is
+  available**; if the GPU self-check fails the graphs are rebuilt on the CPU. The codec
+  encoder/decoder always run on the CPU because the convolution decoder returns near-silence on
+  RADV; with `auto` they use every core (up to 12) rather than `cpu_threads`.
+  `SONICBOOM_REVERB_EP=cpu` forces the CPU. Reverb and Supertonic share one process-wide GPU lock
+  (loads and inference runs), so a Reverb pass and a Supertonic run never overlap on the GPU;
+  they simply wait for each other (the archived Pocket TTS startup crash inside Dawn is described
+  in `docs/future-optimizations.md`).
+- **Latency breakdown.** Each take logs `encode_ms` (reference, first use only), `prefix_ms`,
+  `sample_ms` (`embed_ms` + `core_ms` + `heads_ms` over `passes`), and `decode_ms`. Warm, 4.5 s of
+  audio, BC-250: Vulkan `prefix` 0.1 s, `sample` 1.2 s, `decode` 0.6 s; CPU `prefix` 0.7 s,
+  `sample` 5.3 s, `decode` 0.8 s. The first take after a restart also encodes the reference
+  (about 1-2 s). Reproduce with `examples/reverb_bench.rs`.
+- **Load.** The six graphs (embeddings, core, heads, codec encoder and decoder) and the tokenizer are created concurrently
+  (GPU graphs one after another, since Dawn dislikes overlapping creation): about 2.6 s instead of
+  5.9 s on the CPU. Pinned files are re-hashed on every load unless they are regular files with a
+  `*.verified.json` sidecar: a symlinked `onnx/` directory (a development layout) is never
+  trusted and costs about 4 s per load: hard-link or copy the files instead.
+- **Cost.** Peak resident memory measured at about 2.9 GB on the CPU (1.9 GB with Vulkan before the codec threads change; not re-measured). `steps` (default 8, upstream's tuned value) trades
   speed for fidelity; seeds are reproducible per request.
 - **Text.** The request text is normalized by SonicBoom's own normalizer (not Verbalis).
   Texts estimated over 30 s are split at sentence ends into pieces of about 15 s; a single

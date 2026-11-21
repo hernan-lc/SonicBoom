@@ -326,6 +326,8 @@ fn synthesize_chunk(
 
     // Lock sessions for entire chunk — inference is strictly sequential
     let mut sessions = lock_sessions!(model).map_err(|e| anyhow!("Session lock poisoned: {e}"))?;
+    // Dawn is not safe against two providers on the GPU at once: serialize with Reverb-TTS.
+    let _gpu = crate::onnx_runtime::gpu_lock();
 
     // 1. Duration predictor → duration (seconds)
     let duration_sec: f32 = {

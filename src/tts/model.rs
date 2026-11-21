@@ -151,6 +151,9 @@ impl ModelHandle {
     pub fn load(paths: &ModelPaths) -> Result<Self> {
         tracing::info!("Loading ONNX sessions...");
         let started = std::time::Instant::now();
+        // Sessions are created on worker threads, but Dawn must not see another
+        // provider creating or running GPU sessions meanwhile.
+        let _gpu = crate::onnx_runtime::gpu_lock();
 
         // The four graphs are independent, so create them concurrently:
         // wall-clock load time becomes that of the slowest graph

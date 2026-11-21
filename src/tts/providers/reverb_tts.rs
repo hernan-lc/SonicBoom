@@ -546,8 +546,16 @@ impl ReverbTtsProvider {
             .lock()
             .map(|s| s.loaded_model.is_some())
             .unwrap_or(false);
+        // A synthesis holds the model lock for its whole run. Status callers must not wait
+        // for it (`GET /api/providers` stalled for the length of a take), and a busy model
+        // is resident by definition.
         #[cfg(feature = "reverb-tts")]
-        return loaded && self.model.lock().map(|m| m.is_some()).unwrap_or(false);
+        return loaded
+            && match self.model.try_lock() {
+                Ok(model) => model.is_some(),
+                Err(std::sync::TryLockError::WouldBlock) => true,
+                Err(std::sync::TryLockError::Poisoned(_)) => false,
+            };
         #[cfg(not(feature = "reverb-tts"))]
         loaded
     }
@@ -867,6 +875,7 @@ impl ReverbTtsProvider {
         let passes = sampler::pass_count(&sampler_config);
         let mut audio: Vec<f32> = Vec::new();
         let mut done_frames = 0usize;
+        let mut sampling = std::time::Duration::ZERO;
         for (index, piece) in pieces.iter().enumerate() {
             if control.as_ref().is_some_and(|c| c.stopped()) {
                 return Err(ProviderError::inference_failed(
@@ -883,12 +892,14 @@ impl ReverbTtsProvider {
             let ids = native.tokenize(&text::prompt(piece, transcript, &request.language))?;
             let prefix = native.run_prefix(&ids, &voice)?;
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed.wrapping_add(index as u64));
+            let sampling_started = std::time::Instant::now();
             let codes =
                 native.generate_codes(&prefix, frames, &sampler_config, &mut rng, |pass| {
                     control.as_ref().is_none_or(|c| {
                         c.update("generating", done_frames + frames * pass / passes)
                     })
                 })?;
+            sampling += sampling_started.elapsed();
             done_frames += frames;
             let pcm = native.decode(&codes, frames)?;
             let cut = pcm
@@ -905,6 +916,7 @@ impl ReverbTtsProvider {
                 ));
             }
         }
+        let timings = native.take_timings();
         drop(guard);
         let audio_secs = audio.len() as f64 / f64::from(REVERB_TTS_SAMPLE_RATE);
         let elapsed = started.elapsed().as_secs_f64();
@@ -916,6 +928,14 @@ impl ReverbTtsProvider {
             elapsed_s = format!("{elapsed:.1}"),
             speed = format!("{:.2}x", audio_secs / elapsed.max(1e-6)),
             reference_cached,
+            encode_ms = timings.encode.as_millis() as u64,
+            prefix_ms = timings.prefix.as_millis() as u64,
+            sample_ms = sampling.as_millis() as u64,
+            embed_ms = timings.embed.as_millis() as u64,
+            core_ms = timings.core.as_millis() as u64,
+            heads_ms = timings.heads.as_millis() as u64,
+            decode_ms = timings.decode.as_millis() as u64,
+            passes = timings.passes,
             "reverb-tts synthesized"
         );
         if audio.is_empty()

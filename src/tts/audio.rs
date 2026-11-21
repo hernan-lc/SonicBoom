@@ -148,14 +148,84 @@ pub fn resample_reference(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<
     let cutoff = ratio.min(1.0) * 0.94;
     let radius = 48.0 / cutoff;
     let out_len = ((samples.len() as u128 * to_rate as u128).div_ceil(from_rate as u128)) as usize;
+    let len = samples.len() as isize;
+
+    // The kernel of output `i` depends only on `i mod period` (shifted by whole input
+    // samples every cycle), so the weights, and their trig, are computed once per phase.
+    // Outputs whose kernel is cut by either end of the signal use the direct path.
+    let divisor = gcd(u64::from(from_rate), u64::from(to_rate));
+    let period = (u64::from(to_rate) / divisor) as usize;
+    let advance = (u64::from(from_rate) / divisor) as usize;
+    let phases: Vec<KernelPhase> = if period <= MAX_RESAMPLE_PERIOD {
+        (0..period)
+            .map(|phase| {
+                let center = phase as f64 / ratio;
+                let first = (center - radius).ceil() as isize;
+                let last = (center + radius).floor() as isize;
+                let weights =
+                    sinc_kernel(center, first, (last - first + 1) as usize, cutoff, radius);
+                KernelPhase {
+                    first,
+                    sum: weights.iter().sum(),
+                    weights,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let mut output = Vec::with_capacity(out_len);
     for i in 0..out_len {
+        if !phases.is_empty() {
+            let phase = &phases[i % period];
+            let first = phase.first + ((i / period) * advance) as isize;
+            if first >= 0 && first + phase.weights.len() as isize <= len {
+                let window = &samples[first as usize..first as usize + phase.weights.len()];
+                let sum: f64 = window
+                    .iter()
+                    .zip(&phase.weights)
+                    .map(|(&sample, &weight)| f64::from(sample) * weight)
+                    .sum();
+                output.push((sum / phase.sum) as f32);
+                continue;
+            }
+        }
         let center = i as f64 / ratio;
-        let start = ((center - radius).ceil() as isize).max(0) as usize;
-        let end = ((center + radius).floor() as usize).min(samples.len() - 1);
-        let (mut sum, mut weight_sum) = (0.0, 0.0);
-        for (offset, sample) in samples[start..=end].iter().enumerate() {
-            let distance = (start + offset) as f64 - center;
+        let start = ((center - radius).ceil() as isize).max(0);
+        let end = ((center + radius).floor() as isize).min(len - 1);
+        let weights = sinc_kernel(center, start, (end - start + 1) as usize, cutoff, radius);
+        let sum: f64 = samples[start as usize..=end as usize]
+            .iter()
+            .zip(&weights)
+            .map(|(&sample, &weight)| f64::from(sample) * weight)
+            .sum();
+        output.push((sum / weights.iter().sum::<f64>()) as f32);
+    }
+    output
+}
+
+/// Longest repeating cycle of output samples whose kernels are tabulated; odd rate
+/// pairs beyond it fall back to computing every kernel.
+const MAX_RESAMPLE_PERIOD: usize = 4096;
+
+/// Weights of one output sample: its first input index (negative before the signal
+/// starts) and its taps.
+struct KernelPhase {
+    first: isize,
+    weights: Vec<f64>,
+    sum: f64,
+}
+
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+/// Blackman-windowed sinc taps for the inputs `first..first + count`, around `center`.
+fn sinc_kernel(center: f64, first: isize, count: usize, cutoff: f64, radius: f64) -> Vec<f64> {
+    (0..count)
+        .map(|offset| {
+            let distance = (first + offset as isize) as f64 - center;
             let phase = std::f64::consts::PI * distance * cutoff;
             let sinc = if phase.abs() < 1e-12 {
                 1.0
@@ -164,13 +234,9 @@ pub fn resample_reference(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<
             };
             let angle = std::f64::consts::PI * distance / radius;
             let window = 0.42 + 0.5 * angle.cos() + 0.08 * (2.0 * angle).cos();
-            let weight = cutoff * sinc * window;
-            sum += *sample as f64 * weight;
-            weight_sum += weight;
-        }
-        output.push((sum / weight_sum) as f32);
-    }
-    output
+            cutoff * sinc * window
+        })
+        .collect()
 }
 
 /// Encode already-padded 48 kHz mono PCM into an Ogg Opus stream, writing
@@ -640,6 +706,61 @@ mod reference_resampling_tests {
         let input = tone(24000, 7000.0);
         assert_eq!(resample_reference(&input, 24000, 24000), input);
         assert!(resample_reference(&input, 0, 24000).is_empty());
+    }
+
+    /// The tabulated per-phase kernels must match computing every kernel directly.
+    #[test]
+    fn tabulated_kernels_match_direct_computation() {
+        fn direct(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+            let ratio = to_rate as f64 / from_rate as f64;
+            let cutoff = ratio.min(1.0) * 0.94;
+            let radius = 48.0 / cutoff;
+            let out_len =
+                ((samples.len() as u128 * to_rate as u128).div_ceil(from_rate as u128)) as usize;
+            (0..out_len)
+                .map(|i| {
+                    let center = i as f64 / ratio;
+                    let start = ((center - radius).ceil() as isize).max(0);
+                    let end = ((center + radius).floor() as isize).min(samples.len() as isize - 1);
+                    let weights =
+                        sinc_kernel(center, start, (end - start + 1) as usize, cutoff, radius);
+                    let sum: f64 = samples[start as usize..=end as usize]
+                        .iter()
+                        .zip(&weights)
+                        .map(|(&s, &w)| f64::from(s) * w)
+                        .sum();
+                    (sum / weights.iter().sum::<f64>()) as f32
+                })
+                .collect()
+        }
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut noise = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 40) as f32 / 8_388_608.0 - 1.0
+        };
+        // Long signals exercise the interior; short ones are all edge.
+        for (from, to, len) in [
+            (44_100, 24_000, 30_000),
+            (24_000, 16_000, 24_000),
+            (16_000, 24_000, 16_000),
+            (24_000, 48_000, 24_000),
+            (48_000, 24_000, 300),
+            (22_050, 24_000, 120),
+            (44_101, 24_000, 2_000), // coprime: period above the table limit
+        ] {
+            let input: Vec<f32> = (0..len).map(|_| noise()).collect();
+            let fast = resample_reference(&input, from, to);
+            let slow = direct(&input, from, to);
+            assert_eq!(fast.len(), slow.len(), "{from}->{to}");
+            let worst = fast
+                .iter()
+                .zip(&slow)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-6, "{from}->{to}: max difference {worst}");
+        }
     }
 
     /// Energy at `freq` via the Goertzel algorithm (relative units).
