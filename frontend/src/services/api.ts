@@ -45,6 +45,26 @@ export function createApi(http: HttpClient) {
         await http.json<unknown>('/api/voices/clones', { method: 'POST', body, signal }),
       );
     },
+    /** Transcribe WAV bytes. The file part always declares `audio/wav`. */
+    transcribe: async (file: File, language?: string, signal?: AbortSignal) => {
+      const body = new FormData();
+      body.append('file', new File([file], file.name, { type: 'audio/wav' }));
+      if (language) body.append('language', language);
+      return responses.parseResponse(
+        responses.asrResultSchema,
+        await http.json<unknown>('/api/asr', { method: 'POST', body, signal }),
+      );
+    },
+    asrStatus: async (signal?: AbortSignal) =>
+      responses.parseResponse(
+        responses.asrStatusSchema,
+        await http.json<unknown>('/api/asr/status', { signal }),
+      ),
+    prepareAsr: async (signal?: AbortSignal) =>
+      responses.parseResponse(
+        responses.asrStatusSchema,
+        await http.json<unknown>('/api/asr/prepare', { method: 'POST', signal }),
+      ),
     deleteVoice: (voice: string) => http.response(`/api/voices/${id(voice)}`, { method: 'DELETE' }),
     previewVoice: (voice: string, text: string) =>
       http.blob(`/api/voices/${id(voice)}/preview`, {

@@ -200,6 +200,20 @@ export const setupResultSchema = z.object({
   auth: z.string(),
   api_token: optionalString,
 });
+export const asrResultSchema = z.object({
+  text: z.string(),
+  language: z.string(),
+  duration: number.nonnegative(),
+  model: z.string(),
+});
+export const asrStatusSchema = z.object({
+  state: z.enum(['absent', 'downloading', 'loading', 'ready', 'failed']),
+  model: z.string(),
+  revision: z.string(),
+  progress: number.nullish(),
+  error: z.string().nullish(),
+  max_duration_seconds: number.positive(),
+});
 export function parseResponse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success)
