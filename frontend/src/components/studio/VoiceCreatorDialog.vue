@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose } from 'reka-ui';
+import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogClose } from 'reka-ui';
 import { t } from '../../i18n';
 import AppIcon from '../ui/AppIcon.vue';
+import GuideHint from '../GuideHint.vue';
 import CloneWizard from './CloneWizard.vue';
 const open = defineModel<boolean>({ default: false });
 defineEmits<{ created: []; engines: [] }>();
@@ -13,9 +14,9 @@ defineEmits<{ created: []; engines: [] }>();
       <DialogContent class="dialog-content voice-creator-dialog" @interact-outside="$event.preventDefault()">
         <header class="voice-creator-head">
           <div class="dialog-head">
-            <div>
+            <div class="dialog-heading">
               <DialogTitle>{{ t('New voice') }}</DialogTitle>
-              <DialogDescription>{{ t('Clone a voice in three steps: engine, reference, review.') }}</DialogDescription>
+              <GuideHint guide-id="clone-voice"/>
             </div>
             <DialogClose class="dialog-x" :aria-label="t('Close')" :title="t('Close')">
               <AppIcon name="close" />

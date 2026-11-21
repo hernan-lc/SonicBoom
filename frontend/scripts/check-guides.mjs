@@ -22,6 +22,7 @@ const uiKeys = [
   'Pending',
   '~{count} min',
   'Start guide: {title}',
+  'Show guide: {title}',
   'Next',
   'Previous',
   'Close',

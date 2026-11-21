@@ -1,27 +1,36 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { t } from '../../i18n';
 import type { Voice } from '../../services/contracts';
+import { useStudio } from '../../composables/useStudio';
 import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import StatusDot from '../ui/StatusDot.vue';
 
-defineProps<{ voice: Voice; disabled: boolean; usable: boolean; compatible: boolean; modelReady: boolean }>();
+const props = defineProps<{ voice: Voice; disabled: boolean; usable: boolean; compatible: boolean; modelReady: boolean }>();
 const emit = defineEmits<{ use: []; preview: []; delete: []; engines: [] }>();
+const { providers } = useStudio();
+const retiredIds = new Set(['qwen3-gguf', 'qwen3-candle', 'pocket-tts', 'gpt-sovits']);
+const retired = computed(
+  () =>
+    retiredIds.has(props.voice.provider) ||
+    (!!providers.value?.length && !providers.value.some((provider) => provider.provider_id === props.voice.provider)),
+);
 </script>
 <template>
   <article class="voice-row voice-card">
     <div class="voice-card-main">
       <h2 class="voice-name">{{ voice.name }}</h2>
       <p class="voice-meta">
-        <StatusDot :state="usable ? 'ok' : 'warn'" :label="t(usable ? 'Ready' : 'Unavailable')" /><span
+        <StatusDot :state="usable && !retired ? 'ok' : 'warn'" :label="t(retired ? 'Retired engine' : usable ? 'Ready' : 'Unavailable')" /><span
           class="voice-tags"
           >{{ voice.provider }} · {{ t(`language.${voice.language}`) }} · {{ voice.model }}</span
         >
       </p>
     </div>
     <div class="voice-actions">
-      <button type="button" :disabled="disabled || !usable" @click="emit('use')">{{ t('Use') }}</button>
-      <button type="button" :disabled="disabled || !usable" @click="emit('preview')">{{ t('Preview') }}</button>
-      <button type="button" class="danger ghost" :disabled="disabled" @click="emit('delete')">
+      <button type="button" :disabled="disabled || !usable || retired" @click="emit('use')">{{ t('Use') }}</button>
+      <button data-guide="voice-preview" type="button" :disabled="disabled || !usable || retired" @click="emit('preview')">{{ t('Preview') }}</button>
+      <button data-guide="voice-delete" type="button" class="danger ghost" :disabled="disabled" @click="emit('delete')">
         {{ t('Delete') }}
       </button>
     </div>

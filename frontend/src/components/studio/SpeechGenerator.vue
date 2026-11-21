@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
                     {{ t("This model is not ready. Check its status in Engines.") }}
                 </p>
             </SectionCard>
-            <DisclosurePanel :label="t('Pronunciation')">
+            <DisclosurePanel guide="pronunciation-toggle" :label="t('Pronunciation')">
                 <PronunciationSettings :disabled="pending" />
             </DisclosurePanel>
             <p v-if="active" class="prev-run-line" :title="active.input.text">

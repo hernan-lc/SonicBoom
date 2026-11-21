@@ -3,7 +3,7 @@ import { ref, useId, watch } from 'vue';
 import AppIcon from './AppIcon.vue';
 
 const props = withDefaults(
-  defineProps<{ label?: string; badge?: string | number; defaultOpen?: boolean; contentId?: string }>(),
+  defineProps<{ label?: string; badge?: string | number; defaultOpen?: boolean; contentId?: string; guide?: string }>(),
   { defaultOpen: false },
 );
 const emit = defineEmits<{ opened: [] }>();
@@ -26,6 +26,7 @@ defineExpose({ open });
   <div class="disclosure" :class="{ 'disclosure-open': open }">
     <button
       :id="triggerId"
+      :data-guide="guide"
       type="button"
       class="disclosure-trigger"
       :aria-expanded="open"

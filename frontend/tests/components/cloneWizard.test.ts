@@ -57,13 +57,13 @@ describe('cloning wizard', () => {
     expect(document.activeElement?.id).toBe('cloneFile');
     expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
   });
-  it('describes the mode in plain words and reports the recording details', async () => {
+  it('shows the mode label and reports the recording details', async () => {
     mock.studio.capabilities.value[0].clone_modes = ['icl'];
     await flushPromises();
     await reference(wav(5));
     const mode = wrapper.get('.mode-option');
     expect(mode.text()).toContain('ICL');
-    expect(mode.text()).toContain('exact transcript');
+    expect(mode.text()).not.toContain('The engine');
     expect(wrapper.get('.file-name').text()).toBe('ref.wav');
     expect(wrapper.get('.file-meta').text()).toContain('5.00 s · 8000 Hz');
     await vi.waitFor(() => expect(wrapper.get('.status-pill').text()).toContain('Good length'));
@@ -173,7 +173,7 @@ it('shows only ready engines until unavailable ones are revealed', async () => {
   await flushPromises();
   expect((wrapper.get('#cloneProvider').element as HTMLInputElement).value).toBe('reverb-tts');
   expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('reverb-tts');
-  expect(wrapper.text()).toContain('Enable its engine');
+  expect(wrapper.text()).toContain('Manage engines');
 });
 
 it('maps server field issues and correlation IDs without clearing the draft', async () => {

@@ -16,13 +16,18 @@ test('guide ids and step targets are unique', () => {
   const targets = guides.flatMap((guide) => guide.steps.map((step) => step.target));
   assert.equal(new Set(targets).size, targets.length);
   for (const target of targets) assert.match(target, /^\[data-guide="[a-z0-9-]+"\]$/);
+  for (const guide of guides) {
+    for (const step of guide.steps) {
+      if (step.opens) assert.match(step.opens, /^\[data-guide="[a-z0-9-]+"\]$/);
+    }
+  }
 });
 
-test('each guide has three to five steps on a hash route', () => {
-  assert.equal(guides.length, 3);
+test('each guide has three to six steps on a hash route', () => {
+  assert.equal(guides.length, 7);
   for (const guide of guides) {
     assert.match(guide.route, /^#\//);
-    assert.ok(guide.steps.length >= 3 && guide.steps.length <= 5, `${guide.id} has ${guide.steps.length} steps`);
+    assert.ok(guide.steps.length >= 3 && guide.steps.length <= 6, `${guide.id} has ${guide.steps.length} steps`);
     assert.ok(guide.seconds > 0);
   }
 });

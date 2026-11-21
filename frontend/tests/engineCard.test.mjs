@@ -32,23 +32,23 @@ test('ready engine lists its model once, marks it active and offers Disable', as
   assert.ok(html.includes('Active'));
   assert.ok(html.includes('>Disable</button>'));
   assert.ok(html.includes('7 audio languages'));
-  assert.ok(!html.includes('Preparing the selected model.'));
+  assert.ok(!html.includes('Preparing model…'));
 });
 test('disabled engine offers Enable and shows no active model', async () => {
   const html = await render({ provider_id: 'reverb-tts', enabled: false, state: 'disabled' });
   assert.ok(html.includes('>Enable</button>'));
   assert.ok(html.includes('value="reverb-tts"') === false, 'no model picker remains');
   assert.ok(!html.includes('>Active</span>'));
-  assert.ok(!html.includes('Preparing the selected model.'));
+  assert.ok(!html.includes('Preparing model…'));
 });
 test('loading engine reports that the model is being prepared', async () => {
   const html = await render({ provider_id: 'reverb-tts', enabled: true, state: 'loading', active_model: models[0] });
-  assert.ok(html.includes('Preparing the selected model.'));
+  assert.ok(html.includes('Preparing model…'));
 });
 test('Spanish loading help is localized', async () => {
   setLocale('es');
   try {
     const html = await render({ provider_id: 'reverb-tts', enabled: true, state: 'loading', active_model: models[0] });
-    assert.ok(html.includes('Preparando el modelo seleccionado.'));
+    assert.ok(html.includes('Preparando el modelo…'));
   } finally { setLocale('en'); }
 });

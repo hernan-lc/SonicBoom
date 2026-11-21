@@ -23,7 +23,6 @@ async function action(value: 'reload' | 'validate' | 'open') { await task.run(as
 </script>
 <template>
   <p v-if="status" role="status">{{ t('Configured revision: {revision}', { revision: status.revision }) }} · {{ status.pending_restart ? t('Restart required') : status.pending_applies?.length ? t('Applying…') : t('No pending changes') }}</p>
-  <p class="settings-guide">{{ t('Search or browse categories. Each change saves on its own.') }}</p>
   <div class="config-filters"><input id="configSearch" data-guide="key-settings-search" v-model="query" type="search" :placeholder="t('Search settings')" :aria-label="t('Search settings')"><select id="configCategory" data-guide="key-settings-category" v-model="category" :aria-label="t('Filter by category')"><option value="common">{{ t('Frequently used') }}</option><option value="all">{{ t('All settings') }}</option><option v-for="group in groups" :key="group" :value="group">{{ t(categories[group] || group) }}</option></select><label class="show-keys" data-guide="key-settings-keys"><input v-model="showKeys" type="checkbox">{{ t('Show internal keys') }}</label></div>
   <FeedbackNotice :feedback="errors.settings ? { kind: 'error', message: errors.settings } : feedback"/>
   <p v-if="!config && !errors.settings" role="status">{{ t('Loading configuration…') }}</p>

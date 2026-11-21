@@ -3,6 +3,8 @@ export interface GuideStep {
   titleKey: string;
   textKey: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
+  /** Control to press, only if the target is not visible yet, when moving to this step (opens a dialog or a collapsed panel). */
+  opens?: string;
 }
 
 export interface Guide {
