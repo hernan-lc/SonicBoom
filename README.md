@@ -108,6 +108,7 @@ The server will:
 - **Verified Model Supply Chain** - Pinned revision with compiled-in SHA-256 integrity checks
 - **Admin Panel** - Web-based management interface
 - **OpenAI-Compatible API** - Drop-in replacement for OpenAI TTS
+- **Speech-to-Text** - Fluid Speech Pro ASR (25 languages, CPU, lazy download; [docs/asr.md](docs/asr.md))
 - **Audio Queue System** - Play audio files directly on the server with queue management
 - **Output Device Selection** - Discover and switch server audio outputs (speakers, HDMI, virtual cables) via API
 - **Session Management** - Secure admin sessions with lockout protection
@@ -124,6 +125,14 @@ The server will:
 | `POST` | `/api/tts`      | Generate TTS audio            |
 | `POST` | `/api/tts/play` | Synthesize and play on server |
 | `GET`  | `/api/status`   | Check model status            |
+
+### Speech-to-Text
+
+| Method | Endpoint                     | Description                       |
+| ------ | ---------------------------- | --------------------------------- |
+| `POST` | `/api/asr`                   | Transcribe a WAV file             |
+| `GET`  | `/api/asr/status`            | ASR model lifecycle status        |
+| `POST` | `/api/asr/prepare`           | Download/load the ASR model       |
 
 ### Audio Queue API
 
@@ -150,6 +159,7 @@ The server will:
 | Method | Endpoint                  | Description                  |
 | ------ | ------------------------- | ---------------------------- |
 | `POST` | `/v1/audio/speech`        | Generate TTS (OpenAI format) |
+| `POST` | `/v1/audio/transcriptions` | Transcribe WAV (OpenAI format) |
 | `GET`  | `/v1/models`              | List models                  |
 | `GET`  | `/v1/models/list`         | List models (alias)          |
 | `GET`  | `/v1/voices`              | List voices                  |
@@ -313,6 +323,7 @@ Images run as non-root, use digest-pinned bases, and harden the container
 ## Acknowledgments
 
 - [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) - The TTS model
+- [Fluid Speech Pro by FluidVoice](https://huggingface.co/FluidVoice-Labs/fluid-speech-pro) - ASR model (CC BY 4.0)
 - [ONNX Runtime](https://onnxruntime.ai/) - Cross-platform ML inference
 - Upstream project: [daramkun/SonicBoom](https://github.com/daramkun/SonicBoom)
   (this repository, [nglmercer/SonicBoom](https://github.com/nglmercer/SonicBoom),
