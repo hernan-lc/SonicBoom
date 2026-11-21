@@ -968,10 +968,11 @@ fn open_named_stream(
         tracing::debug!("Audio output device '{name}' disappeared before open");
         AudioManagerError::OutputUnavailable
     })?;
-    let (stream, handle) = crate::native_log::quiet(|| OutputStream::try_from_device(&device)).map_err(|e| {
-        tracing::warn!("Cannot open audio output device '{name}': {e}");
-        AudioManagerError::OutputUnavailable
-    })?;
+    let (stream, handle) = crate::native_log::quiet(|| OutputStream::try_from_device(&device))
+        .map_err(|e| {
+            tracing::warn!("Cannot open audio output device '{name}': {e}");
+            AudioManagerError::OutputUnavailable
+        })?;
     Ok((stream, handle, name.to_string()))
 }
 

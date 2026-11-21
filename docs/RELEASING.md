@@ -181,29 +181,14 @@ embedded credentials here; do not place access tokens in build arguments or
 image environment defaults. Model weights, credential files, nested Git data
 and local build caches are excluded from the allowlisted build context.
 
-### CI structure and CUDA validation
+### CI structure
 
-Ordinary push/pull-request CI (`.github/workflows/ci.yml`) never runs the full
-CUDA Docker build. It runs formatting, Clippy, tests, the security-regression
-manifest guard, the feature matrix, Linux and
-Windows GUI packaging, Docker CPU/playback images and a fast *static* CUDA
-configuration check (`scripts/ci/cuda_structure.py`) that invokes neither NVCC
-nor Docker. That static check proves the CUDA feature names, Docker stages,
-digest-pinned bases and runtime packaging are wired
-correctly; it does not prove GPU inference works.
-
-The full CUDA build and CUDA Docker image build live in the dedicated
-`.github/workflows/cuda-full.yml` workflow, triggered manually and on release
-tags. It is **disabled by default**: the weekly `schedule:` block is commented
-out so it cannot consume runner time unattended; uncomment it
-to restore the weekly run. It builds with the same
-`web-ui` feature set as the production image (the frontend is built on the
-runner and embedded via `SONICBOOM_FRONTEND_PREBUILT=1`, so no Node.js is
-needed inside the CUDA container), verifies
-shared-library resolution, builds the CUDA image with a layer cache, and runs
-GPU runtime tests only when a self-hosted CUDA runner is attached and GPU tests
-are requested. Release CUDA artifacts are not treated as validated unless those
-full checks pass.
+Push/pull-request CI (`.github/workflows/ci.yml`) runs formatting, Clippy, tests,
+the security-regression manifest guard, the feature matrix and Linux and Windows
+GUI packaging. It builds no Docker images and runs no CUDA checks: the Docker
+CPU/playback jobs, the Dockerfile structure checks, the static CUDA check and the
+`cuda-full.yml` workflow were removed from Actions. `Dockerfile`, `docker-compose.yml`
+and `scripts/ci/cuda_structure.py` remain for local use and are not validated in CI.
 
 Use `python3 scripts/ci/container_smoke.py sonicboom:cpu` (or
 `sonicboom:playback`) to check real HTTP health and graceful shutdown without

@@ -190,6 +190,10 @@ name = "SonicBoom"
 path = "src/main.rs"
 required-features = ["server"]
 
+[[example]]
+name = "reverb_bench"
+required-features = ["server", "reverb-tts"]
+
 [[bin]]
 name = "sonicboom-tiktools-plugin"
 path = "src/bin/sonicboom-tiktools-plugin.rs"

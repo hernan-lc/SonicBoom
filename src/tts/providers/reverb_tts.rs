@@ -46,10 +46,13 @@ pub const REVERB_REF_MIN_SECS: f64 = 2.0;
 pub const REVERB_REF_MAX_SECS: f64 = crate::tts::voices::REFERENCE_MAX_SECS;
 pub const REVERB_REF_RECOMMENDED_MAX_SECS: f64 = 15.0;
 /// Seconds cut from every take's end, where the codec can leave a short noise burst.
+#[cfg(feature = "reverb-tts")]
 const END_CUT_SECS: f64 = 0.2;
 /// Longest single piece of text (frames, 90 s); sentences beyond it need punctuation.
+#[cfg(feature = "reverb-tts")]
 const MAX_PIECE_FRAMES: usize = 90 * text::FRAME_RATE;
 /// Output bound for one request (ten minutes of samples).
+#[cfg(feature = "reverb-tts")]
 const MAX_SAMPLES: usize = REVERB_TTS_SAMPLE_RATE as usize * 600;
 /// Version of the reference preprocessing, part of the conditioning cache key.
 pub const REVERB_PROMPT_PREP_VERSION: &str = "raise-quiet-pad960-v1";
@@ -390,6 +393,7 @@ impl ReverbTtsProvider {
 
     /// GPU (Vulkan through the WebGPU EP) is opt-in: `device = "auto"`, a build with
     /// `webgpu`, and neither `SONICBOOM_EP=cpu` nor `SONICBOOM_REVERB_EP=cpu`.
+    #[cfg(feature = "reverb-tts")]
     fn wants_gpu(config: &ReverbTtsConfig) -> bool {
         let forced_cpu =
             |name: &str| std::env::var(name).is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));

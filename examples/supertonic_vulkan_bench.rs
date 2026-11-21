@@ -9,7 +9,9 @@
 use std::{path::PathBuf, time::Instant};
 
 use anyhow::Result;
-use sonicboom::tts::{audio, audio::AudioFormat, download::ModelPaths, inference, model::ModelHandle};
+use sonicboom::tts::{
+    audio, audio::AudioFormat, download::ModelPaths, inference, model::ModelHandle,
+};
 
 fn model_paths() -> ModelPaths {
     let models = PathBuf::from("models");
@@ -48,7 +50,11 @@ fn load(ep: &str, profile_dir: Option<&str>) -> Result<ModelHandle> {
     Ok(handle)
 }
 
-fn synth(handle: &ModelHandle, text: &str, steps: usize) -> Result<(Vec<f32>, std::time::Duration)> {
+fn synth(
+    handle: &ModelHandle,
+    text: &str,
+    steps: usize,
+) -> Result<(Vec<f32>, std::time::Duration)> {
     let started = Instant::now();
     let samples = inference::synthesize(handle, text, "en", "F1", steps, 200)?;
     Ok((samples, started.elapsed()))
@@ -59,7 +65,10 @@ fn stats(samples: &[f32]) -> String {
     let mean_abs = samples.iter().map(|v| v.abs()).sum::<f32>() / n;
     let rms = (samples.iter().map(|v| v * v).sum::<f32>() / n).sqrt();
     let peak = samples.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
-    format!("n={} mean_abs={mean_abs:.5} rms={rms:.5} peak={peak:.5}", samples.len())
+    format!(
+        "n={} mean_abs={mean_abs:.5} rms={rms:.5} peak={peak:.5}",
+        samples.len()
+    )
 }
 
 fn diff(a: &[f32], b: &[f32]) -> String {
@@ -117,10 +126,9 @@ fn provider_counts(dir: &str, model: &str) -> Vec<(String, usize)> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let text = args
-        .get(1)
-        .cloned()
-        .unwrap_or_else(|| "A gentle breeze moved through the open window while everyone listened.".into());
+    let text = args.get(1).cloned().unwrap_or_else(|| {
+        "A gentle breeze moved through the open window while everyone listened.".into()
+    });
     let steps: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
     let trials: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(3);
 
@@ -148,7 +156,11 @@ fn main() -> Result<()> {
         }
         durations.sort_by(f64::total_cmp);
         let median = durations[durations.len() / 2];
-        println!("[{label}] median={median:.3}s samples={:?} stats={}", durations, stats(&last));
+        println!(
+            "[{label}] median={median:.3}s samples={:?} stats={}",
+            durations,
+            stats(&last)
+        );
         let wav = audio::encode_audio(&last, handle.sample_rate(), AudioFormat::Wav)?;
         std::fs::write(format!("/tmp/opencode/vulkan-probe/{label}.wav"), wav)?;
     }
@@ -161,8 +173,17 @@ fn main() -> Result<()> {
 
     drop(cpu);
     drop(vulkan);
-    println!("CPU profile     : {:?}", provider_counts(profile_dir, "duration_predictor"));
-    println!("WebGPU profile  : {:?}", provider_counts(&format!("{profile_dir}/webgpu"), "duration_predictor"));
-    println!("WebGPU profile (vector_estimator): {:?}", provider_counts(&format!("{profile_dir}/webgpu"), "vector_estimator"));
+    println!(
+        "CPU profile     : {:?}",
+        provider_counts(profile_dir, "duration_predictor")
+    );
+    println!(
+        "WebGPU profile  : {:?}",
+        provider_counts(&format!("{profile_dir}/webgpu"), "duration_predictor")
+    );
+    println!(
+        "WebGPU profile (vector_estimator): {:?}",
+        provider_counts(&format!("{profile_dir}/webgpu"), "vector_estimator")
+    );
     Ok(())
 }

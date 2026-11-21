@@ -14,8 +14,11 @@ fn model_dir() -> PathBuf {
 }
 
 fn fixture() -> Vec<u8> {
-    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ldc93s1.wav"))
-        .expect("LDC93S1 fixture")
+    std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/ldc93s1.wav"
+    ))
+    .expect("LDC93S1 fixture")
 }
 
 /// Extend or trim a 16 kHz mono PCM16 WAV to exactly `seconds` seconds.
@@ -100,7 +103,10 @@ async fn real_model_transcribes_and_benchmarks() {
             .metadata()
             .map(|m| m.len())
             .unwrap_or(0);
-    println!("5s: {five_secs:.2}s, 30s: {thirty_secs:.2}s, peak RSS: {} KiB", peak_rss_kib());
+    println!(
+        "5s: {five_secs:.2}s, 30s: {thirty_secs:.2}s, peak RSS: {} KiB",
+        peak_rss_kib()
+    );
     println!("weights on disk: {total} bytes");
     assert_eq!(five.language, "en");
     assert_eq!(thirty.language, "en");
