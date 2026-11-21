@@ -279,7 +279,6 @@
   "The selected file is empty.": "El archivo seleccionado está vacío.",
   "The selected file is not a WAV recording.": "El archivo seleccionado no es una grabación WAV.",
   "This is a test of the SonicBoom audio setup.": "Esta es una prueba de la configuración de audio de SonicBoom.",
-  "This model is not ready. Check its status in Engines.": "Este modelo no está listo. Revisa su estado en Motores.",
   "Too many failed attempts. Try again later.": "Demasiados intentos fallidos. Inténtalo más tarde.",
   "Total timeout per model file download (seconds)": "Tiempo máximo de descarga por archivo de modelo, en segundos.",
   "Turn your ideas into natural speech.": "Convierte tus ideas en una voz natural.",

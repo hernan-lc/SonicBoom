@@ -14,6 +14,7 @@ import PronunciationSettings from "./PronunciationSettings.vue";
 import SpokenPreview from "./SpokenPreview.vue";
 import GenerationStatus from "./GenerationStatus.vue";
 import ResultComparison from "./ResultComparison.vue";
+import ModelLoadingNotice from "../ModelLoadingNotice.vue";
 const emit = defineEmits<{ navigate: [tab: "voices" | "engines"] }>();
 const studio = useStudio();
 const {
@@ -210,9 +211,7 @@ onBeforeUnmount(() => {
                     :voices="availableVoices"
                     :disabled="pending"
                 />
-                <p v-if="!selectedModel.ready" class="help-note">
-                    {{ t("This model is not ready. Check its status in Engines.") }}
-                </p>
+                <ModelLoadingNotice v-if="!selectedModel.ready" mode="inline" :model="selectedModel.id" @manage="emit('navigate', 'engines')" />
             </SectionCard>
             <DisclosurePanel guide="pronunciation-toggle" :label="t('Pronunciation')">
                 <PronunciationSettings :disabled="pending" />

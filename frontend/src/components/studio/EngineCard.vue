@@ -5,6 +5,7 @@ import type { ProviderStatus, Capabilities } from '../../services/contracts';
 import { useStudio } from '../../composables/useStudio';
 import { useTask } from '../../composables/useTask';
 import FeedbackNotice from '../FeedbackNotice.vue';
+import ModelLoadingNotice from '../ModelLoadingNotice.vue';
 import StatusChip from '../ui/StatusChip.vue';
 import EngineModelList from './EngineModelList.vue';
 
@@ -14,7 +15,6 @@ const task = useTask();
 const { pending, feedback } = task;
 const togglePath = computed(() => `providers.${props.provider.provider_id.replaceAll('-', '_')}.enabled`);
 const models = computed(() => props.capabilities?.models || []);
-const switching = computed(() => props.provider.enabled && props.provider.state === 'loading');
 const stateTone = computed(() =>
   props.provider.state === 'ready'
     ? ('ok' as const)
@@ -47,10 +47,7 @@ const readiness = computed(() =>
       <code>{{ provider.active_model }}</code>
     </p>
     <EngineModelList v-if="models.length" :models="models" :active-model="provider.active_model" />
-    <p v-if="switching" role="status" class="help-note">
-      {{ t('Preparing model…') }}
-    </p>
-    <p v-if="provider.detail" class="engine-detail">{{ t(provider.detail) }}</p>
+    <ModelLoadingNotice mode="inline" :engine="provider" />
     <div v-if="studio.schema.value[togglePath]" class="provider-actions">
       <span v-if="capabilities?.languages.length" class="muted">{{
         t('{count} audio languages', { count: capabilities.languages.length })

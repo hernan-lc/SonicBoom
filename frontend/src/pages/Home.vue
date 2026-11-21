@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, provide, ref, watch, defineAsyncComponent } from 'vue';
+import { nextTick, onMounted, provide, ref, watch, defineAsyncComponent } from 'vue';
 import { t } from '../i18n';
 import type { HomeData } from '../types';
 import { createStudio, studioKey } from '../composables/useStudio';
@@ -30,13 +30,12 @@ watch(active, value => {
   const hash = `#/${value}`;
   if (window.location.hash !== hash) history.replaceState(null, '', hash);
 });
-const modelStatus = computed(() => info.value?.model.status || (props.data.modelReady ? 'ready' : 'idle'));
 async function compose() { active.value = 'create'; await nextTick(); document.getElementById('text')?.focus(); }
 </script>
 <template>
   <ModelLoadingNotice />
   <StudioLayout v-model="active">
-    <template #actions><span v-if="modelStatus !== 'ready'" id="modelStatus" class="model-status">{{ t(modelStatus === 'failed' ? 'Model load failed. Check server logs.' : modelStatus === 'downloading' ? 'Downloading model…' : modelStatus === 'loading' ? 'Loading model...' : 'Preparing model…') }}</span><button :disabled="loading" @click="studio.refresh()">{{ t('Refresh') }}</button><GuideLauncher v-if="active === 'create'" guide-id="first-audio"/><GuideHint v-else-if="active === 'engines'" guide-id="engines"/><GuideLauncher v-else-if="active === 'settings'" guide-id="key-settings"/></template>
+    <template #actions><ModelLoadingNotice mode="badge" /><button :disabled="loading" @click="studio.refresh()">{{ t('Refresh') }}</button><GuideLauncher v-if="active === 'create'" guide-id="first-audio"/><GuideHint v-else-if="active === 'engines'" guide-id="engines"/><GuideLauncher v-else-if="active === 'settings'" guide-id="key-settings"/></template>
     <template #notice><div v-if="info?.auth.required" id="tokenGroup" class="token-bar"><label for="apiToken">{{ t('API token') }}</label><input id="apiToken" data-guide="tokens-api-token" v-model.lazy="token" type="password" :placeholder="t('Paste your API token here')" autocomplete="off" spellcheck="false"><a href="/admin" data-guide="tokens-api-create">{{ t('create one in the admin panel') }}</a></div><FeedbackNotice :feedback="errors.info ? { kind: 'error', message: errors.info } : null"/></template>
     <template #create><KeepAlive><SpeechGenerator v-if="active === 'create'" @navigate="active = $event"/></KeepAlive></template>
     <template #voices><KeepAlive><VoiceLibrary v-if="active === 'voices'" @compose="compose" @engines="active = 'engines'"/></KeepAlive></template>

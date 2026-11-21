@@ -54,6 +54,10 @@
   height: 6px;
   accent-color: var(--warning);
 }
+.model-loading-inline .loading-notice-bar {
+  display: block;
+  margin-top: 6px;
+}
 .loading-notice-body a.btn-inline {
   justify-self: start;
   padding-inline: 0;

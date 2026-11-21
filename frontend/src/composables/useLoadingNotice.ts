@@ -60,8 +60,22 @@ export function loadingDetail(item: LoadingItem): string {
   return detail ? t(detail) : t('Preparing model…');
 }
 
+/** Compact header label for the default model. Empty when nothing is pending. */
+export function modelStatusLabel(status: string | null | undefined): string {
+  if (!status || status === 'ready') return '';
+  if (status === 'failed') return t('Model load failed. Check server logs.');
+  if (status === 'downloading') return t('Downloading model…');
+  if (status === 'loading') return t('Loading model...');
+  return t('Preparing model…');
+}
+
+/** Single-line status for a voice or model that cannot generate yet. */
+export function notReadyDetail(model: string): string {
+  return t('Model {model} is not ready — enable its engine first.', { model });
+}
+
 /**
- * Drives one global notice for the whole studio. Dismissal is scoped to the
+ * Drives the global notice for the whole studio. Dismissal is scoped to the
  * current set of busy engines: progress ticks do not reopen it, but a newly
  * loading engine does.
  */

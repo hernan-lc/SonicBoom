@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import type { Voice } from '../../services/contracts';
 import { useStudio } from '../../composables/useStudio';
 import DisclosurePanel from '../ui/DisclosurePanel.vue';
+import ModelLoadingNotice from '../ModelLoadingNotice.vue';
 import StatusDot from '../ui/StatusDot.vue';
 
 const props = defineProps<{ voice: Voice; disabled: boolean; usable: boolean; compatible: boolean; modelReady: boolean }>();
@@ -44,10 +45,7 @@ const retired = computed(
       <p v-if="!compatible" class="help-note">
         {{ t('This voice belongs to an incompatible model revision or mode. Recreate it from a supported reference.') }}
       </p>
-      <p v-else-if="!modelReady" class="help-note">
-        {{ t('Model {model} is not ready — enable its engine first.', { model: voice.model }) }}
-        <button type="button" class="btn-inline" @click="emit('engines')">{{ t('Manage engines') }}</button>
-      </p>
+      <ModelLoadingNotice v-else-if="!modelReady" mode="inline" :model="voice.model" @manage="emit('engines')" />
     </DisclosurePanel>
   </article>
 </template>
