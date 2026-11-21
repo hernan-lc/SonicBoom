@@ -146,6 +146,9 @@ generation is submitted. Resume and regenerate reuse that snapshot, not the form
 - `useStudio` shares API data through an epoch-scoped TanStack Query cache;
   `useSynthesis` owns job monitoring and object URLs;
   `useTask` / `FeedbackNotice` share loading and feedback behavior.
+- `ModelLoadingNotice` is a global toast, visible from every studio tab, while
+  an engine or the default model is loading. It shows short localized status
+  labels with raw progress, and links to Engines.
 - `services/http.ts` attaches same-origin credentials and optional bearer auth;
   `services/api.ts` defines typed endpoints; `services/jobs.ts` reconciles dropped
   SSE connections without creating duplicate inference jobs.

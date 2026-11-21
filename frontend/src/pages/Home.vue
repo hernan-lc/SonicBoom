@@ -10,8 +10,9 @@ const EnginesPanel = defineAsyncComponent(() => import('../components/studio/Eng
 const SettingsPanel = defineAsyncComponent(() => import('../components/studio/SettingsPanel.vue'));
 const GuidesPage = defineAsyncComponent(() => import('./GuidesPage.vue'));
 import FeedbackNotice from '../components/FeedbackNotice.vue';
-import GuideLauncher from '../components/GuideLauncher.vue';
 import GuideHint from '../components/GuideHint.vue';
+import GuideLauncher from '../components/GuideLauncher.vue';
+import ModelLoadingNotice from '../components/ModelLoadingNotice.vue';
 const props = defineProps<{ data: HomeData }>();
 const studio = createStudio(props.data); provide(studioKey, studio);
 const { token, info, loading, errors } = studio;
@@ -33,6 +34,7 @@ const modelStatus = computed(() => info.value?.model.status || (props.data.model
 async function compose() { active.value = 'create'; await nextTick(); document.getElementById('text')?.focus(); }
 </script>
 <template>
+  <ModelLoadingNotice />
   <StudioLayout v-model="active">
     <template #actions><span v-if="modelStatus !== 'ready'" id="modelStatus" class="model-status">{{ t(modelStatus === 'failed' ? 'Model load failed. Check server logs.' : modelStatus === 'downloading' ? 'Downloading model…' : modelStatus === 'loading' ? 'Loading model...' : 'Preparing model…') }}</span><button :disabled="loading" @click="studio.refresh()">{{ t('Refresh') }}</button><GuideLauncher v-if="active === 'create'" guide-id="first-audio"/><GuideHint v-else-if="active === 'engines'" guide-id="engines"/><GuideLauncher v-else-if="active === 'settings'" guide-id="key-settings"/></template>
     <template #notice><div v-if="info?.auth.required" id="tokenGroup" class="token-bar"><label for="apiToken">{{ t('API token') }}</label><input id="apiToken" data-guide="tokens-api-token" v-model.lazy="token" type="password" :placeholder="t('Paste your API token here')" autocomplete="off" spellcheck="false"><a href="/admin" data-guide="tokens-api-create">{{ t('create one in the admin panel') }}</a></div><FeedbackNotice :feedback="errors.info ? { kind: 'error', message: errors.info } : null"/></template>
