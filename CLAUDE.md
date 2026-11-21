@@ -15,3 +15,4 @@ Read the relevant doc before changing code:
 
 - Commits are fine (ask if unsure); always ask before `git push`.
 - Keep docs in sync when behavior changes.
+- UI text: no explanatory paragraphs. Use short labels plus an interactive guide (`frontend/src/guides/registry.ts`, Driver.js). Error, validation and diagnostic messages stay as text.
