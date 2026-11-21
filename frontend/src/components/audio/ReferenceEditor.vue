@@ -2,8 +2,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, useId, watch } from 'vue';
 import { t, renderMessage, errorMessage, type Message } from '../../i18n';
 import AppIcon from '../ui/AppIcon.vue';
-import DisclosurePanel from '../ui/DisclosurePanel.vue';
-import { inspectWave, analyzeWave, cropWave, type WaveFile, type WaveAnalysis } from '../../features/audio/wav';
+import { END_TOLERANCE, inspectWave, analyzeWave, cropWave, type WaveFile, type WaveAnalysis } from '../../features/audio/wav';
 
 const props = withDefaults(
   defineProps<{
@@ -45,7 +44,7 @@ const rangeError = computed(() =>
   !Number.isFinite(startNumber.value) ||
   !Number.isFinite(endNumber.value) ||
   startNumber.value < 0 ||
-  endNumber.value > wave.value.duration ||
+  endNumber.value > wave.value.duration + END_TOLERANCE ||
   endNumber.value <= startNumber.value
     ? t('Choose a valid start and end time.')
     : '',
@@ -90,7 +89,23 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function round(value: number): number {
-  return Math.round(value * 1000) / 1000;
+  return Math.min(duration.value || Infinity, Math.round(value * 1000) / 1000);
+}
+
+/** Bring both fields back to a valid range; invalid input never leaves the editor stuck. */
+function settle() {
+  if (!wave.value) return;
+  const total = wave.value.duration;
+  const from0 = start.value === '' ? Number.NaN : startNumber.value;
+  const to0 = end.value === '' ? Number.NaN : endNumber.value;
+  let from = Number.isFinite(from0) ? clamp(from0, 0, total) : 0;
+  let to = Number.isFinite(to0) ? clamp(to0, 0, total) : total;
+  if (to - from < MIN_TRIM) {
+    if (from + MIN_TRIM <= total) to = from + MIN_TRIM;
+    else from = Math.max(0, to - MIN_TRIM);
+  }
+  start.value = from;
+  end.value = to;
 }
 
 function format(seconds: number): string {
@@ -218,7 +233,8 @@ function timeFromClientX(clientX: number): number {
 }
 
 function beginDrag(kind: 'start' | 'end' | 'move', event: PointerEvent) {
-  if (props.disabled || !wave.value || rangeError.value || event.button !== 0) return;
+  if (props.disabled || !wave.value || event.button !== 0) return;
+  settle();
   event.preventDefault();
   stopPlayback();
   const originX = event.clientX;
@@ -263,7 +279,8 @@ function beginDrag(kind: 'start' | 'end' | 'move', event: PointerEvent) {
 }
 
 function onTrackPointerDown(event: PointerEvent) {
-  if (props.disabled || !wave.value || rangeError.value || event.button !== 0) return;
+  if (props.disabled || !wave.value || event.button !== 0) return;
+  settle();
   const time = timeFromClientX(event.clientX);
   if (time >= endNumber.value) {
     end.value = clamp(time, round(startNumber.value + MIN_TRIM), duration.value);
@@ -287,7 +304,8 @@ function nudge(kind: 'start' | 'end', delta: number) {
 }
 
 function onHandleKeydown(kind: 'start' | 'end', event: KeyboardEvent) {
-  if (props.disabled || !wave.value || rangeError.value) return;
+  if (props.disabled || !wave.value) return;
+  settle();
   const step = event.shiftKey ? 0.1 : 0.01;
   let delta = 0;
   let target: number | null = null;
@@ -322,18 +340,6 @@ function apply() {
   if (file) emit('apply', file);
 }
 
-function exportSelection() {
-  const file = croppedFile();
-  if (!file) return;
-  const url = URL.createObjectURL(file);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = file.name;
-  link.click();
-  // The download owns this URL until the browser has taken the file.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 function valueText(value: number): string {
   return `${round(value).toFixed(3)} s`;
 }
@@ -346,21 +352,14 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <section
+  <div
     class="reference-editor"
+    role="group"
     :aria-labelledby="title"
     :aria-busy="busy"
     :data-disabled="disabled || undefined"
   >
-    <header class="reference-editor-head">
-      <div>
-        <h3 :id="title">{{ t('Reference editor') }}</h3>
-        <p class="reference-hint">
-          {{ t('Drag the handles, or click the waveform to move the nearest edge.') }}
-        </p>
-      </div>
-      <span v-if="wave" class="reference-length">{{ wave.duration.toFixed(2) }} s</span>
-    </header>
+    <h3 :id="title" class="sr-only">{{ t('Trim recording') }}</h3>
 
     <p v-if="busy" class="reference-busy" role="status">{{ t('Analyzing reference…') }}</p>
     <p v-if="error" role="alert" class="field-error">{{ renderMessage(error) }}</p>
@@ -449,10 +448,6 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <p class="reference-selection-readout">
-        {{ t('Selected duration: {seconds} s', { seconds: rangeError ? '—' : selectionDuration.toFixed(3) }) }}
-      </p>
-
       <div class="reference-range">
         <label>
           {{ t('Trim start (seconds)') }}
@@ -461,10 +456,11 @@ onBeforeUnmount(() => {
             type="number"
             min="0"
             :max="wave.duration"
-            step="0.001"
+            step="any"
             :disabled="disabled"
             :aria-invalid="!!rangeError || undefined"
             :aria-describedby="rangeError ? rangeErrorId : undefined"
+            @change="settle"
             @keydown.enter.prevent
           />
         </label>
@@ -475,10 +471,11 @@ onBeforeUnmount(() => {
             type="number"
             min="0"
             :max="wave.duration"
-            step="0.001"
+            step="any"
             :disabled="disabled"
             :aria-invalid="!!rangeError || undefined"
             :aria-describedby="rangeError ? rangeErrorId : undefined"
+            @change="settle"
             @keydown.enter.prevent
           />
         </label>
@@ -487,26 +484,15 @@ onBeforeUnmount(() => {
         {{ rangeError }}
       </p>
 
-      <dl class="stat-grid">
-        <div><dt>{{ t('Peak') }}</dt><dd>{{ health.peak.toFixed(4) }}</dd></div>
-        <div><dt>{{ t('RMS') }}</dt><dd>{{ health.rms.toFixed(4) }}</dd></div>
-        <div><dt>{{ t('Clipping') }}</dt><dd>{{ (health.clipping * 100).toFixed(2) }}%</dd></div>
-        <div><dt>{{ t('Near silence') }}</dt><dd>{{ (health.silence * 100).toFixed(2) }}%</dd></div>
-      </dl>
-
-      <DisclosurePanel class="health-notes disclosure-plain" :label="t('Recording health notes')">
-        <p class="help-note">{{ t('Local measurements cover original channels. Server measurements use the mono mix.') }}</p>
-        <p v-if="health.silence > 0.95" role="status" class="help-note">
-          {{ t('The reference recording is nearly silent. Choose a clearer recording.') }}
-        </p>
-        <p v-if="health.clipping > 0.1" role="status" class="help-note">
-          {{ t('The reference recording has heavy clipping. Try recording at a lower input level.') }}
-        </p>
-        <p v-if="health.rms < 0.01 && health.silence <= 0.95" class="help-note">
-          {{ t('The reference recording is unusually quiet. Increase the recording level.') }}
-        </p>
-        <p class="help-note">{{ t('Quality advice does not impose an additional upload restriction.') }}</p>
-      </DisclosurePanel>
+      <p v-if="health.silence > 0.95" role="status" class="help-note">
+        {{ t('The reference recording is nearly silent. Choose a clearer recording.') }}
+      </p>
+      <p v-else-if="health.clipping > 0.1" role="status" class="help-note">
+        {{ t('The reference recording has heavy clipping. Try recording at a lower input level.') }}
+      </p>
+      <p v-else-if="health.rms < 0.01" role="status" class="help-note">
+        {{ t('The reference recording is unusually quiet. Increase the recording level.') }}
+      </p>
 
       <div class="reference-actions">
         <button
@@ -518,16 +504,6 @@ onBeforeUnmount(() => {
         >
           <AppIcon name="check" />
           {{ t('Use trimmed recording') }}
-        </button>
-        <button
-          type="button"
-          class="btn-with-icon"
-          :title="t('Export selected WAV')"
-          :disabled="disabled || !!rangeError"
-          @click="exportSelection"
-        >
-          <AppIcon name="download" />
-          {{ t('Export selected WAV') }}
         </button>
         <button
           v-if="canRestore"
@@ -553,5 +529,5 @@ onBeforeUnmount(() => {
       @ended="playing = false"
       @timeupdate="onTimeUpdate"
     />
-  </section>
+  </div>
 </template>

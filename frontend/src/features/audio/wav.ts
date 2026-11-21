@@ -135,9 +135,11 @@ export async function analyzeWave(wave: WaveFile, signal?: AbortSignal): Promise
   signal?.throwIfAborted();
   return { peaks, peak, rms: Math.sqrt(energy / count), clipping: clipped / count, silence: quiet / count };
 }
+/** Trim fields are shown in milliseconds, so an end that rounds past the exact length still means "to the end". */
+export const END_TOLERANCE = 0.001;
 /** Copy whole original sample frames. No decoding, resampling or quantization. */
 export function cropWave(wave: WaveFile, start: number, end: number): Uint8Array<ArrayBuffer> {
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > wave.duration || end <= start)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > wave.duration + END_TOLERANCE || end <= start)
     throw uiError('Choose a valid start and end time.');
   const first = Math.floor(start * wave.sampleRate),
     last = Math.min(wave.dataSize / wave.block, Math.ceil(end * wave.sampleRate));

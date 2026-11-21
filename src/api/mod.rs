@@ -1174,6 +1174,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wav_media_type_aliases_used_by_browsers_are_accepted() {
+        let (app, token, dir) = voices_test_app().await;
+        let metadata = serde_json::json!({"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"hello there","expected_revision":0}).to_string();
+        // A stale revision answers 409 only after the media type was accepted, so the status
+        // tells the aliases apart from a rejected type without needing a real recording.
+        for mime in ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave", "Audio/Vnd.Wave; charset=binary", "application/octet-stream"] {
+            let body = multipart_body(&metadata, b"invalid", mime, "");
+            let response = app
+                .clone()
+                .oneshot(raw_request("POST", "/api/voices/clones", Some(&token), "multipart/form-data; boundary=bound", &body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::CONFLICT, "{mime}");
+        }
+        for mime in ["audio/mpeg", "text/plain", "audio/ogg"] {
+            let body = multipart_body(&metadata, b"invalid", mime, "");
+            let response = app
+                .clone()
+                .oneshot(raw_request("POST", "/api/voices/clones", Some(&token), "multipart/form-data; boundary=bound", &body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE, "{mime}");
+        }
+        // The raw-body route accepts the same names.
+        let url = "/api/voices/clones?name=t&provider=reverb-tts&model=reverb-tts&language=ja&mode=icl&consent_basis=owner&transcript=hello";
+        for mime in ["audio/wave", "audio/vnd.wave"] {
+            let response = app
+                .clone()
+                .oneshot(raw_request("POST", url, Some(&token), mime, b"x"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{mime}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn multipart_rejects_stale_constraint_revision_without_storing_audio() {
         let (app, token, dir) = voices_test_app().await;
         let metadata = serde_json::json!({"name":"test","provider":"reverb-tts","model":"reverb-tts","language":"en","mode":"icl","consent_basis":"owner","transcript":"hello there","expected_revision":0}).to_string();

@@ -6,7 +6,7 @@ import { useTask } from '../../composables/useTask';
 import { validateReference, type ReferenceMetadata } from './validateReference';
 import { referenceMessage } from './referenceMessages';
 import { useCloneSelection } from './useCloneSelection';
-import { cloneFieldIssues, stepForField } from './cloneApiErrors';
+import { cloneFieldIssues } from './cloneApiErrors';
 import type { VoiceCreateResult, VoiceConstraints } from '../../services/contracts';
 
 export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
@@ -21,7 +21,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
   async function invalid(field: string, message: Message): Promise<never> {
     fieldIssues[field] = message;
     fieldFailure = true;
-    step.value = ['cloneName', 'cloneConsent'].includes(field) ? 2 : field === 'cloneProvider' ? 0 : 1;
     await nextTick();
     document.getElementById(field)?.focus();
     throw Object.assign(new Error(renderMessage(message)), { localizedMessage: message });
@@ -60,7 +59,7 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
       document.getElementById(Object.keys(fieldIssues)[0])?.focus();
     }
   });
-  const { step, provider, model, language, mode, choices, cap, languages, needsTranscript, engineReady } =
+  const { provider, model, language, mode, choices, cap, languages, needsTranscript, engineReady } =
     useCloneSelection(capabilities, providers, limits);
   const referenceWarnings = ref<string[]>([]);
   const referenceDefects = ref<string[]>([]);
@@ -126,17 +125,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
     if (checkTranscript && needsTranscript.value && !transcript.value.trim())
       return invalid('cloneTranscript', msg('ICL mode needs the exact reference transcript.'));
   }
-  async function next() {
-    await runWizard(async () => {
-      if (step.value === 0) {
-        if (!cap.value) throw uiError('No cloning engine is available right now.');
-        if (!model.value) throw uiError('Pick a model.');
-      } else {
-        await validateRecording();
-      }
-      step.value++;
-    });
-  }
   async function save() {
     const owner = identity();
     await runWizard(async () => {
@@ -170,7 +158,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
           const id = Object.keys(fieldIssues)[0];
           if (id) {
             fieldFailure = true;
-            step.value = stepForField(id);
           }
         }
         throw error;
@@ -213,7 +200,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
   function createAnother() {
     created.value = null;
     originalFile.value = null;
-    step.value = 0;
     name.value = '';
     consent.value = '';
     transcript.value = '';
@@ -249,7 +235,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
     metadata,
     pending,
     feedback,
-    step,
     provider,
     model,
     language,
@@ -269,7 +254,6 @@ export function useCloneWizard(emit: (event: 'created' | 'engines') => void) {
     needsTranscript,
     engineReady,
     selectFile,
-    next,
     save,
   };
 }

@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, ref } from 'vue';
 import { t } from '../../i18n';
 import AppIcon from '../ui/AppIcon.vue';
 import BaseTextarea from '../ui/BaseTextarea.vue';
+import DisclosurePanel from '../ui/DisclosurePanel.vue';
 import FileDropzone from '../ui/FileDropzone.vue';
 import type { VoiceConstraints } from '../../services/contracts';
 import type { ReferenceMetadata } from '../../features/cloning/validateReference';
@@ -15,12 +16,7 @@ function select(file: File | null) { emit('select', file); }
 function trim(file: File) { emit('trim', file); }
 function modeLabel(value: string) { const key = `mode.${value}`; const label = t(key); return label === key ? value : label; }
 const modeOptions = computed(() => props.modes.map(value => ({ value, label: modeLabel(value) })));
-const metaText = computed(() => {
-  if (!props.file) return '';
-  if (!props.metadata) return `${props.file.size} bytes`;
-  const meta = props.metadata;
-  return `${meta.duration.toFixed(2)} s · ${meta.sampleRate} Hz · ${meta.channels} ${meta.channels === 1 ? t('channel') : t('channels')} · ${meta.encoding}`;
-});
+const metaText = computed(() => (props.metadata ? `${props.metadata.duration.toFixed(2)} s` : ''));
 const durationState = computed<{ kind: 'ok' | 'warn' | 'bad'; text: string } | null>(() => {
   const duration = props.metadata?.duration;
   const range = props.limits?.providers?.[props.provider]?.duration_seconds;
@@ -39,9 +35,7 @@ const uploadLimit = computed(() => {
 const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size}', { size: uploadLimit.value }) : t('WAV only'));
 </script>
 <template><fieldset class="reference-step" :disabled="disabled"><legend class="sr-only">{{ t('Reference recording') }}</legend>
-  <p class="step-intro">{{ t('Use only voices you own or may use.') }}</p>
-
-  <FileDropzone id="cloneFile" ref="picker" :label="t('Reference recording (WAV, 3–10 s recommended)')" :help="uploadHelp" :error="errors.cloneFile" :disabled="disabled" :filled="!!file" @select="select">
+  <FileDropzone data-guide="clone-file" id="cloneFile" ref="picker" :label="t('Reference recording (WAV, 3–10 s recommended)')" :help="uploadHelp" :error="errors.cloneFile" :disabled="disabled" :filled="!!file" @select="select">
     <div v-if="!file" class="dropzone-empty">
       <AppIcon name="upload" class="dropzone-icon" />
       <p class="dropzone-title">{{ t('Drop a WAV file here') }}</p>
@@ -60,19 +54,20 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
     </div>
   </FileDropzone>
 
-  <ReferenceEditor
-    v-if="file && limits"
-    :file="file"
-    :max-bytes="limits.max_upload_bytes"
-    :analyzing="analyzing"
-    :status="durationState"
-    :can-restore="!!originalFile && file !== originalFile"
-    :disabled="disabled"
-    @apply="trim"
-    @restore="emit('restore')"
-  />
+  <DisclosurePanel v-if="file && limits" class="reference-trim" :label="t('Trim recording')">
+    <ReferenceEditor
+      :file="file"
+      :max-bytes="limits.max_upload_bytes"
+      :analyzing="analyzing"
+      :status="durationState"
+      :can-restore="!!originalFile && file !== originalFile"
+      :disabled="disabled"
+      @apply="trim"
+      @restore="emit('restore')"
+    />
+  </DisclosurePanel>
 
-  <fieldset id="cloneMode" class="mode-picker" tabindex="-1">
+  <fieldset v-if="modeOptions.length > 1" id="cloneMode" class="mode-picker" tabindex="-1">
     <legend>{{ t('Mode') }}</legend>
     <label v-for="option in modeOptions" :key="option.value" class="mode-option" :class="{ selected: mode === option.value }">
       <input type="radio" v-model="mode" :value="option.value" :name="'cloneMode-' + provider" :disabled="disabled" :aria-invalid="errors.cloneMode ? 'true' : undefined" :aria-describedby="errors.cloneMode ? 'cloneMode-error' : undefined">
@@ -83,6 +78,6 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
 
   <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
 
-  <BaseTextarea v-if="needsTranscript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required/>
+  <BaseTextarea v-if="needsTranscript" data-guide="clone-transcript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required/>
   <p v-if="needsTranscript && originalFile && file !== originalFile" class="callout warn"><span class="callout-icon" aria-hidden="true">!</span><span>{{ t('Review the transcript to match the trimmed recording. The transcript has not been rewritten.') }}</span></p>
 </fieldset></template>

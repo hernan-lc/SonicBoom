@@ -226,9 +226,6 @@
   border-top: 0;
   padding-top: 0;
 }
-.voice-creator-dialog .stepper {
-  margin-bottom: 18px;
-}
 .voice-creator-dialog :is(.clone-wizard > form, .clone-report) > .toolbar {
   margin-top: 24px;
   padding-top: 16px;

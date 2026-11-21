@@ -12,16 +12,6 @@ const fieldIds: Record<string, string> = {
   file: 'cloneFile',
 };
 
-const identityFields = ['cloneName', 'cloneConsent'];
-const engineFields = ['cloneProvider', 'cloneModel', 'cloneLang'];
-
-/** Wizard step that owns a given field. */
-export function stepForField(field: string): number {
-  if (identityFields.includes(field)) return 2;
-  if (engineFields.includes(field)) return 0;
-  return 1;
-}
-
 /**
  * Turn a server field-error response into form issues. The correlation id
  * travels with each field message so it stays attached to the visible error.

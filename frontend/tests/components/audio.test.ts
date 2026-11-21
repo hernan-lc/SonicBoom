@@ -63,24 +63,6 @@ it('editor keeps original untouched, emits only after explicit apply and release
   expect(inspectWave(await file.arrayBuffer()).duration).toBe(1);
 });
 
-it('the exported selection releases its temporary URL', async () => {
-  vi.stubGlobal('File', NodeFile);
-  const create = vi.fn(() => 'blob:trim'), revoke = vi.fn();
-  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
-  // The download click would navigate the test document.
-  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  const file = new NodeFile([source()], 'original.wav', { type: 'audio/wav' });
-  const wrapper = mount(ReferenceEditor, { props: { file: file as unknown as File, maxBytes: 1000000 } });
-  await flushPromises();
-  await vi.waitFor(() => expect(wrapper.find('.audio-waveform').exists()).toBe(true));
-  const inputs = wrapper.findAll('input[type="number"]');
-  await inputs[0].setValue(.25); await inputs[1].setValue(.75);
-  await wrapper.findAll('button').find(button => button.text() === 'Export selected WAV')!.trigger('click');
-  expect(create).toHaveBeenCalledTimes(2);
-  await vi.waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:trim'));
-  click.mockRestore();
-});
-
 it('moves the trim handles with the keyboard and keeps the inputs in sync', async () => {
   vi.stubGlobal('File', NodeFile);
   const file = new NodeFile([source()], 'original.wav', { type: 'audio/wav' });
@@ -94,4 +76,29 @@ it('moves the trim handles with the keyboard and keeps the inputs in sync', asyn
   const endHandle = wrapper.get('[role="slider"][aria-label="Trim end handle"]');
   await endHandle.trigger('keydown', { key: 'ArrowLeft', shiftKey: true });
   expect((wrapper.findAll('input[type="number"]')[1].element as HTMLInputElement).value).toBe('0.9');
+});
+
+it('the default range and a millisecond-rounded end are valid and never block the editor', async () => {
+  vi.stubGlobal('File', NodeFile);
+  const file = new NodeFile([source()], 'original.wav', { type: 'audio/wav' });
+  const wrapper = mount(ReferenceEditor, { props: { file: file as unknown as File, maxBytes: 1000000 } });
+  await flushPromises();
+  await vi.waitFor(() => expect(wrapper.find('.reference-track').exists()).toBe(true));
+  const [start, end] = wrapper.findAll<HTMLInputElement>('input[type="number"]');
+  // Untouched defaults: the exact duration, no error.
+  expect(wrapper.find('.field-error').exists()).toBe(false);
+  // 1.0 s source shown in ms can round past the exact length; still valid and usable.
+  await end.setValue('1.0004');
+  expect(wrapper.find('.field-error').exists()).toBe(false);
+  // Genuinely invalid input is repaired on change instead of leaving the editor stuck.
+  await end.setValue('');
+  await end.trigger('change');
+  expect(wrapper.find('.field-error').exists()).toBe(false);
+  expect(Number(end.element.value)).toBeCloseTo(1, 3);
+  await start.setValue('5');
+  await start.trigger('change');
+  expect(wrapper.find('.field-error').exists()).toBe(false);
+  expect(Number(start.element.value)).toBeLessThan(Number(end.element.value));
+  // Cropping to the rounded end still returns audio.
+  expect(() => cropWave(inspectWave(source()), 0, 1.0004)).not.toThrow();
 });

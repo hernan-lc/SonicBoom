@@ -27,7 +27,6 @@ beforeEach(() => {
 });
 afterEach(() => { wrapper.unmount(); vi.unstubAllGlobals(); });
 async function reference(file: File) {
-  await wrapper.get('form').trigger('submit');
   wrapper.getComponent(FileDropzone).vm.$emit('select', file);
   await flushPromises();
 }
@@ -57,16 +56,27 @@ describe('cloning wizard', () => {
     expect(document.activeElement?.id).toBe('cloneFile');
     expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
   });
-  it('shows the mode label and reports the recording details', async () => {
+  it('hides the mode picker when the engine has a single mode and reports only the length', async () => {
     mock.studio.capabilities.value[0].clone_modes = ['icl'];
     await flushPromises();
     await reference(wav(5));
-    const mode = wrapper.get('.mode-option');
-    expect(mode.text()).toContain('ICL');
-    expect(mode.text()).not.toContain('The engine');
+    expect(wrapper.find('.mode-option').exists()).toBe(false);
     expect(wrapper.get('.file-name').text()).toBe('ref.wav');
-    expect(wrapper.get('.file-meta').text()).toContain('5.00 s · 8000 Hz');
-    await vi.waitFor(() => expect(wrapper.get('.status-pill').text()).toContain('Good length'));
+    expect(wrapper.get('.file-meta').text()).toBe('5.00 s');
+  });
+  it('shows the mode picker only when there is something to choose', async () => {
+    mock.studio.capabilities.value[0].clone_modes = ['icl', 'speaker_only'];
+    await flushPromises();
+    await reference(wav(5));
+    expect(wrapper.findAll('.mode-option')).toHaveLength(2);
+  });
+  it('never blocks saving because of the trim fields: native validation is off and steps are free', async () => {
+    await reference(wav(5));
+    expect(wrapper.get('form').attributes('novalidate')).toBeDefined();
+    // The trim editor lives in a collapsed panel and must accept any exact duration.
+    await wrapper.get('.reference-trim .disclosure-trigger').trigger('click');
+    await flushPromises();
+    for (const input of wrapper.findAll<HTMLInputElement>('.reference-range input')) expect(input.attributes('step')).toBe('any');
   });
   it('returns to the empty drop zone when the recording is removed', async () => {
     await reference(wav(5));
@@ -79,8 +89,7 @@ describe('cloning wizard', () => {
   });
   it('retains draft on failure and successful report until explicit next action', async () => {
     await reference(wav());
-    expect(wrapper.text()).toContain('8000 Hz');
-    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect(wrapper.text()).toContain('1.00 s');
     await wrapper.get('#cloneName').setValue('My voice'); await wrapper.get('#cloneConsent').setValue('owner');
     mock.studio.api.createVoice.mockRejectedValueOnce(new Error('Network failed'));
     await wrapper.get('form').trigger('submit'); await flushPromises();
@@ -88,16 +97,26 @@ describe('cloning wizard', () => {
     expect(wrapper.text()).toContain('Network failed');
     await wrapper.get('form').trigger('submit'); await flushPromises();
     expect(wrapper.get('#cloneResult').text()).toContain('saved');
-    expect(wrapper.get('#cloneResult').text()).toContain('RMS');
+    expect(wrapper.get('#cloneResult').text()).not.toContain('RMS');
     expect(wrapper.text()).toContain('nearly silent');
     expect(wrapper.emitted('created')).toBeUndefined();
     const another = wrapper.findAll('button').find(button => button.text() === 'Create another')!;
     await another.trigger('click');
     expect(wrapper.find('#cloneResult').exists()).toBe(false);
   });
+  it('uploads the recording as audio/wav whatever label the browser gave it', async () => {
+    // Firefox reports .wav files as audio/vnd.wave, which the server used to reject with 415.
+    const file = wav();
+    Object.defineProperty(file, 'type', { value: 'audio/vnd.wave' });
+    const { createApi } = await import('../../src/services/api');
+    let sent: FormDataEntryValue | null = null;
+    const http = { json: async (_path: string, init: { body: FormData }) => { sent = init.body.get('file'); throw new Error('stop'); } };
+    await createApi(http as never).createVoice({ name: 'n' } as never, file).catch(() => {});
+    expect((sent as unknown as File).type).toBe('audio/wav');
+    expect((sent as unknown as File).name).toBe('ref.wav');
+  });
   it('rechecks a changed byte cap before save and preserves reference', async () => {
     await reference(wav());
-    await wrapper.get('form').trigger('submit'); await flushPromises();
     await wrapper.get('#cloneName').setValue('My voice'); await wrapper.get('#cloneConsent').setValue('owner');
     mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, max_upload_bytes: 1024 });
     await wrapper.get('form').trigger('submit'); await flushPromises();
@@ -108,7 +127,6 @@ describe('cloning wizard', () => {
 
 it('checks Unicode names and consent without uploading invalid drafts', async () => {
   await reference(wav());
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('#cloneName').setValue('語'.repeat(65));
   await wrapper.get('#cloneConsent').setValue('owner');
   await wrapper.get('form').trigger('submit'); await flushPromises();
@@ -126,11 +144,8 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   mock.studio.providers.value.push({ provider_id: 'reverb-tts', state: 'ready', enabled: true, active_model: 'reverb-tts' });
   mock.studio.api.voiceConstraints.mockResolvedValue({ ...constraints, providers: { ...constraints.providers, 'reverb-tts': { duration_seconds: [1, 30], models: ['reverb-tts'], languages: ['en'], clone_modes: ['icl'], transcript_required_for: ['icl'] } } });
   await reference(wav());
-  // Return to engine selection after choosing a engine-a recording.
-  await wrapper.findAll('button').find(button => button.text() === 'Back')!.trigger('click');
   await choose('#cloneProvider', 'reverb-tts');
   expect((wrapper.get('#cloneModel').element as HTMLInputElement).value).toBe('reverb-tts');
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('form').trigger('submit'); await flushPromises();
   expect(wrapper.get('#cloneTranscript').attributes('aria-invalid')).toBe('true');
   await wrapper.get('#cloneTranscript').setValue('語'.repeat(10001));
@@ -138,7 +153,8 @@ it('revalidates provider switching and ICL Unicode transcript boundaries', async
   expect(wrapper.get('#cloneTranscript-error').text()).toContain('10000');
   await wrapper.get('#cloneTranscript').setValue('語'.repeat(10000));
   await wrapper.get('form').trigger('submit'); await flushPromises();
-  expect(wrapper.get('#cloneName').isVisible()).toBe(true);
+  // The transcript is valid now; the name is the next missing field and everything is on one screen.
+  expect(wrapper.get('#cloneName').attributes('aria-invalid')).toBe('true');
   expect(mock.studio.api.createVoice).not.toHaveBeenCalled();
 });
 
@@ -179,7 +195,6 @@ it('shows only ready engines until unavailable ones are revealed', async () => {
 it('maps server field issues and correlation IDs without clearing the draft', async () => {
   const { ApiError } = await import('../../src/services/http');
   await reference(wav());
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('#cloneName').setValue('Draft'); await wrapper.get('#cloneConsent').setValue('owner');
   mock.studio.api.createVoice.mockRejectedValueOnce(new ApiError(400, 'Invalid name', { requestId: 'field-trace', fields: [{ field: 'name', code: 'invalid_length', message: 'Invalid name', expected: { min: 1, max: 64 }, received: 65 }] }));
   await wrapper.get('form').trigger('submit'); await flushPromises();
@@ -194,7 +209,6 @@ it('does not select or announce a saved profile after the token changes during r
   let release!: () => void;
   mock.studio.refreshVoices.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
   await reference(wav());
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('#cloneName').setValue('Draft'); await wrapper.get('#cloneConsent').setValue('owner');
   const saving = wrapper.get('form').trigger('submit'); await flushPromises();
   mock.studio.token.value = 'new';
@@ -206,7 +220,6 @@ it('does not select or announce a saved profile after the token changes during r
 it.each([401, 413, 415, 429, 503])('preserves a retryable draft and correlation details after HTTP %s', async status => {
   const { ApiError } = await import('../../src/services/http');
   await reference(wav());
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('#cloneName').setValue('Retained draft'); await wrapper.get('#cloneConsent').setValue('owner');
   mock.studio.api.createVoice.mockRejectedValueOnce(new ApiError(status, 'Upload rejected', { requestId: `trace-${status}`, ...(status === 429 ? { retryAfter: 3 } : {}) }));
   await wrapper.get('form').trigger('submit'); await flushPromises();
@@ -219,7 +232,6 @@ it.each([401, 413, 415, 429, 503])('preserves a retryable draft and correlation 
 
 it('submits only one upload while repeated save events are pending', async () => {
   await reference(wav());
-  await wrapper.get('form').trigger('submit'); await flushPromises();
   await wrapper.get('#cloneName').setValue('Draft'); await wrapper.get('#cloneConsent').setValue('owner');
   let release!: (value: unknown) => void;
   mock.studio.api.createVoice.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));

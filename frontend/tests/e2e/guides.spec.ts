@@ -44,7 +44,7 @@ test('the clone guide shows the New voice button first and opens the dialog only
   await expect(creator(page)).toHaveCount(0);
   await popover(page).locator('.driver-popover-next-btn').click();
   await expect(creator(page)).toBeVisible();
-  await expect(popover(page)).toContainText('Pick an engine');
+  await expect(popover(page)).toContainText('Add recording');
   // Only the popover: the dimming overlay behind it makes a whole-page contrast audit meaningless.
   expect((await new AxeBuilder({ page }).include('.driver-popover').analyze()).violations).toEqual([]);
 });

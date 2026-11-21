@@ -94,19 +94,6 @@
   margin-bottom: 4px;
   font-size: 15px;
 }
-.reference-hint {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.reference-length {
-  flex: none;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--surface-raised);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .reference-busy {
   color: var(--text-secondary);
   font-size: 13px;
@@ -226,14 +213,6 @@
   cursor: default;
   pointer-events: none;
 }
-.reference-selection-readout {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
 .reference-range {
   display: flex;
   gap: 16px;
@@ -247,9 +226,6 @@
 }
 .reference-range input {
   margin-top: 6px;
-}
-.reference-editor .stat-grid {
-  margin: 0;
 }
 .reference-actions {
   display: flex;
@@ -266,10 +242,6 @@
   .reference-editor .reference-range {
     flex-direction: column;
     gap: 10px;
-  }
-  .reference-editor .reference-selection-readout {
-    flex-direction: column;
-    gap: 4px;
   }
   .reference-track {
     height: 108px;

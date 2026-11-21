@@ -21,8 +21,8 @@ test('the reference editor draws the waveform and its trim handles navigate by k
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
   await page.getByRole('button', { name: 'New voice', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'reference.wav', mimeType: 'audio/wav', buffer: wav(5) });
+  await page.getByRole('button', { name: 'Trim recording', exact: true }).click();
   const editor = page.locator('.reference-editor');
   await expect(editor).toBeVisible();
   await expect(editor.getByRole('img', { name: 'Waveform of the original recording' })).toBeVisible();
@@ -41,11 +41,9 @@ test('cloning upload, retained report and keyboard delete dialog', async ({ page
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
   await page.getByRole('button', { name: 'New voice', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'test.wav', mimeType: 'audio/wav', buffer: wav() });
-  await expect(page.getByText('1.00 s · 8000 Hz', { exact: false })).toBeVisible();
+  await expect(page.locator('.file-meta')).toHaveText('1.00 s');
   await page.getByRole('textbox', { name: 'Exact transcript', exact: false }).fill('Exact words spoken');
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Browser voice');
   await page.getByRole('textbox', { name: 'Consent basis', exact: true }).fill('private consent');
   await page.getByRole('button', { name: 'Clone voice', exact: true }).click();
@@ -105,9 +103,9 @@ test('waveform trim stays editable and original recording can be restored', asyn
   await page.goto('/tests/e2e/index.html');
   await page.getByRole('tab', { name: 'Voice library', exact: true }).click();
   await page.getByRole('button', { name: 'New voice', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByLabel('Reference recording (WAV, 3–10 s recommended)', { exact: true }).setInputFiles({ name: 'original.wav', mimeType: 'audio/wav', buffer: wav(5) });
-  await expect(page.getByText('5.00 s · 8000 Hz', { exact: false })).toBeVisible();
+  await expect(page.locator('.file-meta')).toHaveText('5.00 s');
+  await page.getByRole('button', { name: 'Trim recording', exact: true }).click();
   await expect(page.locator('.reference-editor')).toBeVisible();
   await expect(page.getByRole('img', { name: 'Waveform of the original recording' })).toBeVisible();
   const endHandle = page.locator('.trim-handle.end');
@@ -123,22 +121,11 @@ test('waveform trim stays editable and original recording can be restored', asyn
   await page.getByRole('button', { name: 'Preview selection', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Use trimmed recording' })).toBeEnabled();
   expect((await analyze(page)).violations).toEqual([]);
-  const downloading = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export selected WAV', exact: true }).click();
-  const download = await downloading;
-  expect(download.suggestedFilename()).toBe('original-trim.wav');
-  const stream = await download.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
-  const exported = Buffer.concat(chunks);
-  expect(exported.readUInt32LE(24)).toBe(8000);
-  expect(exported.readUInt16LE(22)).toBe(1);
-  expect(exported.readUInt32LE(40) / 2 / 8000).toBe(1.25);
   await page.getByRole('button', { name: 'Use trimmed recording', exact: true }).click();
-  await expect(page.getByText('1.25 s · 8000 Hz', { exact: false })).toBeVisible();
+  await expect(page.locator('.file-meta')).toHaveText('1.25 s');
   await expect(page.locator('.muted').filter({ hasText: 'original-trim.wav' })).toBeVisible();
   await page.getByRole('button', { name: 'Restore original recording', exact: true }).click();
-  await expect(page.getByText('5.00 s · 8000 Hz', { exact: false })).toBeVisible();
+  await expect(page.locator('.file-meta')).toHaveText('5.00 s');
 });
 
 test('English and Spanish layouts support dark/light and reduced motion at narrow and wide sizes', async ({ page }) => {

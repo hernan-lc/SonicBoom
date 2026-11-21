@@ -39,7 +39,9 @@ export function createApi(http: HttpClient) {
     createVoice: async (input: CloneInput, file: File, signal?: AbortSignal) => {
       const body = new FormData();
       body.append('metadata', new Blob([JSON.stringify(input)], { type: 'application/json' }));
-      body.append('file', file);
+      // The recording was validated as WAV before this point. Browsers label the same file differently
+      // (Firefox reports `audio/vnd.wave`), so the upload always says `audio/wav`.
+      body.append('file', file.type === 'audio/wav' ? file : new File([file], file.name, { type: 'audio/wav' }));
       return responses.parseResponse(
         voiceCreateResultSchema,
         await http.json<unknown>('/api/voices/clones', { method: 'POST', body, signal }),

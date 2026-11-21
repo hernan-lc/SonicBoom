@@ -135,7 +135,7 @@ interface OpensOptions {
 /** A page where `voice-new` opens the dialog that holds the later steps, with a mocked Driver. */
 function opensHarness({ state, step }: OpensOptions) {
   const opener = '[data-guide="voice-new"]';
-  const modalSelectors = new Set(['[data-guide="clone-provider"]', '[data-guide="clone-step-reference"]', '[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]']);
+  const modalSelectors = new Set(['[data-guide="clone-file"]', '[data-guide="clone-transcript"]', '[data-guide="clone-submit"]']);
   const elements = new Map<string, object>();
   for (const guide of guides) for (const item of guide.steps) elements.set(item.target, {});
   if (state !== 'visible') for (const selector of modalSelectors) elements.delete(selector);
@@ -213,10 +213,10 @@ test('a target that never appears still lets the guide move on (Driver skips the
 });
 
 test('starting inside a dialog presses the closest earlier opener first', async () => {
-  const h = opensHarness({ state: 'hidden', step: 3 });
+  const h = opensHarness({ state: 'hidden', step: 2 });
   await h.begin();
   assert.deepEqual(h.clicks, ['[data-guide="voice-new"]']);
-  assert.deepEqual(h.captured[0].steps!.map((step) => step.element), ['[data-guide="clone-wizard"]', '[data-guide="clone-step-review"]']);
+  assert.deepEqual(h.captured[0].steps!.map((step) => step.element), ['[data-guide="clone-transcript"]', '[data-guide="clone-submit"]']);
   await h.finish();
 });
 

@@ -184,12 +184,6 @@
 .callout.warn .callout-icon {
   background: var(--warning);
 }
-.health-notes.disclosure {
-  border: 0;
-  margin: 8px 0 0;
-  padding: 0;
-  background: transparent;
-}
 .button-spinner {
   display: inline-block;
   width: 1em;

@@ -11,7 +11,6 @@ export function useCloneSelection(
   providers: Ref<ProviderStatus[]>,
   limits: Ref<VoiceConstraints | null>,
 ) {
-  const step = ref(0);
   const provider = ref('');
   const model = ref('');
   const language = ref('en');
@@ -60,5 +59,5 @@ export function useCloneSelection(
     { immediate: true },
   );
 
-  return { step, provider, model, language, mode, choices, cap, languages, needsTranscript, engineReady };
+  return { provider, model, language, mode, choices, cap, languages, needsTranscript, engineReady };
 }

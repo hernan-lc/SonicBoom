@@ -22,6 +22,8 @@ interface Option {
   ready: boolean;
 }
 
+/** With a single engine and model there is nothing to choose: only the language is asked. */
+const choosable = computed(() => props.choices.length > 1 || (props.cap?.models.length ?? 0) > 1);
 const engineQuery = ref('');
 const modelQuery = ref('');
 const engineOpen = ref(false);
@@ -80,8 +82,8 @@ watch(engineOpen, (open) => {
 </script>
 <template>
   <fieldset :disabled="disabled">
-    <legend class="sr-only">{{ t('Choose an engine') }}</legend>
-    <div class="row">
+    <legend class="sr-only">{{ t('Language') }}</legend>
+    <div v-if="choosable" class="row">
       <div class="field" data-guide="clone-provider">
         <SearchableSelect
           v-model="provider"
