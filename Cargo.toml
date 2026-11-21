@@ -67,6 +67,9 @@ webgpu = ["ort/webgpu"]
 # `[providers.reverb_tts] enabled=true`. Uses the HF `tokenizers` crate.
 reverb-tts = ["dep:tokenizers"]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 # Async runtime (only the features actually used)
 tokio = { version = "1", features = [

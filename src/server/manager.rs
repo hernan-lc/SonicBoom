@@ -14,7 +14,6 @@ use axum::Router;
 use axum::response::IntoResponse;
 use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::task::JoinHandle;
-use tower_http::trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer};
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 
 use crate::admin::handlers::AdminState;
@@ -92,15 +91,8 @@ impl ApiServerManager {
                         axum::Json(serde_json::json!({"error":"HTTP request deadline exceeded; use /api/tts/jobs for slow synthesis", "stage":"http_request_deadline"}))).into_response(),
                 }
             }))
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(|request: &axum::http::Request<axum::body::Body>| tracing::info_span!("http_request", method = %request.method(), path = request.uri().path()))
-                    // One access line per request (status + latency) at INFO.
-                    // The start-of-request DEBUG line duplicated it.
-                    .on_request(())
-                    .on_response(DefaultOnResponse::new().level(tracing::Level::INFO))
-                    .on_failure(DefaultOnFailure::new()),
-            )
+            // Outermost: one access line per request, at a level that says how interesting it was.
+            .layer(axum::middleware::from_fn(super::access_log::access_log))
     }
 
     /// Start (or restart) the listener on the currently
@@ -161,7 +153,7 @@ impl ApiServerManager {
         #[cfg(feature = "gui")]
         crate::update_gui_url(bound_addr);
 
-        tracing::info!(%addr, "HTTP listener started");
+        tracing::info!(%addr, url = %format!("http://{addr}"), "HTTP listener started");
         Ok(())
     }
 

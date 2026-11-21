@@ -941,7 +941,7 @@ fn recv_wait(
 /// Open the OS default output stream.
 fn open_default_stream()
 -> Result<(OutputStream, rodio::OutputStreamHandle, String), AudioManagerError> {
-    let (stream, handle) = OutputStream::try_default().map_err(|e| {
+    let (stream, handle) = crate::native_log::quiet(OutputStream::try_default).map_err(|e| {
         tracing::debug!("Default audio output unavailable: {e}");
         AudioManagerError::OutputUnavailable
     })?;
@@ -949,10 +949,12 @@ fn open_default_stream()
     // internally, so this labels the selection, not the wire).
     let name = {
         use rodio::cpal::traits::{DeviceTrait, HostTrait};
-        rodio::cpal::default_host()
-            .default_output_device()
-            .and_then(|d| d.name().ok())
-            .unwrap_or_else(|| "System Default".to_string())
+        crate::native_log::quiet(|| {
+            rodio::cpal::default_host()
+                .default_output_device()
+                .and_then(|d| d.name().ok())
+        })
+        .unwrap_or_else(|| "System Default".to_string())
     };
     Ok((stream, handle, name))
 }
@@ -966,7 +968,7 @@ fn open_named_stream(
         tracing::debug!("Audio output device '{name}' disappeared before open");
         AudioManagerError::OutputUnavailable
     })?;
-    let (stream, handle) = OutputStream::try_from_device(&device).map_err(|e| {
+    let (stream, handle) = crate::native_log::quiet(|| OutputStream::try_from_device(&device)).map_err(|e| {
         tracing::warn!("Cannot open audio output device '{name}': {e}");
         AudioManagerError::OutputUnavailable
     })?;

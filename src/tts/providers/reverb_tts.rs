@@ -427,6 +427,7 @@ impl ReverbTtsProvider {
         {
             super::assets::verify_local_files(&config.model_dir, &reverb_manifest())?;
             let _load_resource = super::worker::model_load_guard();
+            let load_started = std::time::Instant::now();
             let native = native::ReverbNative::open(
                 &config.model_dir,
                 config.cpu_threads,
@@ -436,6 +437,11 @@ impl ReverbTtsProvider {
                 return Err(ProviderError::loading("obsolete reverb-tts load discarded"));
             }
             let device = if native.gpu { "vulkan" } else { "cpu" };
+            tracing::info!(
+                device,
+                elapsed_ms = load_started.elapsed().as_millis() as u64,
+                "reverb-tts model loaded"
+            );
             if let Ok(mut slot) = self.model.lock() {
                 *slot = Some(native);
             }
@@ -775,6 +781,7 @@ impl ReverbTtsProvider {
     ) -> Result<PcmAudio, ProviderError> {
         use rand::SeedableRng;
 
+        let started = std::time::Instant::now();
         let _lifecycle = crate::tts::control::lock_cancellable(&self.lifecycle)
             .map_err(ProviderError::inference_failed)?;
         self.require_loaded()?;
@@ -815,6 +822,7 @@ impl ReverbTtsProvider {
             .ok()
             .and_then(|mut cache| cache.get(&key))
             .and_then(|bytes| native::VoiceCodes::from_bytes(&bytes));
+        let reference_cached = cached.is_some();
         let voice = match cached {
             Some(voice) => voice,
             None => {
@@ -898,6 +906,18 @@ impl ReverbTtsProvider {
             }
         }
         drop(guard);
+        let audio_secs = audio.len() as f64 / f64::from(REVERB_TTS_SAMPLE_RATE);
+        let elapsed = started.elapsed().as_secs_f64();
+        tracing::info!(
+            device,
+            chars = request.text.chars().count(),
+            pieces = pieces.len(),
+            audio_s = format!("{audio_secs:.1}"),
+            elapsed_s = format!("{elapsed:.1}"),
+            speed = format!("{:.2}x", audio_secs / elapsed.max(1e-6)),
+            reference_cached,
+            "reverb-tts synthesized"
+        );
         if audio.is_empty()
             || audio.iter().any(|s| !s.is_finite())
             || !audio.iter().any(|s| s.abs() > 1e-4)

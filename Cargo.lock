@@ -17,6 +17,7 @@ dependencies = [
  "hound",
  "image",
  "ksni",
+ "libc",
  "ndarray",
  "notify",
  "notify-debouncer-full",

@@ -6,6 +6,7 @@
 //! process plugin.
 
 pub mod engine;
+pub mod native_log;
 pub mod onnx_runtime;
 pub mod tts;
 

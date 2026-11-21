@@ -4,6 +4,7 @@
 //! this listener — the model, audio, tray, and the
 //! application process stay alive.
 
+pub mod access_log;
 pub mod manager;
 
 pub use manager::ApiServerManager;

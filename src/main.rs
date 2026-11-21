@@ -829,12 +829,13 @@ async fn run_server_inner(config_path: std::path::PathBuf, smoke: bool) -> anyho
         "Configuration loaded"
     );
     // Logged here because the configuration is loaded before logging starts.
-    for section in current.providers.retired_sections() {
+    let retired = current.providers.retired_sections();
+    if !retired.is_empty() {
         tracing::warn!(
-            "Ignoring retired [providers.{section}] section (that provider was removed); \
-             delete it from {} and use [providers.reverb_tts] for voice cloning. \
-             Existing voice profiles of the removed provider are kept but unavailable: \
-             recreate them as reverb-tts profiles from their stored reference audio",
+            "Ignoring retired provider sections [{}] in {}: delete them and use \
+             [providers.reverb_tts] for voice cloning. Their voice profiles stay listed but \
+             unusable: recreate them as reverb-tts profiles",
+            retired.join(", "),
             config_path.display()
         );
     }

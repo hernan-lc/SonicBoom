@@ -170,19 +170,22 @@ pub fn match_hardware(selected: &str, hardware_names: &[String]) -> Option<Devic
 pub fn enumerate_host_devices() -> Result<(Vec<String>, Option<String>), String> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
 
-    let host = rodio::cpal::default_host();
-    let default_name = host.default_output_device().and_then(|d| d.name().ok());
-    let devices = host
-        .output_devices()
-        .map_err(|e| format!("cannot enumerate output devices: {e}"))?;
-    let mut names = Vec::new();
-    for device in devices {
-        match device.name() {
-            Ok(name) => names.push(name),
-            Err(e) => tracing::debug!("Skipping output device with unreadable name: {e}"),
+    // ALSA/JACK print probe failures to stderr while the backend is opened.
+    crate::native_log::quiet(|| {
+        let host = rodio::cpal::default_host();
+        let default_name = host.default_output_device().and_then(|d| d.name().ok());
+        let devices = host
+            .output_devices()
+            .map_err(|e| format!("cannot enumerate output devices: {e}"))?;
+        let mut names = Vec::new();
+        for device in devices {
+            match device.name() {
+                Ok(name) => names.push(name),
+                Err(e) => tracing::debug!("Skipping output device with unreadable name: {e}"),
+            }
         }
-    }
-    Ok((names, default_name))
+        Ok((names, default_name))
+    })
 }
 
 /// Find the `occurrence`-th (1-based) OS output device named
@@ -192,21 +195,23 @@ pub fn find_host_device(hardware_name: &str, occurrence: usize) -> Option<rodio:
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
 
     let occurrence = occurrence.max(1);
-    let host = rodio::cpal::default_host();
-    let devices = host.output_devices().ok()?;
-    let mut seen = 0usize;
-    for device in devices {
-        match device.name() {
-            Ok(name) if name == hardware_name => {
-                seen += 1;
-                if seen == occurrence {
-                    return Some(device);
+    crate::native_log::quiet(|| {
+        let host = rodio::cpal::default_host();
+        let devices = host.output_devices().ok()?;
+        let mut seen = 0usize;
+        for device in devices {
+            match device.name() {
+                Ok(name) if name == hardware_name => {
+                    seen += 1;
+                    if seen == occurrence {
+                        return Some(device);
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
-    }
-    None
+        None
+    })
 }
 
 #[cfg(test)]
