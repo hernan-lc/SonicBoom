@@ -280,43 +280,8 @@ SonicBoom/
 │   └── config.md           # Configuration guide
 ├── frontend/               # Vue components, TypeScript controllers, Vite
 ├── build.rs                # Build and embed production UI
-├── Cargo.toml
-├── Dockerfile
-└── docker-compose.yml
+└── Cargo.toml
 ```
-
----
-
-## Docker
-
-```bash
-# Build and run with Docker (headless CPU server; no local playback)
-docker build -t sonicboom .
-docker run -p 127.0.0.1:17842:17842 \
-  -e SONICBOOM_ADMIN_ID=admin \
-  -e SONICBOOM_ADMIN_PW=<GENERATE-A-RANDOM-PASSWORD> \
-  -e HF_TOKEN=your_hf_token \
-  -v sonicboom-tokens:/app/data \
-  sonicboom
-
-# With local ALSA playback:
-docker build --target runtime-playback -t sonicboom:playback .
-# With CUDA acceleration (compiles with --features cuda):
-docker build --target runtime-cuda -t sonicboom:cuda .
-```
-
-Or use docker-compose:
-
-```bash
-export SONICBOOM_ADMIN_PW=<GENERATE-A-RANDOM-PASSWORD>
-docker compose up -d            # CPU server
-docker compose --profile playback up -d   # with local playback
-docker compose --profile cuda up -d       # CUDA server
-```
-
-Images run as non-root, use digest-pinned bases, and harden the container
-(`no-new-privileges`, dropped capabilities, resource limits). See
-[Configuration](docs/config.md#container-hardening) for details.
 
 ---
 

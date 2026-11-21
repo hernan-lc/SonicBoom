@@ -2,7 +2,7 @@
 
 SonicBoom uses a persistent `config.toml` and one shared `ConfigManager`
 for the browser wizard, settings screen, REST API, CLI and filesystem
-reloads. Environment variables remain supported for Docker, systemd and CI.
+reloads. Environment variables remain supported for systemd and CI.
 
 ## First launch and configuration location
 
@@ -28,8 +28,6 @@ known values reject migration. Passwords and HuggingFace credentials are
 moved to the restricted secret store and never serialized to TOML. Keep the
 legacy file private until you remove it yourself. A headless installation
 with a valid `SONICBOOM_ADMIN_PW` can start unattended without the wizard.
-Docker images bind inside the container on `0.0.0.0`, retain token auth,
-and use `/app/data/config.toml`; host exposure remains controlled by Docker.
 
 ## Live changes
 
@@ -284,55 +282,19 @@ Restrict permissions: `chmod 600 .env tokens.json`.
 
 ---
 
-## Docker Configuration
+## Token store
 
-### Environment Variables
-
-```yaml
-# docker-compose.yml
-services:
-  sonicboom:
-    image: sonicboom
-    ports:
-      - "127.0.0.1:17842:17842"
-    environment:
-      - PORT=17842
-      - SONICBOOM_ADMIN_ID=admin
-      - SONICBOOM_ADMIN_PW=${SONICBOOM_ADMIN_PW:?required}
-      - HF_TOKEN=your_hf_token
-      - INFERENCE_STEPS=10
-    volumes:
-      - ./models:/app/models
-      - tokendata:/app/data
-```
-
-Token data lives in a named volume, so a missing local `tokens.json` is
-handled safely. For a local (non-Docker) run, create it with:
+A missing local `tokens.json` is handled safely. To create it:
 
 ```bash
 printf '[]\n' > tokens.json
 chmod 600 tokens.json
 ```
 
-### Container Hardening
-
-The Compose file and images follow production hardening practices:
-
-- Containers run as non-root (`sonicboom`, uid 10001)
-- `no-new-privileges:true`, `cap_drop: [ALL]`
-- CPU/memory resource limits
-- `tmpfs` for `/tmp`; writable mounts limited to
-  `/app/models`, `/app/logs`, `/app/data`, `/app/temp_audio`
-- Digest-pinned base images; separate CPU / playback / CUDA targets
-
-For stricter setups, add a read-only root filesystem with tmpfs mounts for
-the writable paths, and terminate TLS at a reverse proxy setting
-`COOKIE_SECURE=true`.
-
 ### Production HTTPS
 
 Terminate TLS at a reverse proxy (nginx, Caddy, Traefik) in front of
-SonicBoom and forward plain HTTP to the container. Production checklist:
+SonicBoom and forward plain HTTP to it. Production checklist:
 
 - `COOKIE_SECURE=true` (required for HTTPS deployments).
 - `ENABLE_HSTS=true` only when **all** client traffic is HTTPS.
