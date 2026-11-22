@@ -99,6 +99,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # ort-sys deliberately emits no C++ stdlib link directive on MSVC, but
+      # the pinned ONNX Runtime static binaries reference MSVC STL vectorized
+      # algorithm symbols (__std_*). Link the dynamic C++ runtime explicitly
+      # (KNF_STATIC_CRT=0). This env var is a no-op on Linux runners.
+      - name: Link MSVC C++ runtime for ONNX Runtime
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "ORT_CXX_STDLIB=msvcprt" >> "$GITHUB_ENV"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
