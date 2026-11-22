@@ -46,6 +46,46 @@ waveform differs from fp32 by max 0.12 / mean 4.4e-3 versus the project bar of
 is not faster and shifts durations. Not adopted: it misses the quality bar by
 orders of magnitude for a modest latency gain.
 
+## Flow steps, community fp16/int8 and MNN (2026-11-22, AMD BC-250 / RADV, WebGPU/Vulkan)
+
+Flow steps (`examples/supertonic_steps_ab.rs`, seed 42, median of 5, 5 sentences
+en/es, round-trip WER with the local `fluid-speech-pro` ASR):
+
+| Steps | Median latency | RTF | Mean WER |
+|---|---|---|---|
+| 5 (default) | 195 ms | 0.037 | 0.000 |
+| 3 | 134 ms (-31%) | 0.025 | 0.000 |
+| 2 | 101 ms (-48%) | 0.019 | 0.045 (dropped/swapped words) |
+| 1 | 70 ms (-64%) | 0.013 | 0.985 (unintelligible) |
+
+Latency is ~31 ms per step plus ~40 ms fixed. Waveform drift versus 5 steps is
+large (max ~0.5-2) for every other count: different step counts are different
+audio, so the ~1e-4 bar only applies to graph conversions, not to this knob.
+WER over 5 sentences is a weak gate: 3 steps looks intelligible, but naturalness
+was not listened to and the sample is small. 5 stays the default; use 3 only
+after a listening check on the target voices/languages.
+
+Community conversions (Kyumdroid fp16, ahk-d fp16 and int8; fp32 I/O, all load
+in ORT CPU), 5-step flow loop through the fp32 vocoder, versus fp32:
+
+| Candidate | Waveform max / mean drift | Verdict |
+|---|---|---|
+| Kyumdroid fp16 | 1.5e-2 / 6.6e-4 | Fail (~2-3 orders above the bar) |
+| ahk-d fp16 | 9.5e-3 / 6.3e-4 | Fail; numerically the same recipe as Kyumdroid |
+| ahk-d int8 | 4.3e-1 / 3.5e-2 | Fail; only `vector_estimator` is int8 (MatMulInteger) |
+
+Cross-checked independently on a single estimator step (different seed):
+Kyumdroid max 4-6e-3 / mean 7e-4-1e-3. Better than the in-house partial fp16
+(max 0.12) but still not within the bar. Not adopted.
+
+MNN 3.6.2 (converter + Vulkan backend): all four graphs convert and dynamic
+lengths work, but `vector_estimator` differs from ORT by max 2.5e-3-1.5e-2 /
+mean 1e-4-6e-4 on the latent (CPU and Vulkan; `Precision_High` does not help).
+Vulkan only runs with `-DMNN_VULKAN_IMAGE=OFF` (image mode segfaults on this GPU)
+and needs the separate `libMNN_Vulkan.so` loaded. The Rust bindings are young
+(hundreds of downloads). Not adopted; no latency was measured because the numerics
+already disqualify it.
+
 ## Qwen3 request latency (2026-11-20, AMD BC-250 / RADV, 12 logical CPUs)
 
 Measured with `examples/qwen_gguf_smoke.rs` (`QWEN_GGUF_REPEAT`, `QWEN_GGUF_THREADS`,
@@ -142,7 +182,7 @@ the codec turns zeros into noise. Real recordings with a little room tone are fi
 | I/O binding (GPU-resident tensors) | Avoids host↔device copies of latents/token ids; `ort` exposes `IoBinding` | Profile copy time, then A/B end-to-end RTF | Not tried |
 | Move remaining CPU nodes to GPU | Profile shows ~42% of `duration_predictor` and ~7% of `vector_estimator` nodes still on CPU (shape/control ops) | Re-run `SONICBOOM_PROFILE` after each opset/graph rewrite; verify output equivalence | Tracked |
 | fp16 / NHWC layout options | WebGPU EP supports `preferredLayout`; fp16 can cut memory bandwidth | A/B accuracy and RTF; watch for drift in flow-matching latent | `preferredLayout` measured: no change; fp16 measured 2026-11-20: rejected (see below) |
-| Honor `model.inference_steps` in native `SupertonicProvider` | It currently hard-codes 5 steps while the API/config default is 5 and allows 1–50 | Set steps 1/5/10 via config and confirm latency/quality changes | Known mismatch |
+| Honor `model.inference_steps` in native `SupertonicProvider` | It hard-coded 5 steps while the config allows 1–50 | Set steps via config and confirm latency/quality changes | Fixed; A/B measured 2026-11-22 (see below) |
 | CPU-thread tuning for fallback paths | `SONICBOOM_CPU_THREADS` is only read on Android; desktop uses ORT defaults | Sweep 1/2/4/8 threads on CPU and on the fallback nodes | Not tried |
 | Parallel chunk synthesis | Long text is split at 200 chars and synthesized sequentially | Measure RTF for multi-chunk inputs; verify chunk boundary audio | Not tried |
 | Vendor EPs for NVIDIA images | CUDA/TensorRT can beat WebGPU on NVIDIA; build with `--no-default-features --features cuda` | Compare RTF and output vs Vulkan on the same GPU | Build available, unbenchmarked |
