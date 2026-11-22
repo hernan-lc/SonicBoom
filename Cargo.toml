@@ -216,6 +216,10 @@ opt-level = 3
 [patch.crates-io]
 # Android: release ORT environment before the Android AAR C++ destructors.
 ort = { path = "vendor/ort" }
+# Recent Cargo versions nest build-script output one directory deeper
+# (`build/<crate>/<hash>/out`). ort-sys rc.13 assumed the old layout and
+# panicked in copy_dylibs(); backport the layout fix from rc.15.
+ort-sys = { path = "vendor/ort-sys" }
 esaxx-rs = { path = "vendor/esaxx-rs" }
 # Temporary compatibility patch until ksni adopts maintained zbus 6.
 ksni = { path = "vendor/ksni" }

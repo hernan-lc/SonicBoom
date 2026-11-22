@@ -1114,7 +1114,13 @@ mod tests {
         let status = p.status();
         assert_eq!(status.state, ProviderStatusState::NotInstalled);
         assert_eq!(status.active_model.as_deref(), Some("reverb-tts"));
-        assert!(status.detail.unwrap().contains("not installed"));
+        let detail = status.detail.unwrap();
+        // Without the `reverb-tts` feature there is no native backend to
+        // report the missing bundle, so `status()` explains that instead.
+        #[cfg(feature = "reverb-tts")]
+        assert!(detail.contains("not installed"), "{detail}");
+        #[cfg(not(feature = "reverb-tts"))]
+        assert!(detail.contains("native backend not compiled"), "{detail}");
         assert_eq!(p.load("reverb-tts").unwrap_err().code(), "model_missing");
         assert!(p.load("other-model").is_err());
     }
