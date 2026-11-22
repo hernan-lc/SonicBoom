@@ -14,9 +14,10 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ('sonicboom-linux-x86_64.tar.gz', 'sonicboom-windows-x86_64.zip')
-# Windows release builds use ORT's `webgpu` artifact (D3D12 via Dawn), which
-# ships these three DLLs and no DirectML.dll. Hashes come from the pinned
-# 1.28.0 artifact; any change must update licenses/webgpu provenance together.
+# Release builds use ORT's `webgpu` artifact. Windows ships these three DLLs
+# (no DirectML.dll); Linux ships the Dawn helper .so. Hashes come from the
+# pinned 1.28.0 artifacts; any change must update licenses/webgpu provenance.
+WEBGPU_SO_SHA256 = 'e07cc47ed362fbc24d1aa305a39419ef025332b00973581bdbcbd66e7621a44a'
 WEBGPU_DLL_SHA256 = {
     'webgpu_dawn.dll': 'e501c2a450ec81bf85f34081570ac2242b1e507101bdeb576f792b41f21e34a7',
     'dxcompiler.dll': '0e34fed27b131a851ea6118c328d9ab441d7d08a43e043368e31f2e9d529fd45',
@@ -98,6 +99,16 @@ def package(target, output):
                                 'check ort/copy-dylibs and licenses/webgpu notices'
                             )
                     shutil.copytree(ROOT / 'licenses/webgpu', notices / 'webgpu')
+                else:
+                    # copy-dylibs leaves a symlink into ORT's cache; the archive
+                    # must carry the real file, from the pinned artifact only.
+                    library = stage / 'libwebgpu_dawn.so'
+                    if not library.is_file() or digest(library) != WEBGPU_SO_SHA256:
+                        raise RuntimeError(
+                            'Expected pinned WebGPU Dawn library beside executable; '
+                            'check ort/copy-dylibs and licenses/webgpu notices'
+                        )
+                    shutil.copyfile(ROOT / 'licenses/webgpu/LICENSE', notices / 'webgpu-dawn-LICENSE')
             if pkg.get('license_file'):
                 files.append(home / pkg['license_file'])
             for source in sorted(set(files)):

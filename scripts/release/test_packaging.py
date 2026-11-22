@@ -80,6 +80,39 @@ class PackagingTests(unittest.TestCase):
                     self.assertIn(name, archive.namelist())
                 self.assertIn('licenses/webgpu/LICENSE.txt', archive.namelist())
 
+    def test_linux_requires_the_pinned_dawn_library(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ('docs', 'licenses/onnxruntime', 'licenses/webgpu', 'native/build/download'):
+                (root / name).mkdir(parents=True)
+            for name in ('LICENSE', 'README.md', 'docs/RELEASING.md', 'models.sha256.json'):
+                (root / name).write_text('documentation')
+            (root / 'licenses/webgpu/LICENSE').write_text('dawn terms fixture')
+            target = 'x86_64-unknown-linux-gnu'
+            (root / 'native/build/download/dist.tsv').write_text(target + '\twebgpu\thttps://example.invalid/ms@1.28.0/linux\thash\n')
+            build = root / 'target' / target / 'release'
+            build.mkdir(parents=True)
+            (build / 'SonicBoom').write_bytes(b'executable fixture')
+            metadata = {'packages': [{'id': 'ort-sys', 'name': 'ort-sys', 'version': 'fixture',
+                                     'manifest_path': str(root / 'native/Cargo.toml')}]}
+            def output(args, **kwargs):
+                if '--build-info' in args:
+                    return json.dumps(BUILD_INFO)
+                return json.dumps(metadata).encode() if args[0] == 'cargo' else 'build-input\n'
+            with patch.object(package, 'ROOT', root), patch.object(package.subprocess, 'check_output', side_effect=output):
+                with self.assertRaises(RuntimeError):
+                    package.package(target, root / 'out')
+                library = build / 'libwebgpu_dawn.so'
+                library.write_bytes(b'wrong library version')
+                with self.assertRaises(RuntimeError):
+                    package.package(target, root / 'out')
+                fixture_hash = hashlib.sha256(library.read_bytes()).hexdigest()
+                with patch.object(package, 'WEBGPU_SO_SHA256', fixture_hash):
+                    package.package(target, root / 'out')
+            with tarfile.open(root / 'out' / package.ASSETS[0]) as archive:
+                self.assertIn('libwebgpu_dawn.so', archive.getnames())
+                self.assertIn('licenses/webgpu-dawn-LICENSE', archive.getnames())
+
     def test_archives_are_deterministic_allowlisted_and_case_correct(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
