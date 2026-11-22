@@ -1,0 +1,6 @@
+{"backend":"onnx-cpu","device":"cpu","gguf_threads":2,"steps":5,"trials":2,"median_synth_secs":1.370542027,"rtf":0.2999905864256785,"peak_rss_kb":766092,"samples":201476}
+{"backend":"gguf-cpu-audiocpp","device":"cpu","gguf_threads":2,"steps":5,"trials":2,"median_synth_secs":2.527089736,"rtf":0.5268005547511226,"peak_rss_kb":1231644,"samples":211550}
+{"backend":"onnx-cpu","device":"cpu","gguf_threads":4,"steps":5,"trials":2,"median_synth_secs":1.339,"rtf":0.293,"peak_rss_kb":null,"samples":201476}
+{"backend":"gguf-cpu-audiocpp","device":"cpu","gguf_threads":4,"steps":5,"trials":2,"median_synth_secs":1.743,"rtf":0.363,"peak_rss_kb":null,"samples":211550}
+{"backend":"onnx-webgpu-vulkan","device":"vulkan","gguf_threads":4,"steps":5,"trials":3,"median_synth_secs":0.17969868,"rtf":0.039333279338482005,"peak_rss_kb":766868,"samples":201476}
+{"backend":"gguf-vulkan-audiocpp","device":"vulkan","gguf_threads":4,"steps":5,"trials":3,"median_synth_secs":0.365144096,"rtf":0.0761461493126782,"peak_rss_kb":908956,"samples":211473}

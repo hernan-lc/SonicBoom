@@ -1,0 +1,8 @@
+{
+  "repo": "audio-cpp/audio.cpp-gguf",
+  "revision": "5140b027d3c416e5e3719002f98f09a196e0db6a",
+  "path": "Supertonic-3-GGUF/supertonic-3-orig.gguf",
+  "sha256": "ceede06706a11590dd055220152b44c37a5fb8ac33bb61e19a334e5258901b09",
+  "size": 454076228,
+  "license": "OpenRAIL-M (inherited from Supertone/supertonic-3)"
+}

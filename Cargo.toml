@@ -66,6 +66,11 @@ webgpu = ["ort/webgpu"]
 # non-commercial). Disabled by default; weights download only after
 # `[providers.reverb_tts] enabled=true`. Uses the HF `tokenizers` crate.
 reverb-tts = ["dep:tokenizers"]
+# GGUF evaluation harness for Supertonic 3 (audio.cpp / ggml). Opt-in: not part
+# of any default build. See benchmarks/supertonic-gguf.md.
+supertonic-gguf = ["dep:audio-cpp"]
+# Same harness with audio.cpp's Vulkan backend compiled in (needs Vulkan SDK).
+supertonic-gguf-vulkan = ["supertonic-gguf", "audio-cpp/vulkan"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -115,6 +120,10 @@ flacenc = "0.5"
 
 # Audio playback (server-side queue)
 rodio = { version = "0.19", optional = true }
+
+# GGUF evaluation backend (audio.cpp / ggml). Optional; only the
+# `supertonic-gguf` benchmark example links it. Native build needs cmake + C++.
+audio-cpp = { version = "0.10", optional = true, features = ["custom-models"] }
 
 # HuggingFace model download
 
@@ -193,6 +202,10 @@ required-features = ["server"]
 [[example]]
 name = "reverb_bench"
 required-features = ["server", "reverb-tts"]
+
+[[example]]
+name = "supertonic_gguf_bench"
+required-features = ["supertonic-gguf"]
 
 [[bin]]
 name = "sonicboom-tiktools-plugin"
