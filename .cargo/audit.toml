@@ -76,6 +76,33 @@ ignore = [
     "RUSTSEC-2024-0418", # gdk-sys - unmaintained (lockfile-only via non-Linux gui)
     "RUSTSEC-2024-0419", # gtk3-macros - unmaintained (lockfile-only via non-Linux gui)
     "RUSTSEC-2024-0420", # gtk-sys - unmaintained (lockfile-only via non-Linux gui)
+    # --- reviewed 2026-11-22: new advisories with no upgrade path in our graph ---
+    # chrono is a direct dependency used only for RFC3339 timestamps in voice
+    # profiles and logs. Upstream declared it unmaintained with no fixed
+    # version. Migration: replace with `time`/`jiff` (API-incompatible),
+    # tracked separately; no advisory against a specific chrono release.
+    "RUSTSEC-2026-0543", # chrono - unmaintained (direct dep, timestamps only)
+    # pin-utils arrives transitively (no fixed release exists). It is a tiny
+    # pinning helper with no reported unsoundness; migration happens when its
+    # parent (futures-util stack) drops it.
+    "RUSTSEC-2026-0441", # pin-utils - unmaintained (transitive)
+    # heapless 0.8 is pulled only by flacenc 0.5.1 (our FLAC encoder). Verified
+    # via `grep -rn heapless flacenc-0.5.1/src`: flacenc uses ONLY
+    # `heapless::Vec`. None of the affected APIs (Deque, IndexMap, Spsc,
+    # SortedLinkedList, FindMutView) are referenced, so these advisories are
+    # not reachable from any SonicBoom code path. flacenc 0.5.1 is the latest
+    # release and still requires heapless ^0.8; upgrading to the patched
+    # heapless >=0.9.4 requires an upstream flacenc change. Re-check on every
+    # flacenc bump and remove these once flacenc moves to heapless 0.9+.
+    "RUSTSEC-2026-0574", # heapless FindMutView::pop (unused API)
+    "RUSTSEC-2026-0575", # heapless Spsc::peek (unused API)
+    "RUSTSEC-2026-0576", # heapless IndexMap::truncate (unused API)
+    "RUSTSEC-2026-0577", # heapless panicking Drop (unused API)
+    "RUSTSEC-2026-0578", # heapless SortedLinkedList::zeroize (unused API)
+    "RUSTSEC-2026-0579", # heapless Deque TryFrom (unused API)
+    "RUSTSEC-2026-0580", # heapless treiber stack race (unused API)
+    "RUSTSEC-2026-0581", # heapless Deque::make_contiguous (unused API)
+    "RUSTSEC-2026-0582", # heapless IndexMap::insert (unused API)
 ]
 
 # Review notes (2026-09-16):

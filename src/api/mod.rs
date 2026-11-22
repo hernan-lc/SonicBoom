@@ -1630,8 +1630,21 @@ mod tests {
             )
             .await
             .unwrap();
-            assert_eq!(speech.status(), StatusCode::BAD_REQUEST, "speech {id}");
-            assert!(body_json(speech).await.to_string().contains("retired"));
+            // With the cloning backend compiled, resolution reaches the voice
+            // store and reports the retired profile explicitly. A headless
+            // `server`-only build rejects the request earlier because
+            // `reverb-tts` is not compiled; either way synthesis never runs.
+            #[cfg(feature = "reverb-tts")]
+            {
+                assert_eq!(speech.status(), StatusCode::BAD_REQUEST, "speech {id}");
+                assert!(body_json(speech).await.to_string().contains("retired"));
+            }
+            #[cfg(not(feature = "reverb-tts"))]
+            assert_eq!(
+                speech.status(),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "speech {id}"
+            );
         }
 
         // Retired model IDs get the same explicit error, never a 404.
