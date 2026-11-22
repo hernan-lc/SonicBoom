@@ -131,7 +131,8 @@ async fn main() -> Result<()> {
     let run_asr = args.get(4).map(|s| s != "0").unwrap_or(true);
     let reference_steps = *steps_list.iter().max().unwrap();
 
-    let root = PathBuf::from(std::env::var("SONICBOOM_MODEL_DIR").unwrap_or_else(|_| "models".into()));
+    let root =
+        PathBuf::from(std::env::var("SONICBOOM_MODEL_DIR").unwrap_or_else(|_| "models".into()));
     let out = PathBuf::from(
         std::env::var("SONICBOOM_AUDIO_OUT").unwrap_or_else(|_| "temp_audio/steps-ab".into()),
     );
@@ -144,7 +145,9 @@ async fn main() -> Result<()> {
     }
     let handle = ModelHandle::load(&model_paths(&root))?;
     let sr = handle.sample_rate();
-    println!("ep={ep} trials={trials} steps={steps_list:?} (drift reference: {reference_steps} steps)");
+    println!(
+        "ep={ep} trials={trials} steps={steps_list:?} (drift reference: {reference_steps} steps)"
+    );
 
     // Phase 1: latency + audio. results[case][step_idx] = (samples, median_s)
     let mut results: Vec<Vec<(Vec<f32>, f64)>> = Vec::new();
@@ -173,7 +176,11 @@ async fn main() -> Result<()> {
     println!("\n== latency (median of {trials}) and drift vs {reference_steps} steps ==");
     println!("case lang voice steps  median_s  audio_s   RTF   max_abs   mean_abs   rms_diff");
     for (ci, (lang, voice, _)) in CASES.iter().enumerate() {
-        let reference = &results[ci][steps_list.iter().position(|&s| s == reference_steps).unwrap()].0;
+        let reference = &results[ci][steps_list
+            .iter()
+            .position(|&s| s == reference_steps)
+            .unwrap()]
+        .0;
         for (si, &steps) in steps_list.iter().enumerate() {
             let (samples, med) = &results[ci][si];
             let audio_s = samples.len() as f64 / sr as f64;
