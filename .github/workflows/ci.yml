@@ -184,12 +184,14 @@ jobs:
       # security-regression test can vanish silently; this single `--list`
       # invocation (never per-test) proves every required test still exists
       # exactly once. The required manifest lives in
-      # scripts/ci/verify_regressions.py and is unit-tested.
+      # scripts/ci/verify_regressions.ts and is unit-tested.
       - name: Verify security regression coverage
         run: |
           set -euo pipefail
           cargo test --locked --all-targets -- --list > /tmp/regression-tests.txt
-          python3 scripts/ci/verify_regressions.py /tmp/regression-tests.txt
+          node --experimental-strip-types scripts/ci/verify_regressions.ts /tmp/regression-tests.txt
+      - name: Test the regression manifest guard
+        run: node --experimental-strip-types --test scripts/ci/test_verify_regressions.ts
 
   # Verify the headless network-server build (no ALSA dependency).
   build-headless:
