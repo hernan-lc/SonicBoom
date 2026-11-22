@@ -327,18 +327,22 @@ thread counts above 4, memory-pattern, flush-to-zero or spinning options (measur
 machine, load average 6-8): it is compute-bound.
 
 Device and sampler steps re-measured 2026-11-22 (`examples/reverb_bench.rs` + `examples/asr_wer.rs`,
-seed 42, English `ldc93s1.wav` reference, 3.3 s of audio, shared machine at load average 5-7 so
-absolute times are pessimistic):
+seed 42, English `ldc93s1.wav` reference, 8 steps, shared machine at load average 4-5 so
+absolute times are pessimistic). Three interleaved rounds, 2.2 s of audio:
 
-| Device | Load | First request (encodes the reference) | Warm request | Real time |
+| Device | Load | First request (encodes the reference) | Warm request | Real time (warm) |
 |---|---|---|---|---|
-| CPU, 4 threads | 3.3 s | 7.0 s | 4.8 s | 0.68x |
-| `auto` (Vulkan) | 10-13 s | 2.5 s | 1.5 s | 2.1x |
+| CPU, 4 threads | 2.3-2.9 s | 3.8-4.1 s | 3.0-3.3 s | ~0.7x |
+| `auto` (Vulkan) | 2.5 s | 1.5-2.0 s | 0.94-1.10 s | ~2.1x |
 
-Vulkan is ~3.2x faster per request and pays ~7-10 s more at load (shader/pipeline
-compilation). Stage split on Vulkan, warm, 8 steps (10 passes): prefix ~0.28 s,
-sampler/core ~0.84 s (~84 ms per pass), codec decode ~0.5 s on CPU, reference
-encode ~1.0 s once (then cached). The codec decode therefore stays ~1/3 of a warm request.
+Vulkan is ~3x faster per request with no measurable load penalty. (An earlier pass showed
+10-18 s Vulkan loads; that was machine load and a cold page cache for the 1.9 GB weights, not
+shader compilation.) The Mesa/RADV disk shader cache is already on and helps the first
+Supertonic synthesis (0.6 s with it, 2.0-2.2 s with `MESA_SHADER_CACHE_DISABLE=true`); it makes
+no measurable difference to Reverb's load (3.1 vs 3.3 s). Stage split on Vulkan, warm, 8 steps
+(10 passes), 3.3 s of audio: prefix ~0.28 s, sampler/core ~0.84 s (~84 ms per pass), codec
+decode ~0.5 s on CPU, reference encode ~1.0 s once (then cached). The codec decode therefore
+stays ~1/3 of a warm request.
 
 Sampler `steps` (passes = steps + 2), Vulkan, WER with the local ASR over 3 English sentences:
 
