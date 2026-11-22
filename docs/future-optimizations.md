@@ -307,6 +307,35 @@ running take. Vulkan now measures 4.5 s of audio in about 2.1 s warm. Profiling 
 thread counts above 4, memory-pattern, flush-to-zero or spinning options (measured on a loaded
 machine, load average 6-8): it is compute-bound.
 
+Device and sampler steps re-measured 2026-11-22 (`examples/reverb_bench.rs` + `examples/asr_wer.rs`,
+seed 42, English `ldc93s1.wav` reference, 3.3 s of audio, shared machine at load average 5-7 so
+absolute times are pessimistic):
+
+| Device | Load | First request (encodes the reference) | Warm request | Real time |
+|---|---|---|---|---|
+| CPU, 4 threads | 3.3 s | 7.0 s | 4.8 s | 0.68x |
+| `auto` (Vulkan) | 10-13 s | 2.5 s | 1.5 s | 2.1x |
+
+Vulkan is ~3.2x faster per request and pays ~7-10 s more at load (shader/pipeline
+compilation). Stage split on Vulkan, warm, 8 steps (10 passes): prefix ~0.28 s,
+sampler/core ~0.84 s (~84 ms per pass), codec decode ~0.5 s on CPU, reference
+encode ~1.0 s once (then cached). The codec decode therefore stays ~1/3 of a warm request.
+
+Sampler `steps` (passes = steps + 2), Vulkan, WER with the local ASR over 3 English sentences:
+
+| Steps | Passes | core ms | WER |
+|---|---|---|---|
+| 8 (default) | 10 | 837 | 0.000 |
+| 5 | 7 | 493 | 0.000 |
+| 4 | 6 | 442 | 0.061 (one "everyone" -> "every one" transcription) |
+| 3 | 5 | 392 | 0.000 |
+| 2 | 4 | 454 | 0.000 |
+
+Intelligibility holds even at 2 steps, so WER is not a sufficient gate here: fewer
+masked-diffusion steps usually cost speaker similarity and naturalness first. Listen (and
+compare speaker embeddings) before lowering the default of 8. Timing differences between 2-5
+steps are within the noise of the loaded machine.
+
 Open items, not done: IO-binding
 to keep the KV cache on the device between passes; fp16 weights (halves the 1.9 GB download,
 untested on RADV); the 16 upstream preset voices (codes, not audio, so they need a profile
