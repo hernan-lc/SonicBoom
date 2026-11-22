@@ -86,6 +86,28 @@ and needs the separate `libMNN_Vulkan.so` loaded. The Rust bindings are young
 (hundreds of downloads). Not adopted; no latency was measured because the numerics
 already disqualify it.
 
+Batching fragments (2026-11-22, Vulkan, agent probe, 20 runs after 3 warm-ups):
+all four graphs accept `batch_size` 1-8 and give bit-identical output to separate
+runs when items have the same shape (not silent on Vulkan). It is not worth
+adopting:
+
+| Graph | b=1 | b=5 (ms per run) | Reading |
+|---|---|---|---|
+| duration_predictor / text_encoder | 4.9 / 8.1 | 4.3 / 8.8 | flat: dispatch-bound |
+| vector_estimator, L=200 | 49 | 173 | compute-bound (3.5x) |
+| vector_estimator, L=60 | 31 | 68 | mostly dispatch-bound (2.2x) |
+| vocoder, L=200 | 54 | 223 | compute-bound (4.1x) |
+
+Best case for 5 equal-length 200-frame chunks is 1.42x end to end (2.25x at L=60).
+Unequal fragments, the normal case, cannot be padded within the quality bar: with
+`latent_mask`/`text_mask`, zero ids and the same noise, the shorter item differs
+by max ~0.5 / mean ~0.05 in the waveform (CPU EP gives the same numbers, so it is
+a property of the exported graphs; the padded text also changes the predicted
+duration, 2.794 -> 2.778 s). The longest item stays bit-identical. Also note
+`current_step`/`total_step` are `[batch_size]` in the graph, not `[1]`. The step
+cost is ~23 ms fixed plus ~0.13 ms per latent frame, so graph-level fusion
+(fewer dispatches) helps short sentences most and long chunks least.
+
 ## Qwen3 request latency (2026-11-20, AMD BC-250 / RADV, 12 logical CPUs)
 
 Measured with `examples/qwen_gguf_smoke.rs` (`QWEN_GGUF_REPEAT`, `QWEN_GGUF_THREADS`,
@@ -184,7 +206,7 @@ the codec turns zeros into noise. Real recordings with a little room tone are fi
 | fp16 / NHWC layout options | WebGPU EP supports `preferredLayout`; fp16 can cut memory bandwidth | A/B accuracy and RTF; watch for drift in flow-matching latent | `preferredLayout` measured: no change; fp16 measured 2026-11-20: rejected (see below) |
 | Honor `model.inference_steps` in native `SupertonicProvider` | It hard-coded 5 steps while the config allows 1–50 | Set steps via config and confirm latency/quality changes | Fixed; A/B measured 2026-11-22 (see below) |
 | CPU-thread tuning for fallback paths | `SONICBOOM_CPU_THREADS` is only read on Android; desktop uses ORT defaults | Sweep 1/2/4/8 threads on CPU and on the fallback nodes | Not tried |
-| Parallel chunk synthesis | Long text is split at 200 chars and synthesized sequentially | Measure RTF for multi-chunk inputs; verify chunk boundary audio | Not tried |
+| Parallel chunk synthesis | Long text is split at 200 chars and synthesized sequentially | Measure RTF for multi-chunk inputs; verify chunk boundary audio | Batching measured 2026-11-22: not adopted (see below); GPU-serialized anyway |
 | Vendor EPs for NVIDIA images | CUDA/TensorRT can beat WebGPU on NVIDIA; build with `--no-default-features --features cuda` | Compare RTF and output vs Vulkan on the same GPU | Build available, unbenchmarked |
 | Native Vulkan EP (`onnx-vulkan-rs`) | Avoids the WebGPU/Dawn abstraction; ~9× vs CPU reported on some graphs | Check operator/opset coverage for all four Supertonic graphs; A/B RTF and quality | Experimental, not integrated |
 
