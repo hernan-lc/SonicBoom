@@ -108,6 +108,25 @@ duration, 2.794 -> 2.778 s). The longest item stays bit-identical. Also note
 cost is ~23 ms fixed plus ~0.13 ms per latent frame, so graph-level fusion
 (fewer dispatches) helps short sentences most and long chunks least.
 
+Graph node reduction (2026-11-22, `onnxsim` + `Erf`-GELU -> `Gelu` opset 20 rewrite,
+agent-built, validated on ORT CPU, then timed on Vulkan with `supertonic_steps_ab`,
+5 steps, 5 sentences, 9 trials, min of two interleaved rounds):
+
+| Variant | Nodes (dp / te / est / voc) | Mean latency | Waveform drift vs fp32 (16-bit wav) |
+|---|---|---|---|
+| reference | 1086 / 1934 / 1004 / 401 | 188.6 ms | - |
+| dp/te/voc patched, original estimator | 373 / 665 / 1004 / 130 | 186.4 ms (-1%) | max 1.5e-4 / mean 1.3e-6 |
+| same + estimator with only Gelu (892 nodes) | 373 / 665 / 892 / 130 | 181.0 ms (-4%) | max 1.5e-4 / mean 1.3e-6 |
+| all four `sim_gelu` | 373 / 665 / 933 / 130 | 177.6 ms (-6%) | max 1.8e-4 / mean 1.1e-6 |
+
+`onnxsim` removes ~65% of the nodes of the three single-run graphs but *adds* nodes to
+`vector_estimator` (MatMul+Add -> Gemm brings Reshape scaffolding); only the Gelu rewrite
+shrinks it (-11%). The gain is at most ~11 ms of ~190 (within the +-10-20 ms run-to-run noise
+of this shared machine) and the drift sits at or just above the ~1e-4 / ~1e-6 bar. Not adopted:
+it would need hosting patched graphs, an opset-20 `Gelu` on the pinned ORT, and re-verification
+for a <= 6% gain. The dispatch-bound hypothesis only holds partly; the step cost is mostly
+real compute.
+
 ## Qwen3 request latency (2026-11-20, AMD BC-250 / RADV, 12 logical CPUs)
 
 Measured with `examples/qwen_gguf_smoke.rs` (`QWEN_GGUF_REPEAT`, `QWEN_GGUF_THREADS`,
@@ -199,7 +218,7 @@ the codec turns zeros into noise. Real recordings with a little room tone are fi
 
 | Idea | Why | How to validate | Status |
 |---|---|---|---|
-| Use OnnxSlim / int8 Supertonic assets | Upstream slim assets exist; community int8 drops weights 398→102 MB and peak RSS ~1026→327 MB | Compare RTF and waveform similarity vs the current fp32 baseline; check language coverage | Not tried |
+| Use OnnxSlim / int8 Supertonic assets | Upstream slim assets exist; community int8 drops weights 398→102 MB and peak RSS ~1026→327 MB | Compare RTF and waveform similarity vs the current fp32 baseline; check language coverage | Measured 2026-11-22: int8 fails quality, onnxsim <= 6% (see below); not adopted |
 | GPU graph capture | Removes per-run CPU submission overhead | Already tested via `SONICBOOM_WEBGPU_GRAPH_CAPTURE=1`: no gain (0.383→0.380 s) — CPU-fallback nodes and dynamic shapes prevent capture | Measured, no gain |
 | I/O binding (GPU-resident tensors) | Avoids host↔device copies of latents/token ids; `ort` exposes `IoBinding` | Profile copy time, then A/B end-to-end RTF | Not tried |
 | Move remaining CPU nodes to GPU | Profile shows ~42% of `duration_predictor` and ~7% of `vector_estimator` nodes still on CPU (shape/control ops) | Re-run `SONICBOOM_PROFILE` after each opset/graph rewrite; verify output equivalence | Tracked |
