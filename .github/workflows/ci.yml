@@ -259,7 +259,7 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             asset: sonicboom-linux-x86_64.tar.gz
-          - os: windows-2022
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
             asset: sonicboom-windows-x86_64.zip
     steps:
