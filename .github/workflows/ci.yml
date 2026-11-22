@@ -3,7 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    # Documentation-only changes cannot affect any build or test.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -17,8 +24,85 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Classify the diff once (no external action) so expensive jobs can be
+  # skipped when the change cannot affect them. `code` covers everything that
+  # feeds the Rust artifacts or their license/provenance guards; `frontend`
+  # covers the embedded web UI only.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: filter
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          else
+            changed=$(git diff --name-only HEAD^ HEAD)
+          fi
+          printf '%s\n' "$changed" > /tmp/changed.txt
+          if grep -qE '^(src/|tests/|examples/|scripts/|vendor/|licenses/|frontend/dist/|Cargo\.(toml|lock)|build\.rs|\.github/workflows/|models\.sha256\.json)' /tmp/changed.txt; then
+            echo 'code=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'code=false' >> "$GITHUB_OUTPUT"
+          fi
+          if grep -q '^frontend/' /tmp/changed.txt; then
+            echo 'frontend=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'frontend=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  # Dedicated so dependency advisories fail fast instead of waiting behind
+  # clippy + tests. Needs no native toolchain, frontend build or ALSA.
+  audit:
+    name: Audit dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - name: Cache cargo-audit binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
+      - name: Install cargo audit
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked
+          fi
+      # Gate on the `unmaintained` and `unsound` advisory categories. The
+      # `yanked` check is intentionally NOT denied: the only yanked crates
+      # (js-sys/wasm-bindgen/core2) are wasm-only transitive deps of reqwest
+      # that we never compile for the Linux server target and cannot be
+      # bumped without a newer reqwest.
+      # Per-advisory exceptions (e.g. the `gui`/GTK3 tree) live in
+      # .cargo/audit.toml so any NEW advisory on a crate we depend on still
+      # fails the build.
+      - name: Run cargo audit
+        run: cargo audit --deny unmaintained --deny unsound
+
   frontend:
     name: Web types, components, browser accessibility
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -44,7 +128,9 @@ jobs:
         working-directory: frontend
 
   validate:
-    name: Format, Lint, Test, Audit
+    name: Format, Lint, Test
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -79,18 +165,6 @@ jobs:
           cache-bin: 'false'
           save-if: ${{ github.event_name != 'pull_request' }}
 
-      - name: Cache cargo-audit binary
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-${{ runner.os }}-v1
-
-      - name: Install cargo audit
-        run: |
-          if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --locked
-          fi
-
       # The default `playback` feature (rodio/cpal) links against ALSA on Linux.
       # The WebGPU execution provider loads the Vulkan loader at runtime.
       - name: Install ALSA and the Vulkan loader
@@ -117,20 +191,11 @@ jobs:
           cargo test --locked --all-targets -- --list > /tmp/regression-tests.txt
           python3 scripts/ci/verify_regressions.py /tmp/regression-tests.txt
 
-      - name: Audit dependencies
-        # Gate on the `unmaintained` and `unsound` advisory categories. The
-        # `yanked` check is intentionally NOT denied: the only yanked crates
-        # (js-sys/wasm-bindgen/core2) are wasm-only transitive deps of reqwest
-        # that we never compile for the Linux server target and cannot be
-        # bumped without a newer reqwest.
-        # Per-advisory exceptions (e.g. the `gui`/GTK3 tree) live in
-        # .cargo/audit.toml so any NEW advisory on a crate we depend on still
-        # fails the build.
-        run: cargo audit --deny unmaintained --deny unsound
-
   # Verify the headless network-server build (no ALSA dependency).
   build-headless:
     name: Build headless (no playback)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     env:
       CARGO_PROFILE_RELEASE_LTO: thin
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '8'
@@ -165,6 +230,8 @@ jobs:
   # Cross-compilation validates the NDK ABI/build graph, not on-device inference.
   android-headless:
     name: Android ARM64 API-only (NDK, no runtime claims)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -185,7 +252,6 @@ jobs:
           echo "CXX_aarch64_linux_android=aarch64-linux-android28-clang++" >> "$GITHUB_ENV"
           echo "AR_aarch64_linux_android=llvm-ar" >> "$GITHUB_ENV"
           echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-      - run: cargo fmt --all --check
       - name: Check Android feature graph
         run: |
           cargo tree --color never --locked --target aarch64-linux-android --no-default-features --features server,android-ort > android-tree.txt
@@ -211,6 +277,8 @@ jobs:
   # Linux-compatible feature combinations beyond default/headless.
   feature-matrix:
     name: Feature matrix (${{ matrix.features }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -245,6 +313,8 @@ jobs:
   # system libraries are needed. Never reintroduce a GTK build dependency.
   build-gui:
     name: GUI tests and package (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
