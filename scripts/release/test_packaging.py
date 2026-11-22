@@ -46,10 +46,12 @@ class PackagingTests(unittest.TestCase):
             for name in ('LICENSE', 'README.md', 'docs/RELEASING.md', 'models.sha256.json'):
                 (root / name).write_text('documentation')
             target = 'x86_64-pc-windows-msvc'
-            (root / 'native/build/download/dist.tsv').write_text(target + '\tdirectml\thttps://example.invalid/ms@1.28.0/windows\thash\n')
+            (root / 'native/build/download/dist.tsv').write_text(target + '\twebgpu\thttps://example.invalid/ms@1.28.0/windows\thash\n')
             build = root / 'target' / target / 'release'
             build.mkdir(parents=True)
             (build / 'SonicBoom.exe').write_bytes(b'executable fixture')
+            libraries = {name: b'runtime fixture ' + name.encode() for name in package.WEBGPU_DLL_SHA256}
+            hashes = {name: hashlib.sha256(data).hexdigest() for name, data in libraries.items()}
             metadata = {'packages': [{'id': 'ort-sys', 'name': 'ort-sys', 'version': 'fixture',
                                      'manifest_path': str(root / 'native/Cargo.toml')}]}
             def output(args, **kwargs):
@@ -57,22 +59,26 @@ class PackagingTests(unittest.TestCase):
                     return json.dumps(BUILD_INFO)
                 return json.dumps(metadata).encode() if args[0] == 'cargo' else 'build-input\n'
             with patch.object(package, 'ROOT', root), patch.object(package.subprocess, 'check_output', side_effect=output):
+                # No WebGPU DLLs beside the executable: must fail, not ship a
+                # Windows archive that cannot start.
                 with self.assertRaises(RuntimeError):
                     package.package(target, root / 'out')
-                dll = build / 'DirectML.dll'
-                dll.write_bytes(b'wrong runtime version')
-                with self.assertRaises(RuntimeError):
-                    package.package(target, root / 'out')
-                fixture_hash = hashlib.sha256(dll.read_bytes()).hexdigest()
-                with patch.object(package, 'DIRECTML_SHA256', fixture_hash):
+                for name, data in libraries.items():
+                    (build / name).write_bytes(data)
+                # A mismatched runtime must be rejected even when all files exist.
+                with patch.object(package, 'WEBGPU_DLL_SHA256', {**hashes, 'dxil.dll': 'bad'}):
+                    with self.assertRaises(RuntimeError):
+                        package.package(target, root / 'out')
+                with patch.object(package, 'WEBGPU_DLL_SHA256', hashes):
                     with self.assertRaises(FileNotFoundError):
                         package.package(target, root / 'out')
-                    (root / 'licenses/directml').mkdir()
-                    (root / 'licenses/directml/LICENSE.txt').write_text('runtime terms fixture')
+                    (root / 'licenses/webgpu').mkdir()
+                    (root / 'licenses/webgpu/LICENSE.txt').write_text('runtime terms fixture')
                     package.package(target, root / 'out')
             with zipfile.ZipFile(root / 'out' / package.ASSETS[1]) as archive:
-                self.assertIn('DirectML.dll', archive.namelist())
-                self.assertIn('licenses/directml/LICENSE.txt', archive.namelist())
+                for name in libraries:
+                    self.assertIn(name, archive.namelist())
+                self.assertIn('licenses/webgpu/LICENSE.txt', archive.namelist())
 
     def test_archives_are_deterministic_allowlisted_and_case_correct(self):
         with tempfile.TemporaryDirectory() as temp:

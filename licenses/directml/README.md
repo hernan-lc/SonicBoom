@@ -1,6 +1,9 @@
 # DirectML redistributable notices
 
-The pinned Windows ORT distribution includes DirectML.dll 1.15.4. Its SHA-256 is
+Historical notices for the retired `directml` Windows artifact. Release builds
+now use the `webgpu` artifact (see `licenses/webgpu/`), which does not ship
+DirectML.dll; these files are kept for provenance only. The old artifact's
+DirectML.dll 1.15.4 had SHA-256
 `9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1`.
 It is byte-identical to bin/x64-win/DirectML.dll in Microsoft's official NuGet
 Microsoft.AI.DirectML 1.15.4 package:
@@ -13,7 +16,5 @@ from that package. These terms are distinct from ONNX Runtime's MIT license.
 The redistributable terms permit distribution with Windows applications;
 these notices and the DLL are included only in the Windows archive.
 
-The packager checks the DLL hash so a different redistributable cannot silently
-ship with stale notices. Update the provenance, notices and smoke validation
-when the pinned ORT distribution changes. No Windows DLL execution has been
-validated by this static inspection on Linux.
+The packager no longer copies these notices into Windows archives; the WebGPU
+runtime DLLs are hash-verified against `licenses/webgpu/` instead.

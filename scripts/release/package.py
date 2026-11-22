@@ -14,7 +14,14 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ('sonicboom-linux-x86_64.tar.gz', 'sonicboom-windows-x86_64.zip')
-DIRECTML_SHA256 = '9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1'
+# Windows release builds use ORT's `webgpu` artifact (D3D12 via Dawn), which
+# ships these three DLLs and no DirectML.dll. Hashes come from the pinned
+# 1.28.0 artifact; any change must update licenses/webgpu provenance together.
+WEBGPU_DLL_SHA256 = {
+    'webgpu_dawn.dll': 'e501c2a450ec81bf85f34081570ac2242b1e507101bdeb576f792b41f21e34a7',
+    'dxcompiler.dll': '0e34fed27b131a851ea6118c328d9ab441d7d08a43e043368e31f2e9d529fd45',
+    'dxil.dll': 'fda4dde92222ddb8564c3173ce48faa56f7e1c7b46b0b67dada1182ee07a4123',
+}
 
 
 def digest(path):
@@ -78,15 +85,19 @@ def package(target, output):
                           p.name.upper().startswith(('LICENSE', 'LICENCE', 'COPYING', 'NOTICE'))]
             if pkg['name'] == 'ort-sys':
                 distribution = (home / 'build/download/dist.tsv').read_text()
-                native_features = 'directml' if windows else 'none'
+                native_features = 'webgpu' if windows else 'none'
                 cpu = [line for line in distribution.splitlines() if line.startswith(target + '\t' + native_features + '\t')]
                 if len(cpu) != 1 or '/ms@1.28.0/' not in cpu[0] or not native_notices.is_dir():
                     raise RuntimeError('Native ORT distribution changed: update pinned licenses/onnxruntime notices')
                 if windows:
-                    dml = stage / 'DirectML.dll'
-                    if not dml.is_file() or digest(dml) != DIRECTML_SHA256:
-                        raise RuntimeError('Expected pinned DirectML 1.15.4 DLL beside executable; check ort/copy-dylibs and native notices')
-                    shutil.copytree(ROOT / 'licenses/directml', notices / 'directml')
+                    for name, expected in WEBGPU_DLL_SHA256.items():
+                        library = stage / name
+                        if not library.is_file() or digest(library) != expected:
+                            raise RuntimeError(
+                                f'Expected pinned WebGPU runtime {name} beside executable; '
+                                'check ort/copy-dylibs and licenses/webgpu notices'
+                            )
+                    shutil.copytree(ROOT / 'licenses/webgpu', notices / 'webgpu')
             if pkg.get('license_file'):
                 files.append(home / pkg['license_file'])
             for source in sorted(set(files)):
