@@ -183,6 +183,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Require commit on default branch and refuse an existing release
+        id: preflight
         run: |
           git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH" || { echo 'Release commit must be on the default branch'; exit 1; }
           python scripts/release/publish.py preflight
@@ -202,15 +203,19 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           RELEASE_COMMIT: ${{ github.sha }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          if [[ "$RUN_ATTEMPT" -gt 1 ]] && existing=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object | select(.type == "commit") | .sha'); then
-            [[ "$existing" == "$RELEASE_COMMIT" ]] || { echo 'Existing tag does not point to the tested commit'; exit 1; }
-            echo 'Reusing tag created for this retried run'
+          # preflight already refused a tag on another commit; re-check here so
+          # the tag is never moved or recreated, only created when absent.
+          if existing=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object | select(.type == "commit") | .sha' 2>/dev/null); then
+            [[ "$existing" == "$RELEASE_COMMIT" ]] || { echo "Tag $RELEASE_TAG exists and does not point to the tested commit"; exit 1; }
+            echo 'Reusing existing tag that points to the tested commit'
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_COMMIT"
           fi
+      # A draft staged by an earlier run of this workflow is reused as-is; the
+      # next step still proves its bytes against the tested artifacts.
       - name: Stage complete draft release
+        if: steps.preflight.outputs.reuse_draft != 'true'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           repository: ${{ github.repository }}

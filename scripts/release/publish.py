@@ -16,23 +16,91 @@ def gh(*args):
     return subprocess.check_output(['gh', *args], text=True)
 
 
-def preflight(repo, tag):
-    result = subprocess.run(['gh', 'api', f'repos/{repo}/releases/tags/{tag}'], capture_output=True, text=True)
+def occupied_message(tag):
+    return (f'A GitHub Release or tag named {tag} already exists.\n'
+            'This workflow only owns the workflow-created draft after the build completes.\n'
+            'Delete both the existing release and tag, or choose a new version.')
+
+
+def api_get(path):
+    """Return parsed JSON, or None on HTTP 404. Any other failure aborts (fail closed)."""
+    result = subprocess.run(['gh', 'api', path], capture_output=True, text=True)
     if result.returncode != 0:
         if 'HTTP 404' not in result.stderr:
-            raise RuntimeError(f'Cannot establish release absence: {result.stderr}')
-        return
+            raise RuntimeError(f'Cannot query {path}: {result.stderr}')
+        return None
     try:
-        release = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except ValueError as error:
-        raise RuntimeError(f'Cannot parse existing release for {repo}@{tag}: {error}') from error
-    if release.get('assets') or (release.get('body') or '').strip():
-        raise RuntimeError(f'Release {repo}@{tag} already exists; refusing duplicate/replacement upload')
-    release_id = release.get('id')
-    if release_id is None:
-        raise RuntimeError(f'Cannot identify empty release for {repo}@{tag}')
-    gh('api', '-X', 'DELETE', f'repos/{repo}/releases/{release_id}')
-    print(f'Removed empty placeholder release {repo}@{tag}; staging a verified draft')
+        raise RuntimeError(f'Cannot parse response for {path}: {error}') from error
+
+
+def releases_for_tag(repo, tag):
+    # Get-by-tag-name only resolves published releases; drafts need the list.
+    try:
+        pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repo}/releases?per_page=100'))
+    except (subprocess.CalledProcessError, ValueError) as error:
+        raise RuntimeError(f'Cannot list releases for {repo}: {error}') from error
+    return [release for page in pages for release in page if release.get('tag_name') == tag]
+
+
+def is_empty(release):
+    return not release.get('assets') and not (release.get('body') or '').strip()
+
+
+def check_tag(repo, tag, commit):
+    """A pre-existing tag is acceptable only when it points at the tested commit."""
+    ref = api_get(f'repos/{repo}/git/ref/tags/{tag}')
+    if ref is None:
+        return
+    obj = ref.get('object') or {}
+    if obj.get('type') == 'tag':  # annotated: resolve to the tagged commit
+        tagged = api_get(f'repos/{repo}/git/tags/{obj.get("sha")}')
+        obj = (tagged or {}).get('object') or {}
+    if obj.get('type') != 'commit' or not commit or obj.get('sha') != commit:
+        raise RuntimeError(f'Tag {tag} already exists and does not point at the tested commit '
+                           f'{commit or "(unknown)"}; refusing to move or recreate it.\n'
+                           + occupied_message(tag))
+
+
+def preflight(repo, tag, commit=None):
+    """Classify existing release state for `tag`.
+
+    Returns 'absent' (stage a new draft) or 'reuse-draft' (this workflow's own
+    previously staged draft: skip staging, `verify` still proves its bytes).
+    Anything else fails closed with an actionable message.
+    """
+    expected = {*ASSETS, 'SHA256SUMS'}
+    existing = releases_for_tag(repo, tag)
+    published = [r for r in existing if not r.get('draft')]
+    drafts = [r for r in existing if r.get('draft')]
+    placeholders = []
+    for release in published:
+        if not is_empty(release):
+            raise RuntimeError(f'Release {repo}@{tag} is already published; refusing duplicate/replacement.\n'
+                               + occupied_message(tag))
+        placeholders.append(release)
+    reuse = False
+    if len(drafts) > 1:
+        raise RuntimeError(f'Ambiguous draft releases for {repo}@{tag}: {len(drafts)} drafts; delete the extras.')
+    if drafts:
+        draft = drafts[0]
+        names = {a['name'] for a in draft.get('assets') or []}
+        if names == expected and all(a['size'] > 0 for a in draft['assets']) and len(draft['assets']) == 3:
+            reuse = True
+        elif is_empty(draft):
+            placeholders.append(draft)
+        else:
+            raise RuntimeError(f'Draft release {repo}@{tag} has missing or unexpected assets '
+                               f'({sorted(names) or "none"}); delete the draft and rerun.')
+    check_tag(repo, tag, commit)
+    for release in placeholders:  # destructive steps only after every check passed
+        release_id = release.get('id')
+        if release_id is None:
+            raise RuntimeError(f'Cannot identify empty release for {repo}@{tag}')
+        gh('api', '-X', 'DELETE', f'repos/{repo}/releases/{release_id}')
+        print(f'Removed empty placeholder release {repo}@{tag}; staging a verified draft')
+    return 'reuse-draft' if reuse else 'absent'
 
 
 def find_release(repo, tag):
@@ -83,6 +151,10 @@ if __name__ == '__main__':
     repo = os.environ['GITHUB_REPOSITORY']
     tag = os.environ.get('RELEASE_TAG') or os.environ['GITHUB_REF_NAME']
     if args.operation == 'preflight':
-        preflight(repo, tag)
+        state = preflight(repo, tag, os.environ.get('RELEASE_COMMIT') or os.environ.get('GITHUB_SHA'))
+        print(f'Release state for {repo}@{tag}: {state}')
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+                out.write(f'reuse_draft={"true" if state == "reuse-draft" else "false"}\n')
     else:
         verify(repo, tag, args.directory)

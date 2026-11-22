@@ -68,13 +68,26 @@ tag only uploads workflow artifacts, retained for 14 days.
 Publishing uses the workflow repository's `GITHUB_TOKEN` and `contents: write`
 only in the publish job; no PAT or cross-repository upload is needed. Repository
 or organization Actions policies must allow the workflow and its write access.
-Existing releases with assets or notes are not overwritten. For tag-triggered
-runs, the existing preflight removes an empty placeholder release before staging
-the draft. If publication fails after creating a tag, inspect the run and any
-draft before retrying. Rerun the failed publication job if it is safe to do so;
-if a draft with assets or notes remains, inspect and deliberately delete that
-unpublished draft before retrying. Do not move the tag or overwrite a published
-release; use a new version if the commit or published assets need to change.
+The publish job's preflight (`scripts/release/publish.py preflight`) inspects
+both published releases and drafts for the tag, and the tag itself:
+
+| State found | Result |
+|---|---|
+| No release, no tag | Continue; stage a draft (manual publication creates the tag at the tested commit). |
+| Draft with exactly the two archives and `SHA256SUMS` (this workflow's own earlier draft) | Reused: staging is skipped; the verify step still compares every byte with the tested artifacts before publishing. |
+| Draft with missing, extra or empty assets | Fails; nothing is deleted. Delete the draft and rerun. |
+| More than one draft for the tag | Fails as ambiguous. |
+| Published release with assets or notes | Fails; a published release is never replaced. |
+| Empty release or draft (no assets, no notes) | Removed after all other checks pass, then a verified draft is staged. |
+| Tag already exists on another commit | Fails; the tag is never moved or recreated. A tag on the tested commit is reused. |
+
+A release created by hand from the Releases page, or a tag created beforehand,
+cannot be taken over by the workflow: it only owns the draft it stages after the
+build completes. If that release or tag is unwanted, delete both the release and
+the tag, or choose a new version. If publication fails after the tag was created,
+inspect the run and the draft, then rerun the failed job: the matching draft is
+reused. Do not move the tag or overwrite a published release; use a new version
+if the commit or published assets need to change.
 
 A tag created by the manual workflow's `GITHUB_TOKEN` does not trigger the
 separate CUDA workflow. Run **CUDA full build** manually when that validation is
