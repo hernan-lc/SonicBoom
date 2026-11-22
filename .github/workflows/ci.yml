@@ -75,19 +75,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      # Prebuilt release binary with checksum verification instead of a
+      # multi-minute `cargo install` on a cold cache.
+      - uses: taiki-e/install-action@e70e8600a521fd81c7c717d28234cfd968bbef1a # v2.55.0
         with:
-          toolchain: stable
-      - name: Cache cargo-audit binary
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-${{ runner.os }}-v1
-      - name: Install cargo audit
-        run: |
-          if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --locked
-          fi
+          tool: cargo-audit
       # Gate on the `unmaintained` and `unsound` advisory categories. The
       # `yanked` check is intentionally NOT denied: the only yanked crates
       # (js-sys/wasm-bindgen/core2) are wasm-only transitive deps of reqwest
@@ -245,6 +237,12 @@ jobs:
           toolchain: stable
           targets: aarch64-linux-android
           components: rustfmt, clippy
+      - name: Cache Cargo dependencies (Android)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: android-aarch64-${{ hashFiles('vendor/**') }}
+          cache-bin: 'false'
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Configure installed Android NDK
         run: |
           test -d "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -302,11 +300,18 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Cache Cargo dependencies (feature matrix)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: features-${{ matrix.features }}-${{ hashFiles('vendor/**') }}
+          cache-bin: 'false'
+          save-if: ${{ github.event_name != 'pull_request' }}
+
       - name: Check ${{ matrix.features }}
         run: cargo check --locked ${{ matrix.args }} --all-targets
-      - name: Test server provider feature combinations
-        if: contains(matrix.features, 'server')
-        run: cargo test --locked ${{ matrix.args }}
+      # Tests for this feature set already run in `validate` (default features
+      # include reverb-tts) and `build-headless` (server). Only check/clippy
+      # are unique here; re-running cargo test duplicates both compilations.
       - name: Clippy server provider feature combinations
         if: contains(matrix.features, 'server')
         run: cargo clippy --locked ${{ matrix.args }} --all-targets -- -D warnings
@@ -381,9 +386,10 @@ jobs:
           fi
           echo "OK: no glib in Linux GUI graph"
 
-      - name: Clippy (GUI)
-        if: runner.os == 'Windows'
-        run: cargo clippy --locked --features gui --target ${{ matrix.target }} --all-targets -- -D warnings
+      # No per-OS clippy here: `validate` already runs clippy with the default
+      # feature set (which includes `gui`), and `Test (GUI)` compiles every
+      # target on this runner. Windows-specific clippy was ~7.5 min of pure
+      # duplicate work on the critical path.
 
       # ort/copy-dylibs can copy only beside the profile root when Windows
       # symlinks are unavailable (cache and checkout live on different drives).
