@@ -1,2 +1,5 @@
 *.onnx binary
 *.ort binary
+# ort-sys parses this table with include_str! and uses the last field verbatim
+# as a hex hash; CRLF conversion on Windows would make every hash invalid.
+vendor/ort-sys/build/download/dist.tsv text eol=lf
