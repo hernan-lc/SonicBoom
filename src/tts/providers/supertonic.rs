@@ -60,16 +60,27 @@ struct SupertonicState {
 /// Native provider adapter around the existing Supertonic 3 model handle.
 pub struct SupertonicProvider {
     state: RwLock<SupertonicState>,
+    /// Flow-matching denoising steps. Mirrors `model.inference_steps` from the
+    /// live config; the registry rebuilds the provider on every config change.
+    inference_steps: usize,
 }
 
 impl SupertonicProvider {
-    pub fn new(_model_dir: std::path::PathBuf) -> Self {
+    pub fn new(model_dir: std::path::PathBuf) -> Self {
+        Self::new_with_steps(model_dir, 5)
+    }
+
+    /// Build a provider with an explicit step count. `AppConfig` validates
+    /// `1..=MAX_INFERENCE_STEPS`; clamp here too so direct constructors can
+    /// never produce a zero-step (dividing by zero in the scheduler) request.
+    pub fn new_with_steps(_model_dir: std::path::PathBuf, inference_steps: usize) -> Self {
         Self {
             state: RwLock::new(SupertonicState {
                 handle: None,
                 active_model: None,
                 load_error: None,
             }),
+            inference_steps: inference_steps.clamp(1, 50),
         }
     }
 
@@ -217,7 +228,7 @@ impl TtsProvider for SupertonicProvider {
             text,
             &request.language,
             &voice,
-            5,
+            self.inference_steps,
             crate::tts::text::DEFAULT_MAX_CHUNK_CHARS,
         )
         .map_err(|e| {
@@ -248,6 +259,22 @@ mod tests {
         assert!(map_supertonic_voice("banana").is_err());
         assert!(map_supertonic_voice("M0").is_err());
         assert!(map_supertonic_voice("m1").is_err());
+    }
+
+    #[test]
+    fn inference_steps_are_configurable_and_clamped() {
+        let provider = SupertonicProvider::new_with_steps(std::path::PathBuf::from("./models"), 3);
+        assert_eq!(provider.inference_steps, 3);
+        assert_eq!(
+            SupertonicProvider::new_with_steps(std::path::PathBuf::from("./models"), 0)
+                .inference_steps,
+            1
+        );
+        assert_eq!(
+            SupertonicProvider::new_with_steps(std::path::PathBuf::from("./models"), 999)
+                .inference_steps,
+            50
+        );
     }
 
     #[test]

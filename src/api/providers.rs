@@ -51,7 +51,10 @@ pub fn build_registry(
     // none; gated bundles report an explicit auth error in status).
     pool.kick_ensure_if_needed(None);
 
-    let supertonic = Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
+    let supertonic = Arc::new(SupertonicProvider::new_with_steps(
+        config.model.cache_dir.clone(),
+        config.model.inference_steps,
+    ));
     if let Some(handle) = supertonic_handle {
         supertonic.attach_ready(handle, &config.model.revision);
     }
@@ -66,7 +69,10 @@ pub async fn build_registry_for_state(state: &crate::AppState) -> TtsProviderReg
         .providers
         .sync_versioned(generation, map_reverb_config(&config.providers.reverb_tts));
     state.providers.kick_ensure_if_needed(None);
-    let supertonic = Arc::new(SupertonicProvider::new(config.model.cache_dir.clone()));
+    let supertonic = Arc::new(SupertonicProvider::new_with_steps(
+        config.model.cache_dir.clone(),
+        config.model.inference_steps,
+    ));
     if let Some(handle) = supertonic_handle(state).await {
         supertonic.attach_ready(handle, &config.model.revision);
     }
