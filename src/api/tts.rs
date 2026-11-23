@@ -40,17 +40,10 @@ pub(super) async fn synthesize_bounded(
         config.inference.generation_deadline_secs,
         state.inference_gate.run_bounded(move || {
             if let Some(c) = sonicboom::tts::control::current() {
-                let forced_cpu =
-                    std::env::var("SONICBOOM_EP").is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
-                let device = if forced_cpu {
-                    "cpu"
-                } else if cfg!(all(feature = "webgpu", target_os = "linux")) {
-                    "vulkan"
-                } else if cfg!(any(feature = "cuda", feature = "rocm", feature = "coreml")) {
-                    "onnxruntime_placement_unknown"
-                } else {
-                    "cpu"
-                };
+                // Report the device the sessions actually run on, not one
+                // inferred from build flags (Windows WebGPU/D3D12 was reported
+                // as CPU before). The handle records a real EP registration.
+                let device = model_handle.effective_device().as_str();
                 c.set_context("supertonic", "supertonic-3", &voice_name, device);
             }
             inference::synthesize(

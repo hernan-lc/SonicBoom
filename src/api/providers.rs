@@ -176,9 +176,15 @@ mod tests {
             assert!(!registry.provider_ids().contains(&retired.to_string()));
         }
         assert_eq!(registry.provider_ids(), vec!["reverb-tts", "supertonic"]);
+        // A default build prefers the GPU and only falls back to CPU at load.
+        let expected = if sonicboom::onnx_runtime::gpu_enabled() {
+            "vulkan"
+        } else {
+            "cpu"
+        };
         for status in registry.statuses() {
             if status.provider_id == "supertonic" {
-                assert_eq!(status.effective_device.as_deref(), Some("cpu"));
+                assert_eq!(status.effective_device.as_deref(), Some(expected));
             } else {
                 // Optional providers are disabled by default.
                 assert!(!status.enabled);
@@ -220,7 +226,13 @@ mod tests {
             status.state,
             sonicboom::tts::providers::types::ProviderStatusState::NotInstalled
         );
-        assert_eq!(status.effective_device.as_deref(), Some("cpu"));
+        // `device` now defaults to `auto`: GPU first, CPU only on fallback.
+        let expected = if sonicboom::onnx_runtime::gpu_enabled() {
+            "vulkan"
+        } else {
+            "cpu"
+        };
+        assert_eq!(status.effective_device.as_deref(), Some(expected));
         assert!(registry.get("supertonic").is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }

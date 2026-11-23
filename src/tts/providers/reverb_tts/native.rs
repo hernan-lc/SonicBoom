@@ -29,16 +29,24 @@ fn fail(context: &str, error: impl std::fmt::Display) -> ProviderError {
     ProviderError::inference_failed(format!("reverb-tts {context}: {error}"))
 }
 
-fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<Session, ProviderError> {
-    let builder = Session::builder()
-        .map_err(|e| fail("session setup", e))?
-        .with_intra_threads(threads.clamp(1, 32))
-        .map_err(|e| fail("thread setup", e))?;
-    let mut builder = if gpu {
-        crate::onnx_runtime::with_gpu(builder, &path)
-    } else {
-        builder
+/// Build one session, GPU first when requested. Returns the session and
+/// whether a hardware EP was really registered/committed.
+fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<(Session, bool), ProviderError> {
+    let builder = || {
+        Session::builder()
+            .map_err(|e| fail("session setup", e))?
+            .with_intra_threads(threads.clamp(1, 32))
+            .map_err(|e| fail("thread setup", e))
     };
+    let candidate = if gpu {
+        crate::onnx_runtime::with_gpu(builder()?, &path)
+    } else {
+        crate::onnx_runtime::GpuSessionBuilder {
+            builder: builder()?,
+            gpu: false,
+        }
+    };
+    let mut builder = candidate.builder;
     // Optional per-session ORT profile, written when the session is dropped
     // (same `SONICBOOM_PROFILE=<dir>` switch as the Supertonic graphs).
     if let Ok(dir) = std::env::var("SONICBOOM_PROFILE") {
@@ -47,9 +55,19 @@ fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<Session, Provider
             .with_profiling(Path::new(&dir).join(format!("{name}.json")))
             .map_err(|e| fail("profiling setup", e))?;
     }
-    builder
-        .commit_from_file(&path)
-        .map_err(|e| fail(&format!("load {}", path.display()), e))
+    match builder.commit_from_file(&path) {
+        Ok(session) => Ok((session, candidate.gpu)),
+        Err(err) if candidate.gpu => {
+            tracing::warn!("reverb-tts GPU session failed ({err}); retrying on CPU");
+            let mut cpu = Session::builder()
+                .map_err(|e| fail("session setup", e))?
+                .with_intra_threads(threads.clamp(1, 32))
+                .map_err(|e| fail("thread setup", e))?;
+            Ok((cpu.commit_from_file(&path)
+                .map_err(|e| fail(&format!("load {}", path.display()), e))?, false))
+        }
+        Err(err) => Err(fail(&format!("load {}", path.display()), err)),
+    }
 }
 
 fn joined<T>(
@@ -204,25 +222,49 @@ impl ReverbNative {
                     joined(decoder),
                 )
             });
+        let (tokenizer, embed_prefix, core, embed_target, heads, encoder, decoder) = (
+            tokenizer?,
+            embed_prefix?,
+            core?,
+            embed_target?,
+            heads?,
+            encoder?,
+            decoder?,
+        );
+        let (embed_prefix, gpu1) = embed_prefix;
+        let (embed_target, gpu2) = embed_target;
+        let (heads, gpu3) = heads;
+        let (core, gpu4) = core;
+        let (encoder, _) = encoder;
+        let (decoder, _) = decoder;
+        // A requested GPU is only real if at least one EP registered and its
+        // session committed. Otherwise rebuild everything on CPU so the
+        // reported device matches the actual placement.
+        let gpu_used = gpu && (gpu1 || gpu2 || gpu3 || gpu4);
+        if gpu && !gpu_used {
+            tracing::warn!("reverb-tts GPU session unavailable; rebuilding the graphs on the CPU");
+            drop(_gpu_guard);
+            return Self::open(dir, threads, false);
+        }
         let mut native = Self {
-            tokenizer: tokenizer?,
-            embed_prefix: embed_prefix?,
-            core: core?,
-            embed_target: embed_target?,
-            heads: heads?,
+            tokenizer,
+            embed_prefix,
+            core,
+            embed_target,
+            heads,
             // The codec graphs are convolutional and stay on the CPU.
-            encoder: encoder?,
-            decoder: decoder?,
+            encoder,
+            decoder,
             decoder_gpu: None,
-            gpu,
+            gpu: gpu_used,
             timings: Timings::default(),
         };
-        if gpu && !native.self_check() {
+        if gpu_used && !native.self_check() {
             tracing::warn!("reverb-tts GPU self-check failed; rebuilding the graphs on the CPU");
             drop(_gpu_guard);
             return Self::open(dir, threads, false);
         }
-        if gpu {
+        if gpu_used {
             native.decoder_gpu = native.build_gpu_decoder(&onnx("codec_decoder.onnx"), threads);
         }
         Ok(native)
@@ -262,7 +304,13 @@ impl ReverbNative {
                 |error| tracing::warn!(%error, "reverb-tts GPU codec decoder setup failed"),
             )
             .ok()?;
-        let mut session = crate::onnx_runtime::with_gpu(builder, path)
+        let mut candidate = crate::onnx_runtime::with_gpu(builder, path);
+        if !candidate.gpu {
+            tracing::warn!("reverb-tts GPU codec decoder skipped (no hardware EP)");
+            return None;
+        }
+        let mut session = candidate
+            .builder
             .commit_from_memory(&patched)
             .inspect_err(
                 |error| tracing::warn!(%error, "reverb-tts GPU codec decoder failed to load"),

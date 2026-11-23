@@ -145,7 +145,7 @@ impl TtsProvider for SupertonicProvider {
     }
 
     fn status(&self) -> ProviderStatus {
-        let (ready, active_model, detail) = self
+        let (ready, active_model, detail, device) = self
             .state
             .read()
             .map(|state| {
@@ -153,9 +153,16 @@ impl TtsProvider for SupertonicProvider {
                     state.handle.is_some(),
                     state.active_model.clone(),
                     state.load_error.clone(),
+                    state.handle.as_ref().map(|handle| handle.effective_device()),
                 )
             })
-            .unwrap_or((false, None, None));
+            .unwrap_or((false, None, None, None));
+        // Before the model is loaded, report what a default build attempts.
+        let device = device
+            .or_else(|| {
+                crate::onnx_runtime::gpu_enabled().then_some(EffectiveDevice::Vulkan)
+            })
+            .unwrap_or(EffectiveDevice::Cpu);
         ProviderStatus {
             provider_id: "supertonic".to_string(),
             enabled: true,
@@ -167,7 +174,7 @@ impl TtsProvider for SupertonicProvider {
                 ProviderStatusState::Loading
             },
             active_model,
-            effective_device: Some(EffectiveDevice::Cpu.as_str().to_string()),
+            effective_device: Some(device.as_str().to_string()),
             model_revision: None,
             detail,
         }
@@ -208,8 +215,8 @@ impl TtsProvider for SupertonicProvider {
             DevicePreference::Cpu | DevicePreference::Auto
         ) {
             return Err(ProviderError::device_unavailable(
-                "provider 'supertonic' supports devices 'cpu' and 'auto' on this build; \
-                 GPU execution providers are opt-in ORT build features",
+                "provider 'supertonic' supports devices 'cpu' and 'auto'; \
+                 'auto' selects the GPU when available and falls back to CPU",
             ));
         }
         let voice = map_supertonic_voice(&request.voice)?;

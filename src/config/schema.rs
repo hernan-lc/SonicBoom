@@ -739,8 +739,8 @@ pub fn schema() -> BTreeMap<String, SettingSchema> {
     }
     add(SettingSchema {
         path: "providers.reverb_tts.device".to_string(),
-        description: "Reverb-TTS device: cpu (default) or auto (Vulkan for the transformer; \
-            the codec always runs on the CPU)"
+        description: "Reverb-TTS device: auto (default, GPU with CPU fallback) or cpu \
+            (GPU disabled); the codec stays on CPU unless its GPU probe succeeds"
             .to_string(),
         type_name: "string",
         apply: ApplyStrategy::Hot,

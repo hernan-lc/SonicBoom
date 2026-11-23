@@ -648,7 +648,16 @@ impl TtsProvider for ReverbTtsProvider {
         let ensuring = state.as_ref().is_some_and(|s| s.ensuring);
         let downloading = state.as_ref().is_some_and(|s| s.downloading);
         let progress = state.as_ref().map(|s| s.download_progress).unwrap_or(0.0);
-        let device = state.as_ref().and_then(|s| s.device).unwrap_or("cpu");
+        // Before the model is loaded, report the configured intent: `auto`
+        // means GPU first with CPU fallback, so the expected device is GPU.
+        #[cfg(feature = "reverb-tts")]
+        let gpu_intent = Self::wants_gpu(&config);
+        #[cfg(not(feature = "reverb-tts"))]
+        let gpu_intent = false;
+        let device = state
+            .as_ref()
+            .and_then(|s| s.device)
+            .unwrap_or(if gpu_intent { "vulkan" } else { "cpu" });
         drop(state);
         let installed = Self::validate_bundle(&config.model_dir).is_ok();
         let status = if loaded.is_some() {
