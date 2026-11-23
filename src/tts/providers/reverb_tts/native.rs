@@ -12,6 +12,7 @@ use ort::value::{Tensor, TensorRef};
 use rand::rngs::StdRng;
 
 use super::audio;
+use super::onnx_patch;
 use super::sampler::{self, CODEBOOKS, CODES, SamplerConfig};
 use crate::tts::providers::error::ProviderError;
 
@@ -137,7 +138,11 @@ pub struct ReverbNative {
     embed_target: Session,
     heads: Session,
     encoder: Session,
+    /// CPU codec decoder: the reference for the GPU probe and the fallback.
     decoder: Session,
+    /// The decoder with its broken-stride `ConvTranspose` rewritten, on the GPU EP. Only set
+    /// after a probe showed it matches the CPU decoder and is faster; see `onnx_patch`.
+    decoder_gpu: Option<Session>,
     /// Whether the embedding/core/head graphs run on the GPU EP.
     pub gpu: bool,
     timings: Timings,
@@ -148,8 +153,8 @@ impl ReverbNative {
         let _gpu_guard = gpu.then(crate::onnx_runtime::gpu_lock);
         crate::onnx_runtime::initialize().map_err(|e| fail("runtime", format!("{e:#}")))?;
         let onnx = |name: &str| dir.join("onnx").join(name);
-        // The codec always runs on the CPU. With the transformer on the GPU the cores are
-        // otherwise idle, so the codec may use them all (decode ~900 -> ~600 ms at 12 threads).
+        // The codec encoder and the reference decoder run on the CPU. With the transformer on
+        // the GPU the cores are otherwise idle, so the codec may use them all (decode ~900 -> ~600 ms at 12 threads).
         let codec_threads = if gpu {
             let cores = std::thread::available_parallelism().map_or(threads, |n| n.get());
             threads.max(cores.min(12))
@@ -208,6 +213,7 @@ impl ReverbNative {
             // The codec graphs are convolutional and stay on the CPU.
             encoder: encoder?,
             decoder: decoder?,
+            decoder_gpu: None,
             gpu,
             timings: Timings::default(),
         };
@@ -216,7 +222,100 @@ impl ReverbNative {
             drop(_gpu_guard);
             return Self::open(dir, threads, false);
         }
+        if gpu {
+            native.decoder_gpu = native.build_gpu_decoder(&onnx("codec_decoder.onnx"), threads);
+        }
         Ok(native)
+    }
+
+    /// Build the codec decoder on the GPU when it can be done safely.
+    ///
+    /// ORT's WebGPU `ConvTranspose` is wrong for some strides on RADV, which makes the stock
+    /// decoder near silent on the GPU. The pinned decoder is rewritten in memory (see
+    /// `onnx_patch`), run once against the CPU decoder on fixed codes, and kept only when it
+    /// matches (>= 40 dB SNR) and is faster. Any failure leaves the CPU decoder in charge.
+    /// `SONICBOOM_REVERB_CODEC_GPU=0` disables it.
+    fn build_gpu_decoder(&mut self, path: &Path, threads: usize) -> Option<Session> {
+        if std::env::var("SONICBOOM_REVERB_CODEC_GPU")
+            .is_ok_and(|v| matches!(v.trim(), "0" | "off" | "false" | "no"))
+        {
+            return None;
+        }
+        let started = Instant::now();
+        let bytes = std::fs::read(path).ok()?;
+        let (patched, rewritten) = match onnx_patch::rewrite_conv_transposes(&bytes) {
+            Ok(Some(done)) => done,
+            Ok(None) => return None,
+            Err(reason) => {
+                tracing::warn!(%reason, "reverb-tts GPU codec decoder skipped (graph not rewritable)");
+                return None;
+            }
+        };
+        drop(bytes);
+        let builder = Session::builder()
+            .map_err(|e| e.to_string())
+            .and_then(|b| {
+                b.with_intra_threads(threads.clamp(1, 32))
+                    .map_err(|e| e.to_string())
+            })
+            .inspect_err(
+                |error| tracing::warn!(%error, "reverb-tts GPU codec decoder setup failed"),
+            )
+            .ok()?;
+        let mut session = crate::onnx_runtime::with_gpu(builder, path)
+            .commit_from_memory(&patched)
+            .inspect_err(
+                |error| tracing::warn!(%error, "reverb-tts GPU codec decoder failed to load"),
+            )
+            .ok()?;
+        drop(patched);
+
+        // Deterministic codes: the same input on both decoders.
+        let frames = 24;
+        let codes: Vec<i64> = (0..CODEBOOKS * frames)
+            .map(|i| ((i * 977 + 17) % CODES) as i64)
+            .collect();
+        let cpu_started = Instant::now();
+        let cpu = run_decoder(&mut self.decoder, &codes, frames).ok()?;
+        let cpu_time = cpu_started.elapsed();
+        run_decoder(&mut session, &codes, frames).ok()?; // pipeline/shader compilation
+        let gpu_started = Instant::now();
+        let gpu = run_decoder(&mut session, &codes, frames).ok()?;
+        let gpu_time = gpu_started.elapsed();
+
+        let signal: f64 = cpu.iter().map(|v| f64::from(*v).powi(2)).sum();
+        let noise: f64 = cpu
+            .iter()
+            .zip(&gpu)
+            .map(|(a, b)| f64::from(a - b).powi(2))
+            .sum();
+        let snr_db = 10.0 * (signal / noise.max(1e-30)).log10();
+        if cpu.len() != gpu.len() || !signal.is_finite() || snr_db.is_nan() || snr_db < 40.0 {
+            tracing::warn!(
+                snr_db,
+                cpu_samples = cpu.len(),
+                gpu_samples = gpu.len(),
+                "reverb-tts GPU codec decoder rejected: output differs from the CPU decoder"
+            );
+            return None;
+        }
+        if gpu_time >= cpu_time {
+            tracing::info!(
+                cpu_ms = cpu_time.as_millis() as u64,
+                gpu_ms = gpu_time.as_millis() as u64,
+                "reverb-tts GPU codec decoder not faster than the CPU decoder; keeping the CPU"
+            );
+            return None;
+        }
+        tracing::info!(
+            rewritten_nodes = rewritten,
+            snr_db,
+            cpu_ms = cpu_time.as_millis() as u64,
+            gpu_ms = gpu_time.as_millis() as u64,
+            setup_ms = started.elapsed().as_millis() as u64,
+            "reverb-tts codec decoder runs on the GPU"
+        );
+        Some(session)
     }
 
     /// Cheap sanity check of the (possibly GPU) transformer: finite log-probabilities
@@ -498,18 +597,37 @@ impl ReverbNative {
     }
 
     fn decode_inner(&mut self, codes: &[i64], frames: usize) -> Result<Vec<f32>, ProviderError> {
-        let codes_t = TensorRef::from_array_view(([1usize, CODEBOOKS, frames], codes))
-            .map_err(|e| fail("decoder input", e))?;
-        let inputs: Inputs = vec![("codes", codes_t.into())];
-        let outputs = self
-            .decoder
-            .run(inputs)
-            .map_err(|e| fail("codec decoding", e))?;
-        let (_, samples) = outputs["audio"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| fail("codec output", e))?;
-        Ok(samples.to_vec())
+        // The GPU decoder shares Dawn with the transformer, so it takes the same lock.
+        let on_gpu = self.decoder_gpu.as_mut().map(|gpu| {
+            let _gpu_guard = crate::onnx_runtime::gpu_lock();
+            run_decoder(gpu, codes, frames)
+        });
+        match on_gpu {
+            Some(Ok(audio)) => return Ok(audio),
+            Some(Err(error)) => {
+                tracing::warn!(%error, "reverb-tts GPU codec decoder failed; using the CPU decoder");
+                self.decoder_gpu = None;
+            }
+            None => {}
+        }
+        run_decoder(&mut self.decoder, codes, frames)
     }
+}
+
+/// Run a codec decoder session: codes `[8, frames]` -> 24 kHz mono samples.
+fn run_decoder(
+    decoder: &mut Session,
+    codes: &[i64],
+    frames: usize,
+) -> Result<Vec<f32>, ProviderError> {
+    let codes_t = TensorRef::from_array_view(([1usize, CODEBOOKS, frames], codes))
+        .map_err(|e| fail("decoder input", e))?;
+    let inputs: Inputs = vec![("codes", codes_t.into())];
+    let outputs = decoder.run(inputs).map_err(|e| fail("codec decoding", e))?;
+    let (_, samples) = outputs["audio"]
+        .try_extract_tensor::<f32>()
+        .map_err(|e| fail("codec output", e))?;
+    Ok(samples.to_vec())
 }
 
 #[cfg(test)]

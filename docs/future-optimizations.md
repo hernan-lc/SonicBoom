@@ -404,9 +404,15 @@ Reverb, root cause of the silent GPU decoder and the `core` surgery (2026-11-22)
   113.9 dB (codes of real audio, F=73) and 115.7 dB (codes of a real synthesis, F=87).
 - Measured end to end through the provider (3.3 s of audio, 8 steps, GPU decoder; two interleaved
   rounds, 3 requests each): warm request 1.27 s -> 0.94 s (-26%), decode 394 ms -> 56 ms.
-  Not integrated: the provider pins the official decoder's SHA-256, so shipping this needs a rewritten
-  decoder published in the model repository (and its pin updated), with a fallback to the CPU decoder
-  when a probe on the GPU output is near silent. Artifacts and scripts live outside the repo.
+  **Integrated** (`reverb_tts/onnx_patch.rs`, `ReverbNative::build_gpu_decoder`): when the transformer
+  runs on the GPU, the pinned, SHA-verified decoder is rewritten in memory at load (protobuf wire
+  level, one node, nothing is downloaded or hosted), run once against the CPU decoder on fixed
+  codes, and kept only if it matches (>= 40 dB SNR) and is faster. The first measurement on the
+  BC-250 was 111.2 dB, 132 ms CPU vs 28 ms GPU for 24 frames, ~1 s of extra load time; a 3.3 s
+  request went from ~1.5 s to ~0.9 s with `decode` at ~57 ms. Any failure (unrewritable graph, load
+  error, probe mismatch or a decode error later) leaves the CPU decoder in charge.
+  `SONICBOOM_REVERB_CODEC_GPU=0` turns it off. Standalone artifacts live in
+  `~/Documentos/reverb-codec-gpu-fix/` (outside the repo).
 - **`core` surgery gave nothing.** Replacing the 144 dynamic `Reshape` shape chains by constant
   `0/-1` shapes (-24% nodes, bit-identical), the rotary `Slice` bounds (-9%), and fusing the 97
   RMSNorms into `SimplifiedLayerNormalization` (-22%, 100% top-1 code agreement) changed the

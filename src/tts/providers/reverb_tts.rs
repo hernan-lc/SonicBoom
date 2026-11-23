@@ -12,6 +12,8 @@
 pub mod audio;
 #[cfg(feature = "reverb-tts")]
 pub mod native;
+#[cfg(feature = "reverb-tts")]
+mod onnx_patch;
 pub mod sampler;
 pub mod text;
 

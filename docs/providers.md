@@ -144,6 +144,11 @@ Reverb-TTS (Software Mansion, derived from OmniVoice) clones a voice from a
    `melser/Reverb-TTS-onnx` (transformer), `melser/Higgs-Audio-2-Tokenizer-onnx` (codec) and
    the original `software-mansion/Reverb-TTS` (tokenizer). Conversion scripts and parity checks:
    <https://github.com/nglmercer/Reverb-TTS-onnx>.
+   With `device = "auto"` the codec decoder also runs on the GPU. ORT's WebGPU `ConvTranspose`
+   is wrong on some GPUs for strides 3, 6, 7 and 12, so the pinned decoder is rewritten in memory
+   at load (zero-stuffing plus a stride-1 `Conv`) and checked against the CPU decoder before it
+   is used; if the check fails the CPU decoder is kept. `SONICBOOM_REVERB_CODEC_GPU=0` forces
+   the CPU decoder. `SONICBOOM_PROFILE=<dir>` writes ORT profiles for every Reverb graph.
 2. Watch `/api/providers/reverb-tts/status` until `ready`.
 3. Create a profile with the reference WAV **and its transcript** (`mode=icl` is the only mode;
    the transcript must be the exact words spoken, in the reference's language):
