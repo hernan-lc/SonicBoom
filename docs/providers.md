@@ -72,6 +72,14 @@ AMD BC-250 (`gfx1013`) is CPU-only for the acceptance criteria. Do not
 imply CUDA runs on AMD, and do not claim ROCm/MIGraphX support without
 proof. `coreml`/`cuda`/`rocm` stay mutually exclusive.
 
+Dawn is not safe against overlapping WebGPU session creation. Supertonic's
+four sessions are created sequentially whenever a GPU EP is active, under one
+`gpu_lock()`; CPU-only loads stay parallel. Only one desktop instance may run
+at a time — the instance lock now rejects a second launch as soon as it sees a
+live PID, not just after `/health` answers. If a D3D12 driver still faults
+inside `webgpu_dawn.dll` during model load, start with `SONICBOOM_EP=cpu` to
+force CPU inference.
+
 ## Language support (explicit, no silent substitution)
 
 - Reverb-TTS: `de`, `en`, `es`, `fr`, `it`, `pl`, `pt` with one multilingual

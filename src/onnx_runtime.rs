@@ -57,12 +57,18 @@ fn log_severity() -> ort::logging::LogLevel {
 /// Process-wide lock for work that creates or runs sessions on the GPU EP.
 ///
 /// Dawn (the WebGPU backend) is not safe against overlapping session creation and
-/// execution on some drivers (AMD RADV segfaulted when two providers overlapped).
-/// Providers that use the GPU EP hold this around loads and sampling runs. Supertonic's
-/// own sessions are not behind it yet, so avoid enabling several GPU providers at once.
+/// execution on some drivers (AMD RADV and D3D12 have both faulted inside
+/// `webgpu_dawn.dll`). Everything that creates or runs GPU sessions holds this
+/// lock, including all four Supertonic sessions as one bundle.
 pub fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Whether any hardware EP may be registered. Callers use this to keep Dawn
+/// work strictly serialized; CPU-only loads can stay parallel.
+pub fn gpu_enabled() -> bool {
+    !execution_providers(std::path::Path::new("")).is_empty()
 }
 
 /// Hardware execution providers in priority order for a model at `model_path`.

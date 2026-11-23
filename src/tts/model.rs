@@ -147,37 +147,58 @@ fn timed_session(label: &'static str, path: &std::path::Path) -> Result<Session>
     Ok(session)
 }
 
+/// Create the four Supertonic graphs.
+///
+/// `parallel` is only safe for CPU-only builds: Dawn/D3D12 faults with an access
+/// violation in `webgpu_dawn.dll` when more than one WebGPU session is created
+/// at the same time, even if the whole bundle is inside the GPU lock.
+fn create_sessions(paths: &ModelPaths, parallel: bool) -> Result<Sessions> {
+    if !parallel {
+        // Slowest graph first; each session is fully committed before the next
+        // one starts, so Dawn never sees concurrent creation or teardown.
+        return Ok(Sessions {
+            vector_estimator: timed_session("vector_estimator", &paths.vector_estimator)?,
+            vocoder: timed_session("vocoder", &paths.vocoder)?,
+            text_encoder: timed_session("text_encoder", &paths.text_encoder)?,
+            duration_predictor: timed_session("duration_predictor", &paths.duration_predictor)?,
+        });
+    }
+
+    // On CPU the graphs are independent, so wall-clock load time is that of the
+    // slowest graph instead of the sum of all four.
+    std::thread::scope(|scope| -> Result<Sessions> {
+        let vector_estimator =
+            scope.spawn(|| timed_session("vector_estimator", &paths.vector_estimator));
+        let vocoder = scope.spawn(|| timed_session("vocoder", &paths.vocoder));
+        let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
+        let duration_predictor =
+            scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
+        let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>, label: &str| {
+            handle
+                .join()
+                .map_err(|_| anyhow!("{label} session creation panicked"))?
+        };
+        Ok(Sessions {
+            duration_predictor: join(duration_predictor, "duration_predictor")?,
+            text_encoder: join(text_encoder, "text_encoder")?,
+            vector_estimator: join(vector_estimator, "vector_estimator")?,
+            vocoder: join(vocoder, "vocoder")?,
+        })
+    })
+}
+
 impl ModelHandle {
     pub fn load(paths: &ModelPaths) -> Result<Self> {
         tracing::info!("Loading ONNX sessions...");
         let started = std::time::Instant::now();
-        // Sessions are created on worker threads, but Dawn must not see another
-        // provider creating or running GPU sessions meanwhile.
-        let _gpu = crate::onnx_runtime::gpu_lock();
-
-        // The four graphs are independent, so create them concurrently:
-        // wall-clock load time becomes that of the slowest graph
-        // (`vector_estimator`) instead of the sum of all four. It is spawned
-        // first so it never waits behind the small graphs for a core.
-        let sessions = std::thread::scope(|scope| -> Result<Sessions> {
-            let vector_estimator =
-                scope.spawn(|| timed_session("vector_estimator", &paths.vector_estimator));
-            let vocoder = scope.spawn(|| timed_session("vocoder", &paths.vocoder));
-            let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
-            let duration_predictor =
-                scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
-            let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>, label: &str| {
-                handle
-                    .join()
-                    .map_err(|_| anyhow!("{label} session creation panicked"))?
-            };
-            Ok(Sessions {
-                duration_predictor: join(duration_predictor, "duration_predictor")?,
-                text_encoder: join(text_encoder, "text_encoder")?,
-                vector_estimator: join(vector_estimator, "vector_estimator")?,
-                vocoder: join(vocoder, "vocoder")?,
-            })
-        })?;
+        let sessions = if crate::onnx_runtime::gpu_enabled() {
+            // One lock for the whole bundle, and no overlapping session
+            // creation: this is the shape that survives both RADV and D3D12.
+            let _gpu = crate::onnx_runtime::gpu_lock();
+            create_sessions(paths, false)?
+        } else {
+            create_sessions(paths, true)?
+        };
         let sessions = std::sync::Mutex::new(sessions);
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis() as u64,
