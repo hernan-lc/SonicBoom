@@ -79,15 +79,16 @@ jobs:
       # multi-minute `cargo install` on a cold cache. Keep this action recent:
       # each release pins the cargo-audit version it installs, and cargo-audit
       # older than 0.22 cannot parse the CVSS 4.0 vectors that RustSec now
-      # publishes ("unsupported CVSS version: 4.0"). v2.55.0 shipped 0.21.2.
+      # publishes ("unsupported CVSS version: 4.0"). This pin ships 0.23.0.
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-audit
       # Gate on the `unmaintained` and `unsound` advisory categories. The
-      # `yanked` check is intentionally NOT denied: the only yanked crates
-      # (js-sys/wasm-bindgen/core2) are wasm-only transitive deps of reqwest
-      # that we never compile for the Linux server target and cannot be
-      # bumped without a newer reqwest.
+      # `yanked` check is intentionally NOT denied: the only remaining yanked
+      # crate is core2, a wasm-only transitive dep of `image -> ravif -> rav1e`
+      # (gui feature) with no non-yanked release. It is never compiled into a
+      # Linux server artifact. The other yanked versions (wasm-bindgen/js-sys/
+      # web-sys) were bumped in Cargo.lock; keep them non-yanked on every bump.
       # Per-advisory exceptions (e.g. the `gui`/GTK3 tree) live in
       # .cargo/audit.toml so any NEW advisory on a crate we depend on still
       # fails the build.

@@ -63,8 +63,11 @@ fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<(Session, bool), 
                 .map_err(|e| fail("session setup", e))?
                 .with_intra_threads(threads.clamp(1, 32))
                 .map_err(|e| fail("thread setup", e))?;
-            Ok((cpu.commit_from_file(&path)
-                .map_err(|e| fail(&format!("load {}", path.display()), e))?, false))
+            Ok((
+                cpu.commit_from_file(&path)
+                    .map_err(|e| fail(&format!("load {}", path.display()), e))?,
+                false,
+            ))
         }
         Err(err) => Err(fail(&format!("load {}", path.display()), err)),
     }

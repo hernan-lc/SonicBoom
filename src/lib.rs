@@ -11,11 +11,10 @@ pub mod native_log;
 pub mod onnx_runtime;
 pub mod tts;
 
-// The prebuilt Windows ORT binary references MSVC STL vectorized-algorithm
-// symbols that MSVC 14.44 no longer ships. Provide scalar equivalents so the
-// final link succeeds (see the module docs for details).
-#[cfg(all(target_os = "windows", target_env = "msvc", target_arch = "x86_64"))]
-mod msvc_stl_compat;
+// Windows x64 links the MSVC STL directly from msvcprt.lib (dynamic CRT, /MD).
+// Do not redefine its `__std_*` vectorized algorithms here: newer MSVC CRT
+// versions ship them, and Rust-side definitions then cause LNK2005/LNK1169.
+// See tests/windows_link_hygiene.rs and docs/RELEASING.md.
 
 // The GPU execution-provider features are mutually exclusive per platform
 // (see the note on `coreml`/`cuda`/`rocm` in Cargo.toml): no prebuilt ONNX

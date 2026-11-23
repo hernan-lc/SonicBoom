@@ -42,10 +42,12 @@ cargo build --release
 cargo build --release --features gui
 ```
 
-> Windows x64: the prebuilt ONNX Runtime library references MSVC STL
-> vectorized-algorithm symbols that Visual Studio 2022 17.14+ no longer ships.
-> `src/msvc_stl_compat.rs` supplies scalar equivalents automatically, so no
-> older toolchain or extra SDK is needed.
+> Windows x64: the prebuilt ONNX Runtime library resolves its MSVC STL
+> vectorized-algorithm symbols from the dynamically linked CRT (`/MD`) shipped
+> with the `windows-2025` toolchain. Do not add Rust `__std_*` replacements:
+> they collide with `msvcprt.lib` and break the link with LNK2005. Native
+> dependencies are built with the dynamic CRT (`KNF_STATIC_CRT=0`,
+> `vendor/esaxx-rs` uses `static_crt(false)`); see `docs/RELEASING.md`.
 
 ### GPU acceleration
 

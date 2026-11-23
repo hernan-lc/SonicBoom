@@ -149,6 +149,15 @@ any remaining child on failure. It never uses your personal config or models.
   `KNF_STATIC_CRT=1`, `+crt-static`, `/NODEFAULTLIB` or suppress the mismatch.
   See `vendor/esaxx-rs/README.sonicboom.md` for upstream provenance and removal
   criteria. Native Windows test and release links are the regression checks.
+* LNK2005 / LNK1169 naming `__std_*_element_*`, `__std_rotate`, `__std_unique_*`,
+  `__std_search_*`, `__std_replace_copy_*` or
+  `__std_find_first_not_of_trivial_pos_*` in `msvcprt.lib(vector_algorithms.obj)`:
+  these are MSVC STL symbols already provided by the dynamic CRT. They must not
+  be redefined in Rust (`#[unsafe(no_mangle)]`) — doing so collides with the CRT
+  on the `windows-2025` toolchain. The old `src/msvc_stl_compat.rs` shim was
+  removed for this reason; keep native dependencies on the dynamic CRT instead
+  of adding `/FORCE:MULTIPLE` or other linker suppressions. The guard in
+  `tests/windows_link_hygiene.rs` rejects any reintroduced shim.
 * Missing DLL / 0xc0000135: install the x64 MSVC redistributable, extract the
   whole archive, inspect the printed PE imports, and keep supplied DLLs beside
   SonicBoom.exe. Do not copy arbitrary DLLs from another machine.

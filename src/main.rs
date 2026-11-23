@@ -436,8 +436,12 @@ fn process_alive(pid: u32) -> bool {
 
 #[cfg(all(feature = "gui", unix))]
 fn process_alive(pid: u32) -> bool {
-    // Signal 0 only checks existence; pid 0 was rejected by callers/parsers.
-    pid != 0 && unsafe { libc::kill(pid as i32, 0) == 0 }
+    let pid = match i32::try_from(pid).ok().filter(|&pid| pid > 0) {
+        Some(pid) => pid,
+        None => return false,
+    };
+
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
 #[cfg(all(feature = "gui", not(any(target_os = "windows", unix))))]

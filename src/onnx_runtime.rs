@@ -183,7 +183,9 @@ pub fn with_gpu(builder: SessionBuilder, model_path: &Path) -> GpuSessionBuilder
                 ok
             }
             Err(err) => {
-                tracing::warn!("GPU execution provider setup failed ({name}: {err}); falling back to CPU");
+                tracing::warn!(
+                    "GPU execution provider setup failed ({name}: {err}); falling back to CPU"
+                );
                 err.recover()
             }
         };

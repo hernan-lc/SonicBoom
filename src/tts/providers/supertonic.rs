@@ -153,15 +153,16 @@ impl TtsProvider for SupertonicProvider {
                     state.handle.is_some(),
                     state.active_model.clone(),
                     state.load_error.clone(),
-                    state.handle.as_ref().map(|handle| handle.effective_device()),
+                    state
+                        .handle
+                        .as_ref()
+                        .map(|handle| handle.effective_device()),
                 )
             })
             .unwrap_or((false, None, None, None));
         // Before the model is loaded, report what a default build attempts.
         let device = device
-            .or_else(|| {
-                crate::onnx_runtime::gpu_enabled().then_some(EffectiveDevice::Vulkan)
-            })
+            .or_else(|| crate::onnx_runtime::gpu_enabled().then_some(EffectiveDevice::Vulkan))
             .unwrap_or(EffectiveDevice::Cpu);
         ProviderStatus {
             provider_id: "supertonic".to_string(),

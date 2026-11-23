@@ -211,12 +211,12 @@ fn create_sessions(paths: &ModelPaths, parallel: bool) -> Result<(Sessions, bool
         let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
         let duration_predictor =
             scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
-        let join =
-            |handle: std::thread::ScopedJoinHandle<'_, Result<(Session, bool)>>, label: &str| {
-                handle
-                    .join()
-                    .map_err(|_| anyhow!("{label} session creation panicked"))?
-            };
+        let join = |handle: std::thread::ScopedJoinHandle<'_, Result<(Session, bool)>>,
+                    label: &str| {
+            handle
+                .join()
+                .map_err(|_| anyhow!("{label} session creation panicked"))?
+        };
         let (duration_predictor, gpu1) = join(duration_predictor, "duration_predictor")?;
         let (text_encoder, gpu2) = join(text_encoder, "text_encoder")?;
         let (vector_estimator, gpu3) = join(vector_estimator, "vector_estimator")?;
