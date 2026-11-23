@@ -359,6 +359,36 @@ masked-diffusion steps usually cost speaker similarity and naturalness first. Li
 compare speaker embeddings) before lowering the default of 8. Timing differences between 2-5
 steps are within the noise of the loaded machine.
 
+Reverb ORT profile on Vulkan (2026-11-22, `SONICBOOM_PROFILE=<dir>` now also covers the Reverb
+sessions; warm request, 3.3 s of audio, 8 steps = 10 passes, total ~1.5 s):
+
+| Stage | Time | Share |
+|---|---|---|
+| `core` (10 passes) | 820 ms (82 ms/pass) | 55% |
+| codec decoder, CPU | 430 ms | 29% |
+| `heads` (10 passes) | 150 ms (15 ms/pass) | 10% |
+| prefix | ~80 ms | 5% |
+| `embed_target` | 13 ms | 1% |
+
+- `core` has 2449 nodes per pass and 81 ms of wall time against only 52 ms of summed kernel time.
+  The graph is mostly shape plumbing (Shape 121, Gather 193, Unsqueeze 199, Concat 219, Slice 192,
+  Reshape 144) plus 97 RMSNorms decomposed into Pow/ReduceMean/Sqrt/Div/Mul; ~400 of the shape
+  nodes run on the CPU EP and force GPU<->CPU syncs. MatMul is only 7.6 ms. Unlike Supertonic
+  (already tight), this graph is dispatch-bound: replacing the shape chains with constant
+  `Reshape` shapes (0/-1) and fusing RMSNorm into `SimplifiedLayerNormalization` is the most
+  promising Reverb optimization.
+- `heads` is 8 ms of kernels but 14 ms per run: 6.8 ms is `MemcpyToHost` of the full
+  `[8, F, 1024]` log-probabilities, and `LogSoftmax` runs on the CPU. Main passes only use
+  codebooks 0-1 and (for argmax and confidence) do not need the full rows; a heads variant that
+  returns only the needed codebooks or the argmax/logsumexp would shrink the readback 4x or more.
+- The KV cache (`past_k`/`past_v`, 147 KB per prefix token) is uploaded from host memory on
+  every pass; with the wall-versus-kernel gap this is a smaller lever than the shape plumbing
+  (IO binding stays an open item).
+- Codec decoder: 428 ms on the CPU (Conv 176, ConvTranspose 133, Sin 55). On the WebGPU EP it
+  takes ~54 ms (request 1.18 s -> 0.82 s, ~4x real time) but the audio is near silent (rms
+  1.3e-4 against 0.088, SNR ~0 dB), the known conv-decoder problem of this GPU. Finding the
+  offending operator would be worth ~30% of a request.
+
 Open items, not done: IO-binding
 to keep the KV cache on the device between passes; fp16 weights (halves the 1.9 GB download,
 untested on RADV); the 16 upstream preset voices (codes, not audio, so they need a profile

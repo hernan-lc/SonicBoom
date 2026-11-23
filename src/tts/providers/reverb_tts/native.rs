@@ -38,6 +38,14 @@ fn session(path: PathBuf, threads: usize, gpu: bool) -> Result<Session, Provider
     } else {
         builder
     };
+    // Optional per-session ORT profile, written when the session is dropped
+    // (same `SONICBOOM_PROFILE=<dir>` switch as the Supertonic graphs).
+    if let Ok(dir) = std::env::var("SONICBOOM_PROFILE") {
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
+        builder = builder
+            .with_profiling(Path::new(&dir).join(format!("{name}.json")))
+            .map_err(|e| fail("profiling setup", e))?;
+    }
     builder
         .commit_from_file(&path)
         .map_err(|e| fail(&format!("load {}", path.display()), e))
