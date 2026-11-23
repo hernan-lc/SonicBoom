@@ -42,6 +42,11 @@ cargo build --release
 cargo build --release --features gui
 ```
 
+> Windows x64: the prebuilt ONNX Runtime library references MSVC STL
+> vectorized-algorithm symbols that Visual Studio 2022 17.14+ no longer ships.
+> `src/msvc_stl_compat.rs` supplies scalar equivalents automatically, so no
+> older toolchain or extra SDK is needed.
+
 ### GPU acceleration
 
 ONNX inference tries the WebGPU execution provider first (Vulkan on Linux,

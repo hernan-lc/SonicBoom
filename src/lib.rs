@@ -11,6 +11,12 @@ pub mod native_log;
 pub mod onnx_runtime;
 pub mod tts;
 
+// The prebuilt Windows ORT binary references MSVC STL vectorized-algorithm
+// symbols that MSVC 14.44 no longer ships. Provide scalar equivalents so the
+// final link succeeds (see the module docs for details).
+#[cfg(all(target_os = "windows", target_env = "msvc", target_arch = "x86_64"))]
+mod msvc_stl_compat;
+
 // The GPU execution-provider features are mutually exclusive per platform
 // (see the note on `coreml`/`cuda`/`rocm` in Cargo.toml): no prebuilt ONNX
 // Runtime satisfies more than one, so combining them only produces a
