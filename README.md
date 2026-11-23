@@ -42,12 +42,20 @@ cargo build --release
 cargo build --release --features gui
 ```
 
+> Windows x64: the prebuilt ONNX Runtime library references MSVC STL
+> vectorized-algorithm symbols that Visual Studio 2022 17.14+ no longer ships.
+> `src/msvc_stl_compat.rs` supplies scalar equivalents automatically, so no
+> older toolchain or extra SDK is needed.
+
 ### GPU acceleration
 
 ONNX inference tries the WebGPU execution provider first (Vulkan on Linux,
 D3D12 on Windows, Metal on macOS) and falls back to the CPU automatically; end
 users need only a system Vulkan loader and a compatible GPU driver. Force the
-CPU with `SONICBOOM_EP=cpu`. No Vulkan SDK is needed to build.
+CPU with `SONICBOOM_EP=cpu`. No Vulkan SDK is needed to build. Reverb-TTS uses
+the same GPU-first behavior by default (`[providers.reverb_tts] device = "auto"`);
+if no usable GPU is found, either engine falls back to CPU automatically and
+`/api/providers` reports the device actually in use.
 
 A vendor execution provider replaces WebGPU and needs `--no-default-features`
 because no prebuilt ONNX Runtime combines them. Enable at most ONE per

@@ -57,20 +57,27 @@ fn log_severity() -> ort::logging::LogLevel {
 /// Process-wide lock for work that creates or runs sessions on the GPU EP.
 ///
 /// Dawn (the WebGPU backend) is not safe against overlapping session creation and
-/// execution on some drivers (AMD RADV segfaulted when two providers overlapped).
-/// Providers that use the GPU EP hold this around loads and sampling runs. Supertonic's
-/// own sessions are not behind it yet, so avoid enabling several GPU providers at once.
+/// execution on some drivers (AMD RADV and D3D12 have both faulted inside
+/// `webgpu_dawn.dll`). Everything that creates or runs GPU sessions holds this
+/// lock, including all four Supertonic sessions as one bundle.
 pub fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Whether any hardware EP may be registered. Callers use this to keep Dawn
+/// work strictly serialized; CPU-only loads can stay parallel.
+pub fn gpu_enabled() -> bool {
+    !execution_providers(std::path::Path::new("")).is_empty()
+}
+
 /// Hardware execution providers in priority order for a model at `model_path`.
 ///
-/// Vulkan (ORT's WebGPU EP, backed by Vulkan on Linux and Metal on macOS) is
-/// the default GPU path. CPU is not listed here on purpose: ORT always keeps
-/// the CPU EP as the final fallback, both for nodes an EP cannot execute and
-/// for entire sessions whose EP registration fails.
+/// Vulkan (ORT's WebGPU EP, backed by Vulkan on Linux and D3D12 on Windows and
+/// Metal on macOS) is the default GPU path. CPU is not listed here on purpose:
+/// it is ORT's implicit final fallback. Providers use `error_on_failure()` so
+/// a failed registration is *detected* and reported instead of silently
+/// leaving the session on CPU (see [`with_gpu`]).
 ///
 /// `SONICBOOM_EP=cpu` forces CPU-only inference (useful for debugging or on
 /// machines without a working GPU/driver).
@@ -82,16 +89,18 @@ pub fn execution_providers(model_path: &Path) -> Vec<ExecutionProviderDispatch> 
     // Not every target compiles a provider that needs these values.
     let _ = (model_path, force_cpu);
 
-    // Apple Silicon: CoreML (ANE/GPU) stays the preferred path on macOS; the
-    // WebGPU EP is registered after it as a second GPU option.
-    #[cfg(target_os = "macos")]
+    // Apple Silicon: CoreML (ANE/GPU) stays the preferred path on macOS builds
+    // with the `coreml` feature; the WebGPU EP is registered after it as a
+    // second GPU option (and is the only hardware EP without that feature).
+    #[cfg(all(target_os = "macos", feature = "coreml"))]
     if !force_cpu {
         use ort::ep::CoreML;
         let cache_dir = model_path.with_extension("mlmodelc");
         providers.push(
             CoreML::default()
                 .with_model_cache_dir(cache_dir.to_string_lossy().into_owned())
-                .build(),
+                .build()
+                .error_on_failure(),
         );
     }
 
@@ -100,12 +109,12 @@ pub fn execution_providers(model_path: &Path) -> Vec<ExecutionProviderDispatch> 
     #[cfg(feature = "cuda")]
     if !force_cpu {
         use ort::ep::CUDA;
-        providers.push(CUDA::default().build());
+        providers.push(CUDA::default().build().error_on_failure());
     }
     #[cfg(feature = "rocm")]
     if !force_cpu {
         use ort::ep::ROCm;
-        providers.push(ROCm::default().build());
+        providers.push(ROCm::default().build().error_on_failure());
     }
 
     // Vulkan on Linux via Dawn/WebGPU. Enabled by default on desktop; Android
@@ -137,10 +146,20 @@ pub fn execution_providers(model_path: &Path) -> Vec<ExecutionProviderDispatch> 
         let ep = ep.with_dawn_backend_type(ort::ep::webgpu::DawnBackendType::Vulkan);
         #[cfg(target_os = "windows")]
         let ep = ep.with_dawn_backend_type(ort::ep::webgpu::DawnBackendType::D3D12);
-        providers.push(ep.build());
+        providers.push(ep.build().error_on_failure());
     }
 
     providers
+}
+
+/// A session builder plus whether a hardware EP was actually registered.
+///
+/// `gpu` is `true` only when ORT accepted at least one EP from
+/// [`execution_providers`]. Callers use it both to report the real device and
+/// to retry session creation on CPU if the GPU session cannot be committed.
+pub struct GpuSessionBuilder {
+    pub builder: SessionBuilder,
+    pub gpu: bool,
 }
 
 /// Attach the configured GPU execution providers to a session builder.
@@ -148,21 +167,28 @@ pub fn execution_providers(model_path: &Path) -> Vec<ExecutionProviderDispatch> 
 /// Planned follow-up optimizations (quantized assets, I/O binding, etc.) are
 /// tracked in `docs/future-optimizations.md`.
 ///
-/// Provider registration is non-fatal by design: ORT's dispatch defaults to
-/// `error_on_failure = false`, so a missing/unusable GPU silently leaves the
-/// CPU EP in place. If the builder itself rejects the provider list, we log
-/// the reason and continue with a plain (CPU-only) builder.
-pub fn with_gpu(builder: SessionBuilder, model_path: &Path) -> SessionBuilder {
-    let providers = execution_providers(model_path);
-    if providers.is_empty() {
-        return builder;
+/// Hardware EPs are always attempted on default builds (GPU first, CPU as
+/// fallback). Each EP is registered separately with `error_on_failure`, so a
+/// missing or unusable GPU is reported instead of silently producing a CPU
+/// session that is advertised as GPU. A failed registration leaves the
+/// builder unchanged and the caller retries on CPU.
+pub fn with_gpu(builder: SessionBuilder, model_path: &Path) -> GpuSessionBuilder {
+    let mut builder = builder;
+    let mut gpu = false;
+    for ep in execution_providers(model_path) {
+        let name = format!("{ep:?}");
+        builder = match builder.with_execution_providers([ep]) {
+            Ok(ok) => {
+                gpu = true;
+                ok
+            }
+            Err(err) => {
+                tracing::warn!("GPU execution provider setup failed ({name}: {err}); falling back to CPU");
+                err.recover()
+            }
+        };
     }
-    builder
-        .with_execution_providers(providers)
-        .unwrap_or_else(|err| {
-            tracing::warn!("GPU execution provider setup failed ({err}); falling back to CPU");
-            err.recover()
-        })
+    GpuSessionBuilder { builder, gpu }
 }
 
 /// Session creation, execution, output validation and destruction, twice.

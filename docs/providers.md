@@ -12,7 +12,7 @@ dependency revision):
 
 | Provider | Source | Reviewed revision | Reality |
 |---|---|---|---|
-| Reverb-TTS | https://huggingface.co/melser/Reverb-TTS-onnx (converted from https://huggingface.co/software-mansion/Reverb-TTS) | pinned in `src/tts/providers/reverb_tts.rs` | Pure-Rust driver over the transformer ONNX graphs (core, embeddings, heads) plus the Higgs Audio v2 codec encoder/decoder; masked-diffusion ICL cloning (reference WAV plus its exact transcript); CPU, optional Vulkan for the transformer |
+| Reverb-TTS | https://huggingface.co/melser/Reverb-TTS-onnx (converted from https://huggingface.co/software-mansion/Reverb-TTS) | pinned in `src/tts/providers/reverb_tts.rs` | Pure-Rust driver over the transformer ONNX graphs (core, embeddings, heads) plus the Higgs Audio v2 codec encoder/decoder; masked-diffusion ICL cloning (reference WAV plus its exact transcript); GPU-first (Vulkan/WebGPU) with automatic CPU fallback for the transformer |
 
 ONNX Runtime's packaged native library is the only native-code exception
 and is shared by all providers (initialized once). Python is used **offline
@@ -64,13 +64,21 @@ Performance work planned after this Vulkan rollout is tracked in
 | Feature | Effect |
 |---|---|
 | (default) | Supertonic 3 + Reverb-TTS compiled with Vulkan-first ONNX inference (`webgpu`); no weights fetched |
-| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for Supertonic; Reverb-TTS opts into it with `device = "auto"`; CPU is the automatic fallback. Set `SONICBOOM_EP=cpu` to force CPU only; `SONICBOOM_WARMUP=0` skips the post-load GPU warm-up. Ships in `default` |
-| `reverb-tts` | Reverb-TTS ONNX provider (ships in `default`, disabled by default; **weights are CC BY-NC 4.0, non-commercial**). CPU by default, `device = "auto"` runs the transformer on Vulkan |
+| `webgpu` | ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows, Metal on macOS. Tried first for both engines; CPU is the automatic fallback when registration or session creation fails. Set `SONICBOOM_EP=cpu` to force CPU only; `SONICBOOM_WARMUP=0` skips the post-load GPU warm-up. Ships in `default` |
+| `reverb-tts` | Reverb-TTS ONNX provider (ships in `default`, disabled by default; **weights are CC BY-NC 4.0, non-commercial**). `device = "auto"` (default) runs the transformer on the GPU; `device = "cpu"` disables the GPU path |
 | `cuda` / `rocm` / `coreml` | Alternative ORT EPs for Supertonic. `cuda`/`rocm` require `--no-default-features` (no combined prebuilt with WebGPU); `coreml` is chosen automatically on macOS |
 
 AMD BC-250 (`gfx1013`) is CPU-only for the acceptance criteria. Do not
 imply CUDA runs on AMD, and do not claim ROCm/MIGraphX support without
 proof. `coreml`/`cuda`/`rocm` stay mutually exclusive.
+
+Dawn is not safe against overlapping WebGPU session creation. Supertonic's
+four sessions are created sequentially whenever a GPU EP is active, under one
+`gpu_lock()`; CPU-only loads stay parallel. Only one desktop instance may run
+at a time — the instance lock now rejects a second launch as soon as it sees a
+live PID, not just after `/health` answers. If a D3D12 driver still faults
+inside `webgpu_dawn.dll` during model load, start with `SONICBOOM_EP=cpu` to
+force CPU inference.
 
 ## Language support (explicit, no silent substitution)
 
@@ -168,14 +176,14 @@ Notes:
 - **Reference quality dominates.** Use 3-10 s of clean speech from one speaker in the language
   you will synthesize (longer than 15 s makes worse takes). A short or cross-language clip is the
   most common cause of poor output, for every cloning provider.
-- **Devices.** `device = "cpu"` (default) runs about 0.5-0.65x real time on a 12-thread APU:
-  the transformer is plain fp32 matrix multiplication (81 % of the time in an ORT profile), so
-  neither more threads nor session options help. `device = "auto"` runs the embedding,
-  transformer and head graphs on Vulkan (ORT WebGPU EP): about 2x real time on an AMD BC-250
-  (4.5 s of audio in 2.1 s, warm) with a bit-identical take. **Use `auto` when a Vulkan GPU is
-  available**; if the GPU self-check fails the graphs are rebuilt on the CPU. The codec
-  encoder/decoder always run on the CPU because the convolution decoder returns near-silence on
-  RADV; with `auto` they use every core (up to 12) rather than `cpu_threads`.
+- **Devices.** `device = "auto"` (default) runs the embedding, transformer and head graphs on
+  the GPU (ORT WebGPU EP: Vulkan on Linux, D3D12 on Windows): about 2x real time on an AMD BC-250
+  (4.5 s of audio in 2.1 s, warm) with a bit-identical take. If no usable GPU is present, or the
+  GPU self-check fails, the graphs are rebuilt on the CPU. `device = "cpu"` forces the CPU path,
+  which runs about 0.5-0.65x real time on a 12-thread APU: the transformer is plain fp32 matrix
+  multiplication (81 % of the time in an ORT profile), so neither more threads nor session options
+  help. The codec encoder/decoder stay on the CPU by default (the convolution decoder returns
+  near-silence on RADV); with a GPU they use every core (up to 12) rather than `cpu_threads`.
   `SONICBOOM_REVERB_EP=cpu` forces the CPU. Reverb and Supertonic share one process-wide GPU lock
   (loads and inference runs), so a Reverb pass and a Supertonic run never overlap on the GPU;
   they simply wait for each other (the archived Pocket TTS startup crash inside Dawn is described
@@ -234,7 +242,7 @@ enabled = false
 model_dir = "./models/reverb-tts"
 model_id = "reverb-tts"
 revision = "ca95b327a5624f0988511e192510970885430421"
-device = "cpu"           # cpu | auto (Vulkan for the transformer; codec stays on the CPU)
+device = "auto"          # auto (default, GPU with CPU fallback) | cpu (GPU disabled)
 cache_entries = 16       # reference-code cache (1-1024)
 steps = 8                # main sampler passes (1-64); upstream default 8
 cpu_threads = 4          # 1-32

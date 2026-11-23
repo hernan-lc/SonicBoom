@@ -394,8 +394,10 @@ pub struct ReverbTtsConfig {
     /// Pinned export revision.
     #[serde(default = "default_reverb_revision")]
     pub revision: String,
-    /// `cpu` (default) or `auto`: Vulkan (WebGPU EP) for the transformer graphs;
-    /// the codec always runs on the CPU.
+    /// `auto` (default) or `cpu`: `auto` uses the WebGPU EP (Vulkan on Linux,
+    /// D3D12 on Windows) for the transformer graphs and falls back to CPU when
+    /// no usable GPU is present. The codec stays on CPU unless its GPU probe
+    /// succeeds. `cpu` disables the GPU path entirely.
     #[serde(default = "default_reverb_device")]
     pub device: String,
     /// Reference-code cache entries.
@@ -648,7 +650,7 @@ fn default_reverb_revision() -> String {
     "ca95b327a5624f0988511e192510970885430421".to_string()
 }
 fn default_reverb_device() -> String {
-    "cpu".to_string()
+    "auto".to_string()
 }
 fn default_reverb_steps() -> usize {
     8
@@ -671,6 +673,15 @@ impl Default for ReverbTtsConfig {
 
 fn default_reverb_cpu_threads() -> usize {
     4
+}
+
+#[cfg(test)]
+mod device_default_tests {
+    #[test]
+    fn reverb_device_defaults_to_auto() {
+        assert_eq!(super::default_reverb_device(), "auto");
+        assert_eq!(super::ReverbTtsConfig::default().device, "auto");
+    }
 }
 
 fn default_max_voice_profiles() -> usize {

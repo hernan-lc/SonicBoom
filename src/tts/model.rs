@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
-use ort::session::Session;
+use ort::session::{Session, builder::SessionBuilder};
 use serde::Deserialize;
 use std::collections::HashMap;
+
+use crate::tts::providers::types::EffectiveDevice;
 
 use crate::tts::{download::ModelPaths, text::TextProcessor};
 
@@ -83,6 +85,19 @@ pub struct ModelHandle {
     pub text_processor: TextProcessor,
     pub voice_styles: HashMap<String, VoiceStyle>,
     pub config: TtsConfig,
+    /// Device that actually hosted the ONNX sessions (GPU when an EP
+    /// registered successfully, CPU after a fallback). Reported by the API.
+    pub gpu: bool,
+}
+
+impl ModelHandle {
+    pub fn effective_device(&self) -> EffectiveDevice {
+        if self.gpu {
+            EffectiveDevice::Vulkan
+        } else {
+            EffectiveDevice::Cpu
+        }
+    }
 }
 
 /// Holds all ONNX sessions together so they can be locked as a unit.
@@ -100,28 +115,25 @@ impl ModelHandle {
     }
 }
 
-fn build_session(path: &std::path::Path) -> Result<Session> {
-    crate::onnx_runtime::initialize()?;
-    let mut builder = Session::builder()?;
+fn base_builder() -> Result<SessionBuilder> {
+    let builder = Session::builder()?;
 
     #[cfg(target_os = "android")]
-    {
-        builder = builder
-            .with_intra_threads(
-                std::env::var("SONICBOOM_CPU_THREADS")
-                    .ok()
-                    .map(|s| s.parse::<usize>())
-                    .transpose()?
-                    .unwrap_or(2)
-                    .clamp(1, 32),
-            )
-            .map_err(|e| anyhow!("{e}"))?;
-    }
+    let builder = builder
+        .with_intra_threads(
+            std::env::var("SONICBOOM_CPU_THREADS")
+                .ok()
+                .map(|s| s.parse::<usize>())
+                .transpose()?
+                .unwrap_or(2)
+                .clamp(1, 32),
+        )
+        .map_err(|e| anyhow!("{e}"))?;
 
-    // Vulkan (WebGPU EP) is tried first on desktop; ORT falls back to CPU for
-    // unsupported nodes and when no usable GPU/driver is present.
-    builder = crate::onnx_runtime::with_gpu(builder, path);
+    Ok(builder)
+}
 
+fn with_profiling(mut builder: SessionBuilder, path: &std::path::Path) -> Result<SessionBuilder> {
     // Optional per-session ORT profile (used by the Vulkan compatibility probe).
     if let Ok(profile_dir) = std::env::var("SONICBOOM_PROFILE") {
         let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
@@ -130,13 +142,31 @@ fn build_session(path: &std::path::Path) -> Result<Session> {
             .with_profiling(profile_path)
             .map_err(|e| anyhow!("profiling setup failed: {e}"))?;
     }
+    Ok(builder)
+}
 
-    Ok(builder.commit_from_file(path)?)
+/// Build one session, GPU first. Returns the session and whether it really
+/// runs on a hardware EP. If ORT accepts the EP but cannot commit the session
+/// on it, retry from scratch on CPU so the model still loads.
+fn build_session(path: &std::path::Path) -> Result<(Session, bool)> {
+    crate::onnx_runtime::initialize()?;
+    let candidate = crate::onnx_runtime::with_gpu(base_builder()?, path);
+    let mut builder = with_profiling(candidate.builder, path)?;
+
+    match builder.commit_from_file(path) {
+        Ok(session) => Ok((session, candidate.gpu)),
+        Err(err) if candidate.gpu => {
+            tracing::warn!("GPU session creation failed ({err}); retrying on CPU");
+            let mut cpu = with_profiling(base_builder()?, path)?;
+            Ok((cpu.commit_from_file(path)?, false))
+        }
+        Err(err) => Err(err.into()),
+    }
 }
 
 /// Build one session and log how long ONNX Runtime (graph optimisation plus
 /// execution-provider kernel setup/weight upload) took.
-fn timed_session(label: &'static str, path: &std::path::Path) -> Result<Session> {
+fn timed_session(label: &'static str, path: &std::path::Path) -> Result<(Session, bool)> {
     let started = std::time::Instant::now();
     let session = build_session(path)?;
     tracing::info!(
@@ -147,39 +177,78 @@ fn timed_session(label: &'static str, path: &std::path::Path) -> Result<Session>
     Ok(session)
 }
 
-impl ModelHandle {
-    pub fn load(paths: &ModelPaths) -> Result<Self> {
-        tracing::info!("Loading ONNX sessions...");
-        let started = std::time::Instant::now();
-        // Sessions are created on worker threads, but Dawn must not see another
-        // provider creating or running GPU sessions meanwhile.
-        let _gpu = crate::onnx_runtime::gpu_lock();
+/// Create the four Supertonic graphs.
+///
+/// `parallel` is only safe for CPU-only builds: Dawn/D3D12 faults with an access
+/// violation in `webgpu_dawn.dll` when more than one WebGPU session is created
+/// at the same time, even if the whole bundle is inside the GPU lock.
+fn create_sessions(paths: &ModelPaths, parallel: bool) -> Result<(Sessions, bool)> {
+    if !parallel {
+        // Slowest graph first; each session is fully committed before the next
+        // one starts, so Dawn never sees concurrent creation or teardown.
+        let (vector_estimator, gpu1) = timed_session("vector_estimator", &paths.vector_estimator)?;
+        let (vocoder, gpu2) = timed_session("vocoder", &paths.vocoder)?;
+        let (text_encoder, gpu3) = timed_session("text_encoder", &paths.text_encoder)?;
+        let (duration_predictor, gpu4) =
+            timed_session("duration_predictor", &paths.duration_predictor)?;
+        return Ok((
+            Sessions {
+                vector_estimator,
+                vocoder,
+                text_encoder,
+                duration_predictor,
+            },
+            gpu1 || gpu2 || gpu3 || gpu4,
+        ));
+    }
 
-        // The four graphs are independent, so create them concurrently:
-        // wall-clock load time becomes that of the slowest graph
-        // (`vector_estimator`) instead of the sum of all four. It is spawned
-        // first so it never waits behind the small graphs for a core.
-        let sessions = std::thread::scope(|scope| -> Result<Sessions> {
-            let vector_estimator =
-                scope.spawn(|| timed_session("vector_estimator", &paths.vector_estimator));
-            let vocoder = scope.spawn(|| timed_session("vocoder", &paths.vocoder));
-            let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
-            let duration_predictor =
-                scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
-            let join = |handle: std::thread::ScopedJoinHandle<'_, Result<Session>>, label: &str| {
+    // On CPU the graphs are independent, so wall-clock load time is that of the
+    // slowest graph instead of the sum of all four.
+    std::thread::scope(|scope| -> Result<(Sessions, bool)> {
+        let vector_estimator =
+            scope.spawn(|| timed_session("vector_estimator", &paths.vector_estimator));
+        let vocoder = scope.spawn(|| timed_session("vocoder", &paths.vocoder));
+        let text_encoder = scope.spawn(|| timed_session("text_encoder", &paths.text_encoder));
+        let duration_predictor =
+            scope.spawn(|| timed_session("duration_predictor", &paths.duration_predictor));
+        let join =
+            |handle: std::thread::ScopedJoinHandle<'_, Result<(Session, bool)>>, label: &str| {
                 handle
                     .join()
                     .map_err(|_| anyhow!("{label} session creation panicked"))?
             };
-            Ok(Sessions {
-                duration_predictor: join(duration_predictor, "duration_predictor")?,
-                text_encoder: join(text_encoder, "text_encoder")?,
-                vector_estimator: join(vector_estimator, "vector_estimator")?,
-                vocoder: join(vocoder, "vocoder")?,
-            })
-        })?;
+        let (duration_predictor, gpu1) = join(duration_predictor, "duration_predictor")?;
+        let (text_encoder, gpu2) = join(text_encoder, "text_encoder")?;
+        let (vector_estimator, gpu3) = join(vector_estimator, "vector_estimator")?;
+        let (vocoder, gpu4) = join(vocoder, "vocoder")?;
+        Ok((
+            Sessions {
+                duration_predictor,
+                text_encoder,
+                vector_estimator,
+                vocoder,
+            },
+            gpu1 || gpu2 || gpu3 || gpu4,
+        ))
+    })
+}
+
+impl ModelHandle {
+    pub fn load(paths: &ModelPaths) -> Result<Self> {
+        tracing::info!("Loading ONNX sessions...");
+        let started = std::time::Instant::now();
+        let (sessions, gpu) = if crate::onnx_runtime::gpu_enabled() {
+            // One lock for the whole bundle, and no overlapping session
+            // creation: this is the shape that survives both RADV and D3D12.
+            let _gpu = crate::onnx_runtime::gpu_lock();
+            create_sessions(paths, false)?
+        } else {
+            create_sessions(paths, true)?
+        };
         let sessions = std::sync::Mutex::new(sessions);
+        let device = if gpu { "vulkan" } else { "cpu" };
         tracing::info!(
+            device,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "All ONNX sessions created"
         );
@@ -228,6 +297,7 @@ impl ModelHandle {
             text_processor,
             voice_styles,
             config,
+            gpu,
         })
     }
 
@@ -241,8 +311,7 @@ impl ModelHandle {
     /// Disable with `SONICBOOM_WARMUP=0`; skipped when forced to CPU.
     pub fn warm_up(&self) {
         let disabled = std::env::var("SONICBOOM_WARMUP").is_ok_and(|v| v == "0");
-        let cpu_only = std::env::var("SONICBOOM_EP").is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
-        if disabled || cpu_only {
+        if disabled || !self.gpu {
             return;
         }
         let Some(voice) = self.default_voice() else {

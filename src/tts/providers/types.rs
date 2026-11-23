@@ -90,6 +90,9 @@ impl DevicePreference {
 #[serde(rename_all = "lowercase")]
 pub enum EffectiveDevice {
     Cpu,
+    /// Hardware EP registered (WebGPU: Vulkan on Linux, D3D12 on Windows,
+    /// Metal on macOS). The project reports all of them as `vulkan`.
+    Vulkan,
     Cuda,
 }
 
@@ -97,6 +100,7 @@ impl EffectiveDevice {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cpu => "cpu",
+            Self::Vulkan => "vulkan",
             Self::Cuda => "cuda",
         }
     }

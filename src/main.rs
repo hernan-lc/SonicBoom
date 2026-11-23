@@ -355,7 +355,9 @@ async fn ensure_gui_port(config: &ConfigManager, data_dir: &std::path::Path) {
 
     if let Ok(text) = std::fs::read_to_string(&lock_path)
         && let Some((old_pid, old_port)) = parse_lock_content(&text)
-        && probe_port(old_port) == PortProbe::HttpOk
+        // A live PID is enough: during startup the first instance may not
+        // answer /health yet, and two Dawn loads would crash both processes.
+        && (probe_port(old_port) == PortProbe::HttpOk || process_alive(old_pid))
     {
         eprintln!(
             "SonicBoom is already running (pid {old_pid}) at http://127.0.0.1:{old_port} \
@@ -407,9 +409,45 @@ async fn ensure_gui_port(config: &ConfigManager, data_dir: &std::path::Path) {
     }
 }
 
+/// Whether the PID in an instance record still names a live process. `/health`
+/// is not up yet in the first seconds of a slow model load, so the port probe
+/// alone cannot reject a second double-click during that window.
+#[cfg(all(feature = "gui", target_os = "windows"))]
+fn process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    const STILL_ACTIVE: u32 = 259;
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code);
+        CloseHandle(handle);
+        ok != 0 && code == STILL_ACTIVE
+    }
+}
+
+#[cfg(all(feature = "gui", unix))]
+fn process_alive(pid: u32) -> bool {
+    // Signal 0 only checks existence; pid 0 was rejected by callers/parsers.
+    pid != 0 && unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+#[cfg(all(feature = "gui", not(any(target_os = "windows", unix))))]
+fn process_alive(_pid: u32) -> bool {
+    false
+}
+
 /// Instance record so tools and double-clicks can discover the running
 /// server. Rewritten on every gui start; a stale record is harmless because
-/// the next start re-probes the recorded port before trusting it.
+/// the next start re-probes the recorded port and PID before trusting it.
 #[cfg(feature = "gui")]
 const GUI_LOCK_FILE: &str = "sonicboom.lock";
 /// How far past `server.port` to scan for a free port before giving up.
@@ -1064,7 +1102,9 @@ async fn doctor() -> anyhow::Result<()> {
 
 #[cfg(all(test, feature = "gui"))]
 mod gui_tests {
-    use super::{GUI_LOCK_FILE, PortProbe, parse_lock_content, probe_port, select_gui_port};
+    use super::{
+        GUI_LOCK_FILE, PortProbe, parse_lock_content, probe_port, process_alive, select_gui_port,
+    };
 
     #[test]
     fn lock_content_round_trips() {
@@ -1085,6 +1125,16 @@ mod gui_tests {
         ] {
             assert_eq!(parse_lock_content(bad), None, "accepted {bad:?}");
         }
+    }
+
+    #[test]
+    fn live_pid_is_detected_without_waiting_for_http() {
+        assert!(process_alive(std::process::id()));
+        assert!(
+            !process_alive(0),
+            "pid 0 must never count as a live instance"
+        );
+        assert!(!process_alive(u32::MAX));
     }
 
     #[test]

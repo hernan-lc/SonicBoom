@@ -138,7 +138,7 @@ and empty assignments are rejected.
 
 ```toml
 [providers.reverb_tts]
-enabled = false            # Reverb-TTS ONNX (CC BY-NC 4.0 weights: non-commercial), device cpu|auto
+enabled = false            # Reverb-TTS ONNX (CC BY-NC 4.0 weights: non-commercial), device auto (default)|cpu
 model_id = "reverb-tts"
 
 [voices]
