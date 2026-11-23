@@ -389,6 +389,30 @@ sessions; warm request, 3.3 s of audio, 8 steps = 10 passes, total ~1.5 s):
   1.3e-4 against 0.088, SNR ~0 dB), the known conv-decoder problem of this GPU. Finding the
   offending operator would be worth ~30% of a request.
 
+Reverb, root cause of the silent GPU decoder and the `core` surgery (2026-11-22):
+
+- **The Higgs `codec_decoder` is silent on the WebGPU EP because of one node.** Bisecting the graph
+  (CPU vs Vulkan, identical inputs) shows every node correct up to `block.4/conv_t1`, a 1-D
+  `ConvTranspose` with `strides=[3]`; it computes only the first ~4 outputs and leaves the rest as the
+  bias (relerr 0.95). A sweep of tiny models shows the WebGPU `ConvTranspose` is wrong for strides
+  3, 6, 7 and 12 and bit-exact for 1, 2, 4, 5, 8, 9, 10, 11 (kernel, padding, `output_padding` and
+  length are irrelevant; the other four ConvTranspose nodes of the decoder use good strides). The ORT
+  buffer-cache modes do not change it. This is probably the same cause as the silent Pocket/Qwen decoders.
+- **Rewriting that single node fixes it**: zero-stuff the input (`Range`/`Mod`/`Gather`/`Mul`
+  mask) and run a stride-1 `Conv` with the transposed, flipped weights (13 extra nodes, dynamic length,
+  one session). Audio SNR versus the CPU original: 112.7 dB (random codes, F=40), 111.0 dB (F=83),
+  113.9 dB (codes of real audio, F=73) and 115.7 dB (codes of a real synthesis, F=87).
+- Measured end to end through the provider (3.3 s of audio, 8 steps, GPU decoder; two interleaved
+  rounds, 3 requests each): warm request 1.27 s -> 0.94 s (-26%), decode 394 ms -> 56 ms.
+  Not integrated: the provider pins the official decoder's SHA-256, so shipping this needs a rewritten
+  decoder published in the model repository (and its pin updated), with a fallback to the CPU decoder
+  when a probe on the GPU output is near silent. Artifacts and scripts live outside the repo.
+- **`core` surgery gave nothing.** Replacing the 144 dynamic `Reshape` shape chains by constant
+  `0/-1` shapes (-24% nodes, bit-identical), the rotary `Slice` bounds (-9%), and fusing the 97
+  RMSNorms into `SimplifiedLayerNormalization` (-22%, 100% top-1 code agreement) changed the
+  warm request by -2% to +12% (noise or worse): ORT already folds the constant shape chains and fuses
+  the RMSNorm at session creation, so the executed graph does not shrink. Not adopted.
+
 Open items, not done: IO-binding
 to keep the KV cache on the device between passes; fp16 weights (halves the 1.9 GB download,
 untested on RADV); the 16 upstream preset voices (codes, not audio, so they need a profile
