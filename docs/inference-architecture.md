@@ -32,6 +32,13 @@ loads once. A failed load of one provider does not poison construction for
 another. Keep sufficient free RAM
 for every enabled resident model; this is not an automatic offloading policy.
 
+The local ASR engine is deliberately not a `TtsProvider`. Its 801 MB download
+and CPU-only load are owned by `AsrManager` as one detached task under a load
+mutex: HTTP handlers schedule the load and return, then poll the lifecycle via
+`/api/asr/status` (also reported as `asr` in `GET /api/providers`). Inference
+admission is reserved for transcription, never for downloading, and dropping an
+HTTP future cannot reset or cancel a running load.
+
 ## Configuration versions and reloads
 
 The server snapshots configuration and revision together. ProviderPool rejects

@@ -93,6 +93,31 @@ test('immutable built-in voices fetch once per readiness change, not every tick'
   }
 });
 
+test('transcription engine status is shared from /api/providers', async () => {
+  const asr = {
+    id: 'asr',
+    kind: 'asr' as const,
+    state: 'downloading' as const,
+    enabled: true,
+    model: 'fluid-speech-pro',
+    active_model: null,
+    progress: 0.4,
+    detail: 'Downloading files: 40%',
+    license: 'Fluid Speech Pro by FluidVoice (CC BY 4.0)',
+    prepare_path: '/api/asr/prepare',
+  };
+  const api = countingApi({}) as Api;
+  api.providers = async () => ({ providers: [], capabilities: [], asr });
+  const studio = createStudio(data, { api });
+  try {
+    assert.equal(studio.asr.value, null);
+    await studio.refreshProviders();
+    assert.deepEqual(studio.asr.value, asr);
+  } finally {
+    studio.dispose();
+  }
+});
+
 test('voice list refreshes on slow ticks and explicit calls only', async () => {
   const counts: Record<string, number> = {};
   const studio = createStudio(data, { api: countingApi(counts) });

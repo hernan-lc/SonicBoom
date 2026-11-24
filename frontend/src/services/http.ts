@@ -45,7 +45,9 @@ export interface HttpOptions extends RequestInit {
 }
 function defaultTimeout(path: string): number {
   if (path.endsWith('/events') || path.endsWith('/preview') || path === '/api/tts/play') return 0;
-  if (path.includes('/clones') || path.endsWith('/audio')) return 120000;
+  // A 30 s clip takes several seconds on CPU; a 15 s client cap made every
+  // first transcription look like a timeout while the model was still loading.
+  if (path === '/api/asr' || path.includes('/clones') || path.endsWith('/audio')) return 120000;
   return 15000;
 }
 export function retryDelay(value: string | null, now = Date.now()): number | undefined {

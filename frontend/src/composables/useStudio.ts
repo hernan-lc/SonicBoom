@@ -10,6 +10,7 @@ import type {
   Capabilities,
   Voice,
   BuiltinVoice,
+  AsrEngineStatus,
   ConfigSnapshot,
   ConfigStatus,
   Schema,
@@ -32,6 +33,7 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
   const providers = shallowRef<ProviderStatus[]>(data.providers.map((entry) => entry.status));
   const capabilities = shallowRef<Capabilities[]>([]);
   const diagnostics = shallowRef<unknown>(null);
+  const asr = shallowRef<AsrEngineStatus | null>(null);
   const builtinVoices = shallowRef<BuiltinVoice[]>(data.voices.map((id) => ({ id, name: id })));
   const voices = shallowRef<Voice[]>([]);
   const config = shallowRef<ConfigSnapshot | null>(null);
@@ -122,6 +124,7 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
       if (gen !== generation || disposed) return;
       providers.value = result.providers;
       capabilities.value = result.capabilities;
+      asr.value = result.asr ?? null;
       diagnostics.value = result.diagnostics;
     });
   }
@@ -220,6 +223,7 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
     schema.value = {};
     providers.value = [];
     capabilities.value = [];
+    asr.value = null;
     devices.value = [];
     errors.value = {};
     lastVoicesStatus = null;
@@ -265,6 +269,7 @@ export function createStudio(data: HomeData, overrides?: { api?: Api }) {
     providers,
     capabilities,
     diagnostics,
+    asr,
     builtinVoices,
     voices,
     config,

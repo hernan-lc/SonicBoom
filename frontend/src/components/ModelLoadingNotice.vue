@@ -26,8 +26,8 @@ const props = withDefaults(
 const emit = defineEmits<{ manage: [] }>();
 
 const studio = useStudio();
-const { providers, info } = studio;
-const { items, visible, dismiss } = useLoadingNotice(providers, info);
+const { providers, info, asr } = studio;
+const { items, visible, dismiss } = useLoadingNotice(providers, info, asr);
 
 const badgeLabel = computed(() => modelStatusLabel(info?.value?.model.status));
 const target = computed<ProviderStatus | null>(() => {

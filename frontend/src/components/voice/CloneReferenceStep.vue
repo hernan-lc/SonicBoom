@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from 'vue';
 import { t } from '../../i18n';
 import { useStudio } from '../../composables/useStudio';
 import AppIcon from '../ui/AppIcon.vue';
@@ -16,19 +16,73 @@ const picker = ref<{ open: () => void } | null>(null);
 const studio = useStudio();
 const asrPhase = ref<'idle' | 'preparing' | 'transcribing' | 'error'>('idle');
 const asrError = ref('');
+const asrProgress = ref<number | null>(null);
+let asrAbort: AbortController | null = null;
 const asrBusy = computed(() => asrPhase.value === 'preparing' || asrPhase.value === 'transcribing');
+const asrLabel = computed(() =>
+  asrPhase.value === 'preparing'
+    ? asrProgress.value === null
+      ? t('Preparing model…')
+      : t('Preparing model… {progress}%', { progress: Math.round(asrProgress.value * 100) })
+    : asrPhase.value === 'transcribing'
+      ? t('Transcribing…')
+      : t('Transcribe'),
+);
+onBeforeUnmount(() => asrAbort?.abort());
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('cancelled', 'AbortError'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('cancelled', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+async function waitForAsr(signal: AbortSignal) {
+  for (;;) {
+    const status = await studio.api.asrStatus(signal);
+    if (status.state === 'ready') return;
+    if (status.state === 'failed')
+      throw new Error(status.error || t('Transcription model failed to load.'));
+    if (status.state === 'absent') throw new Error(t('Transcription model is not available.'));
+    asrProgress.value = status.progress ?? null;
+    await sleep(800, signal);
+  }
+}
 async function transcribeReference() {
   if (!props.file || asrBusy.value) return;
+  asrAbort?.abort();
+  const controller = new AbortController();
+  asrAbort = controller;
   asrError.value = '';
+  asrProgress.value = null;
   asrPhase.value = 'preparing';
   try {
-    await studio.api.prepareAsr();
+    if (studio.asr?.value?.state !== 'ready') {
+      const started = await studio.api.prepareAsr(controller.signal);
+      asrProgress.value = started.progress ?? null;
+      await waitForAsr(controller.signal);
+    }
     asrPhase.value = 'transcribing';
-    transcript.value = (await studio.api.transcribe(props.file)).text;
+    transcript.value = (await studio.api.transcribe(props.file, undefined, controller.signal)).text;
     asrPhase.value = 'idle';
   } catch (error) {
+    if (controller.signal.aborted) {
+      asrPhase.value = 'idle';
+      return;
+    }
     asrPhase.value = 'error';
     asrError.value = error instanceof Error ? error.message : t('Transcription failed.');
+  } finally {
+    if (asrAbort === controller) asrAbort = null;
   }
 }
 function select(file: File | null) { emit('select', file); }
@@ -98,7 +152,7 @@ const uploadHelp = computed(() => uploadLimit.value ? t('WAV only · up to {size
   <p v-if="provider === 'reverb-tts'" class="callout"><span class="callout-icon" aria-hidden="true">i</span><span>{{ t('Reverb weights are CC BY-NC 4.0: non-commercial use only.') }}</span></p>
 
   <div v-if="needsTranscript && file" class="transcript-actions">
-    <button type="button" class="btn-inline" :disabled="disabled || asrBusy" @click="transcribeReference">{{ t(asrPhase === 'preparing' ? 'Preparing model…' : asrPhase === 'transcribing' ? 'Transcribing…' : 'Transcribe') }}</button>
+    <button type="button" class="btn-inline" :disabled="disabled || asrBusy" @click="transcribeReference">{{ asrLabel }}</button>
     <span v-if="asrPhase === 'error'" class="field-error" role="alert">{{ asrError }}</span>
   </div>
   <BaseTextarea v-if="needsTranscript" data-guide="clone-transcript" id="cloneTranscript" v-model="transcript" :label="t('Exact transcript')" :error="errors.cloneTranscript" :help="`${[...transcript].length} / ${limits?.transcript_max_chars ?? '—'}`" required/>

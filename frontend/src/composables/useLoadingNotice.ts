@@ -1,6 +1,6 @@
 import { computed, type Ref, ref } from 'vue';
 import { t } from '../i18n';
-import type { ProviderStatus, ServerInfo } from '../services/contracts';
+import type { AsrEngineStatus, ProviderStatus, ServerInfo } from '../services/contracts';
 
 export interface LoadingItem {
   key: string;
@@ -19,7 +19,11 @@ function progressFrom(detail: string | null | undefined): number | null {
 }
 
 /** Engines that are still preparing a model, plus the default model itself. */
-export function loadingItems(providers: ProviderStatus[], info: ServerInfo | null): LoadingItem[] {
+export function loadingItems(
+  providers: ProviderStatus[],
+  info: ServerInfo | null,
+  asr?: AsrEngineStatus | null,
+): LoadingItem[] {
   const items: LoadingItem[] = [];
   const modelStatus = info?.model.status;
   if (modelStatus === 'downloading' || modelStatus === 'loading') {
@@ -37,6 +41,14 @@ export function loadingItems(providers: ProviderStatus[], info: ServerInfo | nul
       name: provider.provider_id,
       detail: provider.detail ?? '',
       progress: progressFrom(provider.detail),
+    });
+  }
+  if (asr && (asr.state === 'downloading' || asr.state === 'loading')) {
+    items.push({
+      key: asr.id,
+      name: t('Transcription'),
+      detail: asr.detail ?? '',
+      progress: asr.progress === undefined ? null : Math.round(asr.progress * 100),
     });
   }
   return items;
@@ -79,8 +91,12 @@ export function notReadyDetail(model: string): string {
  * current set of busy engines: progress ticks do not reopen it, but a newly
  * loading engine does.
  */
-export function useLoadingNotice(providers: Ref<ProviderStatus[]>, info: Ref<ServerInfo | null>) {
-  const items = computed(() => loadingItems(providers.value, info.value));
+export function useLoadingNotice(
+  providers: Ref<ProviderStatus[]>,
+  info: Ref<ServerInfo | null>,
+  asr?: Ref<AsrEngineStatus | null>,
+) {
+  const items = computed(() => loadingItems(providers.value, info.value, asr?.value));
   const signature = computed(() =>
     items.value
       .map((item) => item.key)

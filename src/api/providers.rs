@@ -101,9 +101,12 @@ pub async fn get_providers(
     ]
     .into_iter()
     .collect::<Vec<_>>();
+    // Transcription is an engine too, but not a TtsProvider: it shares the
+    // status shape so the Engines view can preload it before cloning a voice.
     let body = serde_json::json!({
         "providers": registry.statuses(),
         "capabilities": capabilities,
+        "asr": sonicboom::asr::manager().engine_status(),
     })
     .to_string();
     (

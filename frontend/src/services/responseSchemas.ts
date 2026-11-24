@@ -91,6 +91,18 @@ export const infoSchema: z.ZodType<ServerInfo> = z.object({
     .catch(undefined)
     .transform((value) => value ?? undefined),
 });
+export const asrEngineSchema = z.object({
+  id: z.string(),
+  kind: z.literal('asr'),
+  state: z.enum(['absent', 'downloading', 'loading', 'ready', 'failed']),
+  enabled: z.boolean(),
+  model: z.string(),
+  active_model: z.string().nullable(),
+  progress: z.number().nullish().transform((value) => value ?? undefined),
+  detail: optionalString,
+  license: z.string(),
+  prepare_path: z.string(),
+});
 export const providersSchema: z.ZodType<ProvidersResponse> = z.object({
   providers: z.array(
     z.object({
@@ -119,6 +131,7 @@ export const providersSchema: z.ZodType<ProvidersResponse> = z.object({
         .nullable(),
     )
     .transform((value) => value.filter((item) => item !== null)),
+  asr: asrEngineSchema.optional(),
   diagnostics: z.unknown().optional(),
 });
 export const voiceListSchema = z.object({ data: z.array(voiceSummarySchema) });

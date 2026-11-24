@@ -66,7 +66,7 @@ async fn real_model_transcribes_and_benchmarks() {
         dir.join("encoder-model.int8.onnx.data").is_file(),
         "set SONICBOOM_ASR_MODEL_DIR to the pinned int8 model directory"
     );
-    let manager = AsrManager::new(dir.clone(), None);
+    let manager = std::sync::Arc::new(AsrManager::new(dir.clone(), None));
     assert_eq!(manager.status().await.model, MODEL_ID);
     let model = manager.ensure_ready().await.expect("download/load model");
     assert_eq!(manager.status().await.state, "ready");

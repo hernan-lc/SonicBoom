@@ -12,9 +12,11 @@ pub mod tdt;
 pub mod vocab;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
+use tokio::sync::watch;
 
 use self::mel::Features;
 use self::tdt::Tdt;
@@ -273,31 +275,50 @@ enum Lifecycle {
     Failed(String),
 }
 
-/// Puts the lifecycle back to `Absent` when a download/load future is dropped midway.
-struct ResetOnCancel<'a> {
-    lifecycle: &'a std::sync::RwLock<Lifecycle>,
-    armed: bool,
+/// Uniform engine status for the Engines view: transcription is loaded from
+/// the same panel as the synthesis providers, without pretending to be a TTS
+/// provider.
+#[derive(Debug, Clone, Serialize)]
+pub struct AsrEngineStatus {
+    pub id: &'static str,
+    pub kind: &'static str,
+    pub state: &'static str,
+    pub enabled: bool,
+    pub model: &'static str,
+    pub active_model: Option<&'static str>,
+    pub progress: Option<f32>,
+    pub detail: Option<String>,
+    pub license: &'static str,
+    pub prepare_path: &'static str,
 }
 
-impl Drop for ResetOnCancel<'_> {
+/// Clears the "a load is already scheduled" flag when a background load ends,
+/// including on an early return after another load won the race.
+struct LoadGuard<'a>(&'a AtomicBool);
+
+impl Drop for LoadGuard<'_> {
     fn drop(&mut self) {
-        if self.armed {
-            let mut lifecycle = self.lifecycle.write().unwrap_or_else(|p| p.into_inner());
-            if matches!(*lifecycle, Lifecycle::Downloading(_) | Lifecycle::Loading) {
-                *lifecycle = Lifecycle::Absent;
-            }
-        }
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
-/// One shared engine, serialized by a semaphore so a single 0.63B model
-/// never doubles its resident memory.
+/// One shared engine. Download and load are owned by the manager, not by an
+/// HTTP request: a client timeout or disconnect can no longer cancel an 801 MB
+/// download halfway through. Transcription itself is serialized by a semaphore
+/// so a single 0.63B model never doubles its resident memory.
 pub struct AsrManager {
     // `std` lock: the download progress callback is synchronous and runs on
     // the async thread, so a Tokio `blocking_write` would panic there. Guards
     // are never held across an await.
     lifecycle: std::sync::RwLock<Lifecycle>,
+    /// Serializes "is it ready?" + "schedule a load" with terminal publishes,
+    /// so a finishing load can never be overwritten by a stale caller.
+    publish_lock: std::sync::Mutex<()>,
     load_lock: tokio::sync::Mutex<()>,
+    load_scheduled: AtomicBool,
+    /// Version counter: a waiter subscribes before re-checking the lifecycle,
+    /// so a state change on another worker can never be missed.
+    version: watch::Sender<u64>,
     slot: tokio::sync::Semaphore,
     model_dir: PathBuf,
     hf_token: Option<String>,
@@ -307,7 +328,10 @@ impl AsrManager {
     pub fn new(model_dir: PathBuf, hf_token: Option<String>) -> Self {
         Self {
             lifecycle: std::sync::RwLock::new(Lifecycle::Absent),
+            publish_lock: std::sync::Mutex::new(()),
             load_lock: tokio::sync::Mutex::new(()),
+            load_scheduled: AtomicBool::new(false),
+            version: watch::Sender::new(0),
             slot: tokio::sync::Semaphore::new(1),
             model_dir,
             hf_token,
@@ -333,90 +357,166 @@ impl AsrManager {
         }
     }
 
-    /// Download (if needed) and load once; concurrent callers share the work.
-    pub async fn ensure_ready(&self) -> Result<Arc<dyn Transcriber>, AsrError> {
+    /// Same lifecycle as `/api/asr/status`, in the shape the Engines view uses
+    /// for every engine. `detail` is diagnostic text, never a request body.
+    pub fn engine_status(&self) -> AsrEngineStatus {
+        let lifecycle = self.lifecycle.read().unwrap_or_else(|p| p.into_inner());
+        let (state, progress, detail) = match &*lifecycle {
+            Lifecycle::Absent => (AsrState::Absent, None, None),
+            Lifecycle::Downloading(p) => (
+                AsrState::Downloading,
+                Some(*p),
+                Some(format!("Downloading files: {:.0}%", p * 100.0)),
+            ),
+            Lifecycle::Loading => (
+                AsrState::Loading,
+                None,
+                Some("Loading model...".to_string()),
+            ),
+            Lifecycle::Ready(_) => (AsrState::Ready, None, None),
+            Lifecycle::Failed(message) => (AsrState::Failed, None, Some(message.clone())),
+        };
+        AsrEngineStatus {
+            id: "asr",
+            kind: "asr",
+            state: state.as_str(),
+            enabled: true,
+            model: MODEL_ID,
+            active_model: if state == AsrState::Ready {
+                Some(MODEL_ID)
+            } else {
+                None
+            },
+            progress,
+            detail,
+            license: ATTRIBUTION,
+            prepare_path: "/api/asr/prepare",
+        }
+    }
+
+    fn publish(&self, next: Lifecycle) {
+        let _guard = self.publish_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.publish_inner(next);
+    }
+
+    fn publish_inner(&self, next: Lifecycle) {
+        *self.lifecycle.write().unwrap_or_else(|p| p.into_inner()) = next;
+        // Drop the borrow before sending: a live `Ref` would deadlock `send`.
+        let version = self.version.borrow().wrapping_add(1);
+        let _ = self.version.send(version);
+    }
+
+    /// Schedule the download+load and return immediately. The spawned task is
+    /// owned by the manager, so dropping an HTTP future cannot cancel it.
+    pub fn start_load(self: &Arc<Self>) {
+        let _guard = self.publish_lock.lock().unwrap_or_else(|p| p.into_inner());
         {
             let lifecycle = self.lifecycle.read().unwrap_or_else(|p| p.into_inner());
-            if let Lifecycle::Ready(model) = &*lifecycle {
-                return Ok(Arc::clone(model));
+            if matches!(*lifecycle, Lifecycle::Ready(_)) {
+                return;
             }
         }
+        if self.load_scheduled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        // Publish before spawning: a caller reading status right after
+        // `prepare()` must never see `absent` again.
+        self.publish_inner(Lifecycle::Downloading(0.0));
+        drop(_guard);
+        let this = Arc::clone(self);
+        tokio::spawn(async move { this.run_load().await });
+    }
+
+    /// The one background download+load. Concurrent callers share it: a queued
+    /// task re-checks readiness after acquiring the load lock.
+    async fn run_load(self: &Arc<Self>) {
+        let _guard = LoadGuard(&self.load_scheduled);
         let _load = self.load_lock.lock().await;
         {
             let lifecycle = self.lifecycle.read().unwrap_or_else(|p| p.into_inner());
-            if let Lifecycle::Ready(model) = &*lifecycle {
-                return Ok(Arc::clone(model));
+            if matches!(*lifecycle, Lifecycle::Ready(_)) {
+                return;
             }
         }
         let files = manifest::pinned();
-        {
-            let mut lifecycle = self.lifecycle.write().unwrap_or_else(|p| p.into_inner());
-            *lifecycle = Lifecycle::Downloading(0.0);
-        }
-        // A dropped request (client disconnect, timeout) cancels this future; without
-        // the guard the state would stay `downloading` or `loading` forever.
-        let mut guard = ResetOnCancel {
-            lifecycle: &self.lifecycle,
-            armed: true,
-        };
         let dir = self.model_dir.clone();
-        let progress_lifecycle = &self.lifecycle;
+        let token = self.hf_token.clone();
+        let progress_manager = Arc::clone(self);
         let downloaded = crate::tts::providers::assets::ensure_pinned_files(
             MODEL_ID,
             &dir,
             &files,
-            self.hf_token.as_deref(),
-            |fraction| {
-                let mut lifecycle = progress_lifecycle
+            token.as_deref(),
+            move |fraction| {
+                let mut lifecycle = progress_manager
+                    .lifecycle
                     .write()
                     .unwrap_or_else(|p| p.into_inner());
                 if let Lifecycle::Downloading(current) = &mut *lifecycle {
                     *current = fraction.clamp(0.0, 1.0);
                 }
+                let version = progress_manager.version.borrow().wrapping_add(1);
+                let _ = progress_manager.version.send(version);
             },
             || {},
             || false,
         )
         .await;
         if let Err(error) = downloaded {
-            guard.armed = false;
-            let message = error.to_string();
-            *self.lifecycle.write().unwrap_or_else(|p| p.into_inner()) =
-                Lifecycle::Failed(message.clone());
-            return Err(AsrError::Failed(message));
+            self.publish(Lifecycle::Failed(error.to_string()));
+            return;
         }
-        {
-            let mut lifecycle = self.lifecycle.write().unwrap_or_else(|p| p.into_inner());
-            *lifecycle = Lifecycle::Loading;
-        }
-        let model = tokio::task::spawn_blocking(move || FluidModel::open(&dir))
-            .await
-            .map_err(|e| AsrError::Failed(format!("model load task failed: {e}")))?;
-        guard.armed = false;
-        match model {
-            Ok(model) => {
+        self.publish(Lifecycle::Loading);
+        let opened = tokio::task::spawn_blocking(move || FluidModel::open(&dir)).await;
+        match opened {
+            Ok(Ok(model)) => {
                 let shared: Arc<dyn Transcriber> = Arc::new(model);
-                *self.lifecycle.write().unwrap_or_else(|p| p.into_inner()) =
-                    Lifecycle::Ready(Arc::clone(&shared));
-                Ok(shared)
+                self.publish(Lifecycle::Ready(Arc::clone(&shared)));
             }
-            Err(error) => {
-                let message = error.to_string();
-                *self.lifecycle.write().unwrap_or_else(|p| p.into_inner()) =
-                    Lifecycle::Failed(message.clone());
-                Err(AsrError::Failed(message))
-            }
+            Ok(Err(error)) => self.publish(Lifecycle::Failed(error.to_string())),
+            Err(error) => self.publish(Lifecycle::Failed(format!(
+                "model load task failed: {error}"
+            ))),
         }
     }
 
-    /// Activation hook for the Engines view / explicit warm-up.
-    pub async fn prepare(&self) -> Result<AsrStatus, AsrError> {
-        self.ensure_ready().await?;
+    /// Wait for the background load to reach a terminal state. A receiver is
+    /// created before each check, so an update from another worker either shows
+    /// up in that check or wakes the `changed()` call.
+    pub async fn wait_ready(self: &Arc<Self>) -> Result<Arc<dyn Transcriber>, AsrError> {
+        let mut version = self.version.subscribe();
+        loop {
+            {
+                let lifecycle = self.lifecycle.read().unwrap_or_else(|p| p.into_inner());
+                match &*lifecycle {
+                    Lifecycle::Ready(model) => return Ok(Arc::clone(model)),
+                    Lifecycle::Failed(message) => return Err(AsrError::Failed(message.clone())),
+                    _ => {}
+                }
+            }
+            version
+                .changed()
+                .await
+                .map_err(|_| AsrError::Failed("model loader was dropped".into()))?;
+        }
+    }
+
+    /// A transcription waits for readiness; the download itself is background
+    /// work and survives this future being dropped by an HTTP timeout.
+    pub async fn ensure_ready(self: &Arc<Self>) -> Result<Arc<dyn Transcriber>, AsrError> {
+        self.start_load();
+        self.wait_ready().await
+    }
+
+    /// Activation hook for the Engines view: starts the background load and
+    /// reports its current state instead of holding the HTTP request open.
+    pub async fn prepare(self: &Arc<Self>) -> Result<AsrStatus, AsrError> {
+        self.start_load();
         Ok(self.status().await)
     }
 
     pub async fn transcribe(
-        &self,
+        self: &Arc<Self>,
         wav: Vec<u8>,
         language: Option<String>,
     ) -> Result<Transcription, AsrError> {
@@ -428,12 +528,13 @@ impl AsrManager {
     }
 }
 
-static MANAGER: OnceLock<AsrManager> = OnceLock::new();
+static MANAGER: OnceLock<Arc<AsrManager>> = OnceLock::new();
 
 /// Process-wide manager, initialized on first use. `SONICBOOM_ASR_MODEL_DIR`
 /// overrides the default model directory; `HF_TOKEN` is used for downloads.
-pub fn manager() -> &'static AsrManager {
-    MANAGER.get_or_init(|| {
+/// An `Arc` lets background loads outlive the request that triggered them.
+pub fn manager() -> Arc<AsrManager> {
+    Arc::clone(MANAGER.get_or_init(|| {
         let dir = std::env::var_os("SONICBOOM_ASR_MODEL_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("models/fluid-speech-pro"));
@@ -441,8 +542,8 @@ pub fn manager() -> &'static AsrManager {
             .ok()
             .or_else(|| std::env::var("HUGGING_FACE_HUB_TOKEN").ok())
             .filter(|value| !value.trim().is_empty());
-        AsrManager::new(dir, token)
-    })
+        Arc::new(AsrManager::new(dir, token))
+    }))
 }
 
 #[cfg(test)]
@@ -494,29 +595,86 @@ mod tests {
         assert!(decode_wav(&wav(&[0; 6], 16000, 3)).is_err());
     }
 
+    struct FakeTranscriber;
+
+    impl Transcriber for FakeTranscriber {
+        fn transcribe(
+            &self,
+            _wav: &[u8],
+            _language: Option<&str>,
+        ) -> Result<Transcription, AsrError> {
+            Ok(Transcription {
+                text: String::new(),
+                language: "auto".into(),
+                duration: 0.0,
+            })
+        }
+    }
+
+    fn manager_for_test() -> Arc<AsrManager> {
+        Arc::new(AsrManager::new(
+            std::env::temp_dir().join("sonicboom-asr-lifecycle-test"),
+            None,
+        ))
+    }
+
+    #[tokio::test]
+    async fn wait_ready_wakes_when_the_background_load_publishes_ready() {
+        let manager = manager_for_test();
+        let waiter = {
+            let manager = Arc::clone(&manager);
+            tokio::spawn(async move { manager.wait_ready().await })
+        };
+        tokio::task::yield_now().await;
+        manager.publish(Lifecycle::Ready(Arc::new(FakeTranscriber)));
+        let model = tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(model.transcribe(&[], None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn dropped_waiter_does_not_reset_the_background_state() {
+        let manager = manager_for_test();
+        let waiter = {
+            let manager = Arc::clone(&manager);
+            tokio::spawn(async move { manager.wait_ready().await })
+        };
+        manager.publish(Lifecycle::Downloading(0.3));
+        // Simulate an HTTP timeout dropping the waiting request.
+        waiter.abort();
+        let _ = waiter.await;
+        let status = manager.status().await;
+        assert_eq!(status.state, "downloading");
+        assert_eq!(status.progress, Some(0.3));
+    }
+
+    #[tokio::test]
+    async fn prepare_of_a_ready_model_does_not_schedule_another_load() {
+        let manager = manager_for_test();
+        manager.publish(Lifecycle::Ready(Arc::new(FakeTranscriber)));
+        let status = manager.prepare().await.unwrap();
+        assert_eq!(status.state, "ready");
+        assert!(!manager.load_scheduled.load(Ordering::SeqCst));
+    }
+
     #[test]
-    fn cancelled_download_does_not_leave_the_state_stuck() {
-        let lifecycle = std::sync::RwLock::new(Lifecycle::Downloading(0.3));
-        drop(ResetOnCancel {
-            lifecycle: &lifecycle,
-            armed: true,
-        });
-        assert!(matches!(*lifecycle.read().unwrap(), Lifecycle::Absent));
-        *lifecycle.write().unwrap() = Lifecycle::Failed("x".into());
-        drop(ResetOnCancel {
-            lifecycle: &lifecycle,
-            armed: true,
-        });
-        assert!(matches!(*lifecycle.read().unwrap(), Lifecycle::Failed(_)));
-        *lifecycle.write().unwrap() = Lifecycle::Downloading(0.3);
-        drop(ResetOnCancel {
-            lifecycle: &lifecycle,
-            armed: false,
-        });
-        assert!(matches!(
-            *lifecycle.read().unwrap(),
-            Lifecycle::Downloading(_)
-        ));
+    fn engine_status_mirrors_the_lifecycle() {
+        let manager = manager_for_test();
+        manager.publish(Lifecycle::Downloading(0.42));
+        let engine = manager.engine_status();
+        assert_eq!(engine.id, "asr");
+        assert_eq!(engine.state, "downloading");
+        assert_eq!(engine.progress, Some(0.42));
+        assert_eq!(engine.prepare_path, "/api/asr/prepare");
+        assert!(engine.detail.unwrap().contains("42"));
+        assert!(engine.active_model.is_none());
+        manager.publish(Lifecycle::Ready(Arc::new(FakeTranscriber)));
+        let engine = manager.engine_status();
+        assert_eq!(engine.state, "ready");
+        assert_eq!(engine.active_model, Some(MODEL_ID));
     }
 
     #[test]

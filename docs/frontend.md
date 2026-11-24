@@ -141,6 +141,10 @@ generation is submitted. Resume and regenerate reuse that snapshot, not the form
   button is the transport, and the recording is loaded from a blob so the
   strict CSP never has to allow a cross-origin fetch.
 - `EnginesPanel` / `EngineCard` consolidate provider status, models and toggles.
+  `AsrEngineCard` uses the same panel for the transcription engine: its button
+  starts the background download and the studio's fast polling shows progress.
+  The clone wizard reuses that status, so "Transcribe" waits for readiness
+  instead of timing out while the model is loading.
 - `SettingsPanel` / `SettingField` group frequent and advanced settings and keep
   unsaved values during polling, language changes and filtering.
 - `useStudio` shares API data through an epoch-scoped TanStack Query cache;

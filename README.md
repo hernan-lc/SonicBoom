@@ -118,7 +118,7 @@ The server will:
 - **Verified Model Supply Chain** - Pinned revision with compiled-in SHA-256 integrity checks
 - **Admin Panel** - Web-based management interface
 - **OpenAI-Compatible API** - Drop-in replacement for OpenAI TTS
-- **Speech-to-Text** - Fluid Speech Pro ASR (25 languages, CPU, lazy download; [docs/asr.md](docs/asr.md))
+- **Speech-to-Text** - Fluid Speech Pro ASR (25 languages, CPU, lazy download; preload it from the Engines view; [docs/asr.md](docs/asr.md))
 - **Audio Queue System** - Play audio files directly on the server with queue management
 - **Output Device Selection** - Discover and switch server audio outputs (speakers, HDMI, virtual cables) via API
 - **Session Management** - Secure admin sessions with lockout protection
@@ -142,7 +142,7 @@ The server will:
 | ------ | ---------------------------- | --------------------------------- |
 | `POST` | `/api/asr`                   | Transcribe a WAV file             |
 | `GET`  | `/api/asr/status`            | ASR model lifecycle status        |
-| `POST` | `/api/asr/prepare`           | Download/load the ASR model       |
+| `POST` | `/api/asr/prepare`           | Preload ASR in the background     |
 
 ### Audio Queue API
 

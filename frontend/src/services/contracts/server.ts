@@ -31,9 +31,23 @@ export interface Capabilities {
   requires_reference_transcript: boolean;
   sample_rate?: number;
 }
+/** Transcription engine: same lifecycle as a provider, exposed by /api/providers. */
+export interface AsrEngineStatus {
+  id: string;
+  kind: 'asr';
+  state: 'absent' | 'downloading' | 'loading' | 'ready' | 'failed';
+  enabled: boolean;
+  model: string;
+  active_model: string | null;
+  progress?: number;
+  detail?: string;
+  license: string;
+  prepare_path: string;
+}
 export interface ProvidersResponse {
   providers: ProviderStatus[];
   capabilities: Capabilities[];
+  asr?: AsrEngineStatus;
   diagnostics?: unknown;
 }
 

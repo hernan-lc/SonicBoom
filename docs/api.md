@@ -299,7 +299,13 @@ See [ASR](asr.md) for limits, license and benchmarks.
 | `POST` | `/api/asr` | `{ "text": "...", "language": "es", "duration": 5.9, "model": "fluid-speech-pro" }` |
 | `POST` | `/v1/audio/transcriptions` | OpenAI-compatible; `response_format` = `json` (default), `text`, `verbose_json` |
 | `GET`  | `/api/asr/status` | `{ state: absent\|downloading\|loading\|ready\|failed, ... }` |
-| `POST` | `/api/asr/prepare` | Starts the lazy download/load; returns the status |
+| `POST` | `/api/asr/prepare` | Starts the background download/load; returns the current status immediately |
+
+`prepare` does not hold the HTTP request open: the download+load is owned by
+the ASR manager, so a client timeout or disconnect cannot cancel it. Poll
+`/api/asr/status` for `progress` and the `ready`/`failed` terminal state. The
+same engine status is included as `asr` in `GET /api/providers` so the Engines
+view can preload it before creating a cloned voice.
 
 Over 30 s returns `400` (configurable with `SONICBOOM_ASR_MAX_SECONDS`); body
 over 8 MiB returns `413`; non-WAV media returns `415`. Missing/invalid token

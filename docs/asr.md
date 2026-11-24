@@ -25,6 +25,7 @@ Responses: `{"text":"...","language":"es","duration":5.9,"model":"fluid-speech-p
 - Max 30 s per request (`SONICBOOM_ASR_MAX_SECONDS` overrides); longer audio returns `400`. No chunking in this phase.
 - Multipart body cap: 8 MiB (`413` above it). Standard Bearer auth (`401`), token-bucket rate limit (`429`) and inference admission (`429`) apply.
 - Weights download on first transcription or on `/api/asr/prepare`, from the pinned revision with SHA-256 checks; `SONICBOOM_ASR_MODEL_DIR` sets the directory (default `models/fluid-speech-pro`), `HF_TOKEN` authenticates downloads.
+- Download and load run as **one background task owned by the ASR manager**, not inside an HTTP request. `POST /api/asr/prepare` schedules it and returns the current status immediately; `GET /api/asr/status` exposes `progress` and the terminal state, and the same shape is available as `asr` in `GET /api/providers`. Cancelling or timing out a request never cancels the download, and repeated prepare calls share the same task. No inference admission permit is held while downloading.
 - One shared instance, one transcription at a time. Inference is always CPU: the model's convolutions return silence on the user's Vulkan GPU. Status states: `absent`, `downloading`, `loading`, `ready`, `failed`.
 
 `fluid-speech-pro` also appears in `GET /v1/models` with `capabilities: ["asr"]`; it is not added to the TTS model list, so speech clients are unaffected.

@@ -248,7 +248,13 @@ fn render(result: sonicboom::asr::Transcription, format: ResponseFormat) -> Resp
 
 async fn transcribe(state: AppState, request: Request, openai: bool) -> Result<Response, AppError> {
     let parsed = parse_request(&state, request, openai).await?;
-    let result = sonicboom::asr::manager()
+    let manager = sonicboom::asr::manager();
+    // Wait for the background load before entering the inference queue: a
+    // first transcription must not hold the single slot during an 801 MB
+    // download and block TTS. `transcribe` then reuses the ready model.
+    manager.start_load();
+    manager.wait_ready().await.map_err(asr_error)?;
+    let result = manager
         .transcribe(parsed.wav, parsed.language)
         .await
         .map_err(asr_error)?;
@@ -285,17 +291,16 @@ pub async fn get_status(_token: AuthenticatedToken) -> Json<AsrStatus> {
 }
 
 /// `POST /api/asr/prepare`: activation hook for the Engines view / warm-up.
+/// The download+load is owned by the manager, so this responds immediately
+/// with the current status and holds no inference admission while it runs.
 pub async fn post_prepare(
     token: AuthenticatedToken,
     State(state): State<AppState>,
 ) -> Result<Json<AsrStatus>, AppError> {
     super::tts::check_rate_limit(&state, &token)?;
-    super::jobs::with_admission(&state, async {
-        sonicboom::asr::manager()
-            .prepare()
-            .await
-            .map(Json)
-            .map_err(asr_error)
-    })
-    .await
+    sonicboom::asr::manager()
+        .prepare()
+        .await
+        .map(Json)
+        .map_err(asr_error)
 }
