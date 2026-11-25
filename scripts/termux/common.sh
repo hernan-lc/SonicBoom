@@ -39,9 +39,17 @@ prepare_ort() {
     mkdir -p "$ORT_CACHE"
     archive=$ORT_CACHE/onnxruntime-android-$ORT_VERSION.aar
     if [ ! -f "$archive" ]; then
-        curl --fail --location --retry 3 --proto '=https' \
-          "https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/$ORT_VERSION/onnxruntime-android-$ORT_VERSION.aar" \
-          -o "$archive.part"
+        # Maven Central rate-limits (HTTP 429) some egress IPs for minutes.
+        # The pinned digest makes a mirror safe: wrong bytes fail the check.
+        for mirror in \
+          "https://repo.maven.apache.org/maven2" \
+          "https://maven-central.storage-download.googleapis.com/maven2"; do
+            if curl --fail --location --retry 3 --retry-all-errors --proto '=https' \
+              "$mirror/com/microsoft/onnxruntime/onnxruntime-android/$ORT_VERSION/onnxruntime-android-$ORT_VERSION.aar" \
+              -o "$archive.part"; then
+                break
+            fi
+        done
         echo "$ORT_ARCHIVE_SHA256  $archive.part" | sha256sum -c - || fail 'ORT archive integrity check failed'
         mv "$archive.part" "$archive"
     fi
@@ -49,7 +57,12 @@ prepare_ort() {
     staging=$(mktemp -d)
     unzip -p "$archive" jni/arm64-v8a/libonnxruntime.so > "$staging/libonnxruntime.so"
     destination=$ORT_DYLIB_PATH
-    ORT_DYLIB_PATH=$staging/libonnxruntime.so validate_ort
+    # `VAR=x validate_ort` leaks past function calls on some shells (aosp mksh
+    # in termux-docker): set and restore explicitly so the final check looks
+    # at the installed path, not the deleted staging copy.
+    ORT_DYLIB_PATH=$staging/libonnxruntime.so
+    validate_ort
+    ORT_DYLIB_PATH=$destination
     mkdir -p "$(dirname "$destination")"
     if [ -e "$destination" ] && ! cmp -s "$staging/libonnxruntime.so" "$destination"; then
         rm -rf "$staging"

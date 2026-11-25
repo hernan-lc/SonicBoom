@@ -138,7 +138,10 @@ mod tests {
     fn provider_prefix_filters_and_bounds() {
         assert_eq!(provider_prefix(None), None);
         assert_eq!(provider_prefix(Some("  ")), None);
-        assert_eq!(provider_prefix(Some("supertonic")).as_deref(), Some("supertonic:"));
+        assert_eq!(
+            provider_prefix(Some("supertonic")).as_deref(),
+            Some("supertonic:")
+        );
         assert_eq!(
             provider_prefix(Some("p".repeat(100).as_str())).as_deref(),
             Some(format!("{}:", "p".repeat(64))).as_deref()
