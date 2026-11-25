@@ -4,7 +4,12 @@ set -eu
 export PATH="$PREFIX/bin:$PATH"
 fail() { echo "SonicBoom: $*" >&2; exit 1; }
 [ "$(uname -m)" = aarch64 ] || fail 'Only Android ARM64 is supported'
-[ "$(uname -o)" = Android ] || fail 'Native Android/Termux is required'
+# termux-docker shares the host kernel, so `uname -o` can report GNU/Linux
+# there. Container use must be declared explicitly; the ORT ELF/digest pins
+# and the aarch64-linux-android Rust host check still apply unchanged.
+if [ "$(uname -o)" != Android ]; then
+    [ "${SONICBOOM_TERMUX_CONTAINER:-0}" = 1 ] || fail 'Native Android/Termux is required'
+fi
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 ORT_VERSION=1.24.3
 ORT_SHA256=67397e4a970e75617f765d2015ceaf911917e1d822276cfb5792744e8085cbce
