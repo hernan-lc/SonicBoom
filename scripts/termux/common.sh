@@ -31,9 +31,19 @@ validate_ort() {
     fi
     readelf --dyn-syms --wide "$ORT_DYLIB_PATH" | grep -q 'OrtGetApiBase' || fail 'ORT C API missing'
 }
+# termux-docker's aosp-libs set lacks libandroid.so, so ORT's NEEDED entry
+# cannot resolve there. Stage the libandroid-stub package copy beside the
+# runtime, where its $ORIGIN runpath finds it; the stub's own runpath still
+# resolves its deps from $PREFIX/lib. Real devices use /system/lib64 instead.
+container_ort_deps() {
+    [ "${SONICBOOM_TERMUX_CONTAINER:-0}" = 1 ] || return 0
+    [ -f "$PREFIX/lib/libandroid.so" ] || fail 'Container mode needs libandroid-stub (pkg install libandroid-stub)'
+    install -m 700 "$PREFIX/lib/libandroid.so" "$(dirname "$ORT_DYLIB_PATH")/libandroid.so"
+}
 prepare_ort() {
     if [ -f "$ORT_DYLIB_PATH" ]; then
         validate_ort
+        container_ort_deps
         return
     fi
     mkdir -p "$ORT_CACHE"
@@ -74,4 +84,5 @@ prepare_ort() {
     fi
     rm -rf "$staging"
     validate_ort
+    container_ort_deps
 }
