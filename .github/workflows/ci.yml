@@ -379,8 +379,9 @@ jobs:
       # The entrypoint re-execs through `env -i`, so Termux-side variables
       # are exported inside the command, not via `docker run -e`.
       # `pkg` picks a community mirror that can be minutes-slow from GitHub
-      # egress (one run spent 38 min on downloads alone); pin the Cloudflare
-      # CDN mirror for both apt mechanisms before installing.
+      # egress (one run spent 38 min on downloads alone). Pin the Cloudflare
+      # CDN mirror: mirror files are shell definitions that `pkg` sources
+      # (MAIN/ROOT/X11/WEIGHT), selected via the `chosen_mirrors` link.
       - name: Install, build and smoke-test inside Termux
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo \
@@ -390,13 +391,14 @@ jobs:
                      CARGO_HOME=/repo/.termux-ci/cargo \
                      XDG_CACHE_HOME=/repo/.termux-ci/xdg-cache \
                      CARGO_BUILD_JOBS=4
-              mkdir -p "$PREFIX/etc/termux" &&
-              printf "%s\n" "https://packages-cf.termux.dev/apt/termux-main" \
-                > "$PREFIX/etc/termux/chosen_mirrors" &&
-              for f in "$PREFIX"/etc/apt/sources.list "$PREFIX"/etc/apt/sources.list.d/*.list; do
-                [ -f "$f" ] &&
-                sed -i "s|https://mirrors\.[^ /]*/apt/termux-main|https://packages-cf.termux.dev/apt/termux-main|g" "$f"
-              done
+              mkdir -p "$PREFIX/etc/termux/mirrors" &&
+              printf "%s\n" \
+                "MAIN=\"https://packages-cf.termux.dev/apt/termux-main\"" \
+                "ROOT=\"https://packages-cf.termux.dev/apt/termux-root\"" \
+                "X11=\"https://packages-cf.termux.dev/apt/termux-x11\"" \
+                "WEIGHT=10" \
+                > "$PREFIX/etc/termux/mirrors/default" &&
+              ln -sfn "$PREFIX/etc/termux/mirrors/default" "$PREFIX/etc/termux/chosen_mirrors" &&
               ./scripts/termux/install.sh &&
               pkg install -y python &&
               ./scripts/termux/test.sh --smoke-only
