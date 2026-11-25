@@ -175,6 +175,8 @@ jobs:
     timeout-minutes: 35
     env:
       SONICBOOM_FRONTEND_PREBUILT: "1"
+      # mold links several times faster than GNU ld; test binaries dominate here.
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -208,7 +210,7 @@ jobs:
       # The default `playback` feature (rodio/cpal) links against ALSA on Linux.
       # The WebGPU execution provider loads the Vulkan loader at runtime.
       - name: Install ALSA and the Vulkan loader
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan1
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan1 mold
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -239,8 +241,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.headless == 'true'
     env:
-      CARGO_PROFILE_RELEASE_LTO: thin
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '8'
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -259,6 +260,9 @@ jobs:
           key: headless-host-${{ hashFiles('vendor/**') }}
           cache-bin: 'false'
           save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
 
       - name: Build release (headless server)
         run: cargo build --release --locked --no-default-features --features server
@@ -461,8 +465,6 @@ jobs:
     env:
       KNF_STATIC_CRT: '0'
       SONICBOOM_FRONTEND_PREBUILT: '1'
-      CARGO_PROFILE_RELEASE_LTO: thin
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '8'
     strategy:
       fail-fast: false
       matrix:
@@ -513,7 +515,10 @@ jobs:
 
       - name: Install ALSA development libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan1
+        run: |
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan1 mold
+          # mold links several times faster than GNU ld. Windows keeps the MSVC linker.
+          echo "RUSTFLAGS=-C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
 
       - name: Linux GUI graph must not contain glib
         if: runner.os == 'Linux'
