@@ -7,7 +7,7 @@ case "${1:-}" in
     *) fail 'Usage: install.sh [--upgrade]' ;;
 esac
 pkg update
-pkg install -y rust clang cmake make pkg-config openssl libopus git curl unzip binutils
+pkg install -y rust clang cmake make pkg-config openssl libopus git curl unzip binutils libandroid-stub
 "$ROOT/scripts/termux/build.sh"
 destination=$PREFIX/bin/sonicboom
 if [ -e "$destination" ] && ! cmp -s "$ROOT/target/release/SonicBoom" "$destination"; then

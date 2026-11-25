@@ -11,7 +11,16 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+  # Manual runs select exactly the jobs needed instead of paying for the full
+  # matrix: `jobs: termux` runs only the Termux container job, `jobs: all`
+  # runs everything. Push/PR events ignore this input and keep path gating.
   workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Comma-separated: all, audit, frontend, validate, headless, android, termux, features, gui, guards'
+        required: true
+        default: 'all'
+        type: string
 
 permissions:
   contents: read
@@ -27,26 +36,49 @@ jobs:
   # Classify the diff once (no external action) so expensive jobs can be
   # skipped when the change cannot affect them. `code` covers everything that
   # feeds the Rust artifacts or their license/provenance guards; `frontend`
-  # covers the embedded web UI only.
+  # covers the embedded web UI only; `termux` covers the native Android
+  # toolchain, runtime loader and wrapper scripts. A manual dispatch with a
+  # `jobs` subset bypasses path gating and runs exactly the requested jobs.
   changes:
     name: Detect changed areas
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      audit: ${{ steps.filter.outputs.audit }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      validate: ${{ steps.filter.outputs.validate }}
+      headless: ${{ steps.filter.outputs.headless }}
+      android: ${{ steps.filter.outputs.android }}
+      termux: ${{ steps.filter.outputs.termux }}
+      features: ${{ steps.filter.outputs.features }}
+      gui: ${{ steps.filter.outputs.gui }}
+      guards: ${{ steps.filter.outputs.guards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Classify changed paths
+      - name: Classify changed paths and requested jobs
         id: filter
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
+          JOBS_INPUT: ${{ inputs.jobs }}
         run: |
           set -euo pipefail
+          emit() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            sel=${JOBS_INPUT:-all}
+            for j in audit frontend validate headless android termux features gui guards; do
+              case ",$sel," in
+                *",all,"*|*",$j,"*) emit "$j" true ;;
+                *) emit "$j" false ;;
+              esac
+            done
+            exit 0
+          fi
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags origin "$BASE_REF"
             changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
@@ -54,21 +86,33 @@ jobs:
             changed=$(git diff --name-only HEAD^ HEAD)
           fi
           printf '%s\n' "$changed" > /tmp/changed.txt
-          if grep -qE '^(src/|tests/|examples/|scripts/|vendor/|licenses/|frontend/dist/|Cargo\.(toml|lock)|build\.rs|\.github/workflows/|models\.sha256\.json)' /tmp/changed.txt; then
-            echo 'code=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'code=false' >> "$GITHUB_OUTPUT"
-          fi
-          if grep -q '^frontend/' /tmp/changed.txt; then
-            echo 'frontend=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'frontend=false' >> "$GITHUB_OUTPUT"
-          fi
+
+          code=false
+          grep -qE '^(src/|tests/|examples/|scripts/|vendor/|licenses/|frontend/dist/|Cargo\.(toml|lock)|build\.rs|\.github/workflows/|models\.sha256\.json)' /tmp/changed.txt && code=true
+          fe=false
+          grep -q '^frontend/' /tmp/changed.txt && fe=true
+          # The Termux job rebuilds natively inside termux-docker: needed when
+          # the wrapper scripts, the vendored ORT toolchain, the build graph
+          # or the code its self-test/smoke exercises change. Plain src/ churn
+          # stays on the cheaper NDK cross-compile job.
+          termux=false
+          grep -qE '^(scripts/termux/|vendor/|\.github/workflows/|Cargo\.(toml|lock)|build\.rs|models\.sha256\.json|src/(main|lib|onnx_runtime)\.rs|src/(runtime|tts)/)' /tmp/changed.txt && termux=true
+          emit audit true
+          emit guards true
+          emit frontend "$fe"
+          emit validate "$code"
+          emit headless "$code"
+          emit android "$code"
+          emit features "$code"
+          emit gui "$code"
+          emit termux "$termux"
 
   # Dedicated so dependency advisories fail fast instead of waiting behind
   # clippy + tests. Needs no native toolchain, frontend build or ALSA.
   audit:
     name: Audit dependencies
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -126,11 +170,13 @@ jobs:
   validate:
     name: Format, Lint, Test
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.validate == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       SONICBOOM_FRONTEND_PREBUILT: "1"
+      # mold links several times faster than GNU ld; test binaries dominate here.
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,7 +210,7 @@ jobs:
       # The default `playback` feature (rodio/cpal) links against ALSA on Linux.
       # The WebGPU execution provider loads the Vulkan loader at runtime.
       - name: Install ALSA and the Vulkan loader
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan1
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libvulkan1 mold
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -193,10 +239,9 @@ jobs:
   build-headless:
     name: Build headless (no playback)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.headless == 'true'
     env:
-      CARGO_PROFILE_RELEASE_LTO: thin
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '8'
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -216,6 +261,9 @@ jobs:
           cache-bin: 'false'
           save-if: ${{ github.event_name != 'pull_request' }}
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
+
       - name: Build release (headless server)
         run: cargo build --release --locked --no-default-features --features server
 
@@ -229,7 +277,7 @@ jobs:
   android-headless:
     name: Android ARM64 API-only (NDK, no runtime claims)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -267,9 +315,28 @@ jobs:
         run: cargo build --locked --target aarch64-linux-android --no-default-features --features server,android-ort --bin SonicBoom
       - name: Check optional Reverb-TTS provider
         run: cargo check --locked --target aarch64-linux-android --no-default-features --features server,android-ort,reverb-tts --bin SonicBoom
+      # The archive is content-addressed by its pinned digest, so the cache
+      # key never needs a version bump: a new ORT version means a new hash.
+      - name: Cache the pinned ORT artifact
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: runtime.aar
+          key: onnxruntime-android-67397e4a970e75617f765d2015ceaf911917e1d822276cfb5792744e8085cbce
       - name: Validate official Android ORT artifact
         run: |
-          curl --fail --location https://repo.maven.apache.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/1.24.3/onnxruntime-android-1.24.3.aar -o runtime.aar
+          # Maven Central rate-limits (429) runner IPs for minutes at a time.
+          # The pinned digest makes a mirror safe: wrong bytes fail the check.
+          if [ ! -f runtime.aar ]; then
+            for mirror in \
+              "https://repo.maven.apache.org/maven2" \
+              "https://maven-central.storage-download.googleapis.com/maven2"; do
+              if curl --fail --location --retry 3 --retry-delay 10 --retry-all-errors \
+                  "$mirror/com/microsoft/onnxruntime/onnxruntime-android/1.24.3/onnxruntime-android-1.24.3.aar" \
+                  -o runtime.aar; then
+                break
+              fi
+            done
+          fi
           echo '67397e4a970e75617f765d2015ceaf911917e1d822276cfb5792744e8085cbce  runtime.aar' | sha256sum -c -
           unzip -p runtime.aar jni/arm64-v8a/libonnxruntime.so > libonnxruntime.so
           readelf -h libonnxruntime.so | grep 'Machine:.*AArch64'
@@ -278,11 +345,78 @@ jobs:
       - name: Clippy API-only Android
         run: cargo clippy --locked --target aarch64-linux-android --no-default-features --features server,android-ort --bin SonicBoom -- -D warnings
 
+  # Real Termux userland (Bionic, pkg, $PREFIX, mksh /system/bin/sh) inside
+  # termux-docker on a native ARM runner — no emulation. Executes install.sh,
+  # the ONNX runtime self-test and the offline HTTP smoke test, none of which
+  # the NDK cross-compile job can run. The container image is the aarch64
+  # variant, so it needs an arm64 runner (free on public repos; on private
+  # repos ARM runners are billed — keep it dispatch-selected there).
+  termux:
+    name: Termux ARM64 userland (container)
+    needs: changes
+    if: needs.changes.outputs.termux == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # cargo registry, incremental target/ and the pinned ORT archive all
+      # live under the checkout so a single actions/cache covers them.
+      - name: Cache Termux build state
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .termux-ci
+            target/release
+          key: termux-aarch64-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            termux-aarch64-
+
+      # The image entrypoint drops to the `system` user (uid 1000); the
+      # workspace mount must be writable by it. Ownership is restored below
+      # so the post-job cache archive and checkout cleanup still work.
+      - name: Allow the container system user to write the workspace
+        run: sudo chown -R 1000:1000 "$PWD"
+
+      # The entrypoint re-execs through `env -i`, so Termux-side variables
+      # are exported inside the command, not via `docker run -e`.
+      # `pkg` picks a community mirror that can be minutes-slow from GitHub
+      # egress (one run spent 38 min on downloads alone). Pin the Cloudflare
+      # CDN mirror: mirror files are shell definitions that `pkg` sources
+      # (MAIN/ROOT/X11/WEIGHT), selected via the `chosen_mirrors` link.
+      - name: Install, build and smoke-test inside Termux
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            termux/termux-docker:aarch64 \
+            /system/bin/sh -c '
+              export SONICBOOM_TERMUX_CONTAINER=1 \
+                     CARGO_HOME=/repo/.termux-ci/cargo \
+                     XDG_CACHE_HOME=/repo/.termux-ci/xdg-cache \
+                     CARGO_BUILD_JOBS=4
+              mkdir -p "$PREFIX/etc/termux/mirrors" &&
+              printf "%s\n" \
+                "MAIN=\"https://packages-cf.termux.dev/apt/termux-main\"" \
+                "ROOT=\"https://packages-cf.termux.dev/apt/termux-root\"" \
+                "X11=\"https://packages-cf.termux.dev/apt/termux-x11\"" \
+                "WEIGHT=10" \
+                > "$PREFIX/etc/termux/mirrors/default" &&
+              ln -sfn "$PREFIX/etc/termux/mirrors/default" "$PREFIX/etc/termux/chosen_mirrors" &&
+              ./scripts/termux/install.sh &&
+              pkg install -y python &&
+              ./scripts/termux/test.sh --smoke-only
+            '
+
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$PWD"
+
   # Linux-compatible feature combinations beyond default/headless.
   feature-matrix:
     name: Feature matrix (${{ matrix.features }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.features == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -325,14 +459,12 @@ jobs:
   build-gui:
     name: GUI tests and package (${{ matrix.target }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.gui == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
       KNF_STATIC_CRT: '0'
       SONICBOOM_FRONTEND_PREBUILT: '1'
-      CARGO_PROFILE_RELEASE_LTO: thin
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '8'
     strategy:
       fail-fast: false
       matrix:
@@ -383,7 +515,10 @@ jobs:
 
       - name: Install ALSA development libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan1
+        run: |
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev libopus-dev pkg-config cmake clang g++ libvulkan1 mold
+          # mold links several times faster than GNU ld. Windows keeps the MSVC linker.
+          echo "RUSTFLAGS=-C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
 
       - name: Linux GUI graph must not contain glib
         if: runner.os == 'Linux'
@@ -427,6 +562,8 @@ jobs:
 
   supply-chain-guards:
     name: Supply-chain guards
+    needs: changes
+    if: needs.changes.outputs.guards == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

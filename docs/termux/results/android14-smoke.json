@@ -1,0 +1,33 @@
+{
+  "platform": "android",
+  "kernel": "Linux",
+  "architecture": "aarch64",
+  "android": "14",
+  "model": "Supertonic 3",
+  "threads_intra_op": "2",
+  "smoke_only": true,
+  "offline_download_proxy": false,
+  "tested_at_utc": "2026-11-25T04:35:31.426947+00:00",
+  "device_model": "22021211RG",
+  "binary_sha256": "0d5631b1c59a1b4addb6dae2ec5bee3e87a67c97a1861911331bd47bb53cd7e1",
+  "build_info": {
+    "architecture": "aarch64",
+    "features": [
+      "server",
+      "android-ort"
+    ],
+    "mode": "headless",
+    "onnxruntime": {
+      "status": "unchecked"
+    },
+    "platform": "android",
+    "playback": false,
+    "web_ui": false
+  },
+  "inference": "not tested",
+  "process_status": "VmHWM:\t   67876 kB\nVmRSS:\t   67816 kB\nThreads:\t13",
+  "peak_sampled_rss_kib": 67828,
+  "peak_sampled_threads": 13,
+  "cpu_seconds": 0.34,
+  "cpu_percent_one_core": 26.914380119789588
+}

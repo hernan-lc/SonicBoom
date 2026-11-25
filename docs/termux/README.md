@@ -176,10 +176,16 @@ intra-op threads on Android (default 2); no synthesis quality setting is reduced
 The existing inference gate defaults to one running and eight pending requests.
 
 CI's Android NDK job checks compilation, feature dependencies and runtime ELF ABI.
-It does **not** execute Android inference. Native execution and performance results
-must be recorded separately. Reverb-TTS cloning requires its own
-explicit models/reference-audio tests; compilation does not establish synthesis
-compatibility. Android Vulkan is not validated or enabled by these scripts.
+It does **not** execute Android inference. A separate CI job runs `install.sh`
+and `test.sh --smoke-only` inside the official `termux/termux-docker` aarch64
+image on a native ARM runner — a real Termux userland (Bionic, `pkg`, mksh
+`/system/bin/sh`) sharing the host kernel, so `SONICBOOM_TERMUX_CONTAINER=1`
+declares that environment. The container job proves the scripts, the dynamic
+ORT load and the offline listener, not device hardware: native execution and
+performance results must still be recorded separately. Reverb-TTS cloning
+requires its own explicit models/reference-audio tests; compilation does not
+establish synthesis compatibility. Android Vulkan is not validated or enabled
+by these scripts.
 
 ## Lifecycle and troubleshooting
 

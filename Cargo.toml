@@ -212,12 +212,16 @@ name = "sonicboom-tiktools-plugin"
 path = "src/bin/sonicboom-tiktools-plugin.rs"
 required-features = ["tiktools-plugin"]
 
+# Fat LTO + single codegen unit is the slowest possible build configuration.
+# The heavy compute (ONNX inference) lives in the prebuilt C++ runtime, not in
+# this glue code, so thin LTO with parallel codegen loses negligible runtime
+# performance while cutting release build times roughly in half (CI win on
+# every job that compiles release artifacts).
 [profile.release]
-lto = true
+lto = "thin"
 opt-level = 3
 strip = true
 panic = "unwind"
-codegen-units = 1
 
 # Debug builds run synthesis through dependencies (libopus, sha2, tokenizers, rand, ndarray):
 # at opt-level 0 they are 10-50x slower than release and dominated the Reverb-TTS timings.

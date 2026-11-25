@@ -10,11 +10,11 @@ SonicBoom includes a web-based admin panel for managing API tokens and monitorin
 
 ```bash
 export SONICBOOM_ADMIN_ID=admin
-export SONICBOOM_ADMIN_PW=a-strong-password-with-12-plus-chars
+export SONICBOOM_ADMIN_PW=a-strong-password-with-8-plus-chars
 ```
 
 The server refuses to start when `SONICBOOM_ADMIN_PW` is missing, shorter
-than 12 characters, or a well-known default (`1234`, `password`, `admin`,
+than 8 characters, or a well-known default (`1234`, `password`, `admin`,
 ...). Generate one, e.g.:
 
 ```bash
@@ -149,7 +149,7 @@ with HTTP status `429`.
 
 ## Best Practices
 
-1. **Use a strong admin password** — the server enforces 12+ characters
+1. **Use a strong admin password** — the server enforces 8+ characters
 2. **Use strong tokens** - Let the system generate random tokens
 3. **Rotate tokens periodically** - Revoke and recreate tokens regularly
 4. **Monitor failed logins** - Check logs for suspicious activity

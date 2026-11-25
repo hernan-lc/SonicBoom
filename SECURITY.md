@@ -37,7 +37,7 @@ SonicBoom is hardened for network-exposed deployment:
   TTS, OpenAI-compatible, and queue/playback endpoints. Client-controlled
   headers (`Referer`, `Origin`, `Host`) are never trusted for auth.
 - **Admin access** requires an explicitly configured strong password
-  (12+ characters); the server refuses to start without one. Admin
+  (8+ characters); the server refuses to start without one. Admin
   mutations are CSRF-protected, sessions use hardened cookies, and login
   lockout expires automatically.
 - **Model supply chain**: model files are pinned to an immutable

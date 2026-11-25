@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Minimum admin password length. Length-only check: no composition rules.
-pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
+pub const MIN_ADMIN_PASSWORD_LEN: usize = 8;
 /// Absolute maximum for inference steps (matches the reusable engine).
 pub const MAX_INFERENCE_STEPS: usize = 50;
 /// Default pinned HuggingFace revision for Supertonic-3 model downloads.

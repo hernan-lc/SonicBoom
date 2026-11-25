@@ -120,7 +120,7 @@ and empty assignments are rejected.
 |----------|---------|-------------|
 | `PORT` | `17842` | Server port |
 | `SONICBOOM_ADMIN_ID` | `admin` | Admin panel username (must not be empty) |
-| `SONICBOOM_ADMIN_PW` | _(none, required)_ | Admin panel password (min 12 Unicode chars; no defaults/placeholders accepted) |
+| `SONICBOOM_ADMIN_PW` | _(none, required)_ | Admin panel password (min 8 Unicode chars; no defaults/placeholders accepted) |
 
 ### Model Configuration
 

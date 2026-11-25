@@ -24,6 +24,14 @@ import urllib.request
 import wave
 
 
+def getprop(name):
+    # Report metadata only; the property service is absent in termux-docker.
+    try:
+        return subprocess.check_output(['getprop', name], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return 'unavailable'
+
+
 def wav_info(data):
     import io
     with wave.open(io.BytesIO(data)) as wav:
@@ -96,15 +104,28 @@ def main():
         no_api = subprocess.run([binary, '--onnx-self-test'], env=dict(env, ORT_DYLIB_PATH='/system/lib64/libc.so'), capture_output=True)
         assert no_api.returncode != 0 and b'panicked' not in no_api.stderr
         # Actual binary ENOSPC handling, injected only for its isolated storage.
-        fault_library = Path(directory) / 'fault-storage.so'
-        subprocess.run(['clang', '-shared', '-fPIC', str(Path(__file__).with_name('fault-storage.c')),
-                        '-o', str(fault_library), '-ldl'], env=env, check=True)
+        # The interposer is LD_PRELOADed into the test binary, so it must live
+        # inside the app's linker namespace; TMPDIR sits outside it on some
+        # Android versions ("not accessible for the namespace"). A temporary
+        # directory beside the binary is always an app-owned, permitted path.
         full_storage = Path(directory) / 'full-storage'
         full_storage.mkdir()
-        fault_env = dict(env, SONICBOOM_CONFIG=str(full_storage / 'config.toml'),
-                         SONICBOOM_ADMIN_PW=password, SONICBOOM_TEST_FULL_STORAGE=str(full_storage) + '/',
-                         LD_PRELOAD=str(fault_library) + (':' + env['LD_PRELOAD'] if env.get('LD_PRELOAD') else ''))
-        no_space = subprocess.run([binary, 'init', '--headless'], env=fault_env, capture_output=True)
+        with tempfile.TemporaryDirectory(prefix='.fault-storage-', dir=Path(binary).parent) as fault_dir:
+            fault_library = Path(fault_dir) / 'fault-storage.so'
+            subprocess.run(['clang', '-shared', '-fPIC', str(Path(__file__).with_name('fault-storage.c')),
+                            '-o', str(fault_library), '-ldl'], env=env, check=True)
+            # The interposer compares against /proc/self/fd targets, which
+            # report kernel paths, not caller paths: TMPDIR can be a bind
+            # mount (this device reports /tmp/...) and resolve() cannot see
+            # mounts. Probe one fd to learn the path the kernel will report.
+            probe = full_storage / '.fd-probe'
+            with open(probe, 'w') as probe_fd:
+                kernel_root = str(Path(os.readlink(f'/proc/self/fd/{probe_fd.fileno()}')).parent) + '/'
+            probe.unlink()
+            fault_env = dict(env, SONICBOOM_CONFIG=str(full_storage / 'config.toml'),
+                             SONICBOOM_ADMIN_PW=password, SONICBOOM_TEST_FULL_STORAGE=kernel_root,
+                             LD_PRELOAD=str(fault_library) + (':' + env['LD_PRELOAD'] if env.get('LD_PRELOAD') else ''))
+            no_space = subprocess.run([binary, 'init', '--headless'], env=fault_env, capture_output=True)
         assert no_space.returncode != 0 and b'panicked' not in no_space.stderr
         assert b'No space left on device' in no_space.stderr, no_space.stderr[:500]
         assert not (full_storage / 'config.toml').exists()
@@ -154,11 +175,11 @@ def main():
             assert status == expected, (path, status, body[:500])
             return body
         report = {'platform': 'android', 'kernel': os.uname().sysname, 'architecture': os.uname().machine,
-                  'android': subprocess.check_output(['getprop', 'ro.build.version.release'], text=True).strip(),
+                  'android': getprop('ro.build.version.release'),
                   'model': 'Supertonic 3', 'threads_intra_op': env.get('SONICBOOM_CPU_THREADS', '2'),
                   'smoke_only': args.smoke_only, 'offline_download_proxy': args.offline,
                   'tested_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                  'device_model': subprocess.check_output(['getprop', 'ro.product.model'], text=True).strip(),
+                  'device_model': getprop('ro.product.model'),
                   'binary_sha256': hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
                   'build_info': json.loads(subprocess.check_output([binary, '--build-info'], env=env))}
         assert report['build_info']['platform'] == 'android'

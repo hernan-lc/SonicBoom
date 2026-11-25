@@ -90,7 +90,7 @@ pub fn validate_admin_password(password: &str) -> Result<(), String> {
     if password.is_empty() {
         return Err("No admin password configured. Set one with \
              `sonicboom admin password <value>` or the SONICBOOM_ADMIN_PW \
-             environment variable (minimum 12 characters). There is \
+             environment variable (minimum 8 characters). There is \
              intentionally no default password (see SECURITY.md)."
             .to_string());
     }
@@ -511,8 +511,8 @@ mod tests {
         assert!(validate_admin_password("password").is_err());
         assert!(validate_admin_password("correct-horse-battery-staple").is_ok());
         // Length counts Unicode characters.
-        assert!(validate_admin_password("pässwörd-ün").is_err()); // 11 chars
-        assert!(validate_admin_password("pässwörd-üni").is_ok()); // 12 chars
+        assert!(validate_admin_password("pässwör").is_err()); // 7 chars
+        assert!(validate_admin_password("pässwörd").is_ok()); // 8 chars
     }
 
     #[test]
