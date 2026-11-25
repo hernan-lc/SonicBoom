@@ -5,8 +5,27 @@ use axum::{
     extract::State,
     http::{HeaderMap, header},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sonicboom::tts::providers::ProviderStatusState;
+
+#[derive(Deserialize)]
+pub struct VoiceQuery {
+    provider: Option<String>,
+}
+
+/// `?provider=` narrows the voice list to one provider's `provider:id`
+/// entries. Absent or empty keeps the full catalog (backward compatible);
+/// the value is capped so it can only ever be a short id prefix.
+fn provider_prefix(provider: Option<&str>) -> Option<String> {
+    let provider = provider?.trim();
+    if provider.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{}:",
+        provider.chars().take(64).collect::<String>()
+    ))
+}
 
 #[derive(Serialize)]
 pub struct OptionItem {
@@ -54,6 +73,7 @@ pub async fn providers(
 pub async fn voices(
     token: AuthenticatedToken,
     State(state): State<crate::AppState>,
+    axum::extract::Query(query): axum::extract::Query<VoiceQuery>,
 ) -> Result<(HeaderMap, Json<Vec<OptionItem>>), AppError> {
     let registry = super::providers::build_registry_for_state(&state).await;
     let config = state.config.get().await;
@@ -102,7 +122,26 @@ pub async fn voices(
             state: None,
         });
     }
+    if let Some(prefix) = provider_prefix(query.provider.as_deref()) {
+        items.retain(|item| item.id.starts_with(&prefix));
+    }
     items.sort_by(|a, b| a.id.cmp(&b.id));
     items.truncate(500);
     Ok((headers(), Json(items)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_prefix;
+
+    #[test]
+    fn provider_prefix_filters_and_bounds() {
+        assert_eq!(provider_prefix(None), None);
+        assert_eq!(provider_prefix(Some("  ")), None);
+        assert_eq!(provider_prefix(Some("supertonic")).as_deref(), Some("supertonic:"));
+        assert_eq!(
+            provider_prefix(Some("p".repeat(100).as_str())).as_deref(),
+            Some(format!("{}:", "p".repeat(64))).as_deref()
+        );
+    }
 }

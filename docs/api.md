@@ -122,6 +122,8 @@ Only the currently resident model is usable (select the matching model in server
 configuration). The array is sorted by qualified ID, limited to 500 items, with profile names limited
 to 128 characters. Both catalogs send `Cache-Control: private, no-store`. Refreshing
 these routes re-reads live state/profile manifests; it does not reload resident models.
+`GET /api/tts/plugin/voices?provider=<id>` narrows the list to one provider's
+`provider:`-prefixed IDs; absent or empty `provider` returns the full catalog.
 Clients must strictly filter voices by provider and must not submit an empty clone
 voice. The playback route validates qualified IDs against the authoritative provider.
 
